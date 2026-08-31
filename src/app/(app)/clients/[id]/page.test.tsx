@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getClientById: vi.fn(),
   getClientSummary: vi.fn(),
+  getClientFinancialHistory: vi.fn(),
 }));
 
 vi.mock("@/components/clients/client-header", () => ({
@@ -15,6 +16,10 @@ vi.mock("@/components/clients/client-tabs", () => ({
 vi.mock("@/lib/queries/clients", () => ({
   getClientById: mocks.getClientById,
   getClientSummary: mocks.getClientSummary,
+}));
+vi.mock("@/lib/queries/client-financial-history", () => ({
+  getClientFinancialHistory: mocks.getClientFinancialHistory,
+  parseHistoryLimit: () => 20,
 }));
 
 import ClientDetailPage from "./page";
@@ -46,6 +51,7 @@ describe("ClientDetailPage", () => {
       notes: 0,
       nextDueDate: "2026-09-03",
     });
+    mocks.getClientFinancialHistory.mockResolvedValue({ items: [], hasMore: false, limit: 20 });
 
     render(
       await ClientDetailPage({

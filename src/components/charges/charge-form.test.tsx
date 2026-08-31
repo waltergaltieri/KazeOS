@@ -11,6 +11,18 @@ vi.mock("@/lib/actions/charges", async () => ({
 import { ChargeForm } from "./charge-form";
 
 describe("ChargeForm", () => {
+  it("uses the owner's primary currency for a new charge", () => {
+    render(
+      <ChargeForm
+        action={vi.fn()}
+        clients={[{ id: "client-1", displayName: "Estudio Norte" }]}
+        defaultCurrency="ARS"
+      />,
+    );
+
+    expect(document.querySelector('input[name="currency"]')).toHaveValue("ARS");
+  });
+
   it("renders an immutable-client edit form with persisted defaults and cancellation", () => {
     render(
       <ChargeForm
@@ -25,6 +37,7 @@ describe("ChargeForm", () => {
           currency: "ARS",
           dueDate: "2026-09-15",
         }}
+        defaultCurrency="USD"
       />,
     );
 
@@ -37,6 +50,7 @@ describe("ChargeForm", () => {
     expect(screen.getByLabelText("Concepto *")).toHaveValue("Mantenimiento");
     expect(screen.getByLabelText("Monto *")).toHaveValue("123,45");
     expect(screen.getByLabelText("Vencimiento *")).toHaveValue("2026-09-15");
+    expect(document.querySelector('input[name="currency"]')).toHaveValue("ARS");
     expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Cancelar cobro" })).toBeVisible();
   });

@@ -37,16 +37,26 @@ function NoteRow({ note }: { note: ClientNoteItem }) {
   const [editState, editAction, editingPending] = useActionState(updateClientNoteAction, initial);
   const [deleteState, deleteAction, deletingPending] = useActionState(deleteClientNoteAction, initial);
   const router = useRouter();
+  const editOpenerRef = useRef<HTMLButtonElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const deleteOpenerRef = useRef<HTMLButtonElement>(null);
   const deleteTitleId = useId();
   const noteLabel = label(note.content);
-  useEffect(() => { if (editState.status === "success" || deleteState.status === "success") router.refresh(); }, [deleteState.status, editState.status, router]);
+  useEffect(() => {
+    if (editState.status === "success") {
+      const frame = requestAnimationFrame(() => {
+        setEditing(false);
+        router.refresh();
+        requestAnimationFrame(() => editOpenerRef.current?.focus());
+      });
+      return () => cancelAnimationFrame(frame);
+    } else if (deleteState.status === "success") router.refresh();
+  }, [deleteState.status, editState.status, router]);
   useEffect(() => { if (deleting) deleteButtonRef.current?.focus(); }, [deleting]);
   return <li className="note-entry">
     <div className="note-entry__meta"><time dateTime={note.createdAt.toISOString()}>{new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Argentina/Buenos_Aires" }).format(note.createdAt)}</time>{note.updatedAt.getTime() !== note.createdAt.getTime() ? <span>Editada</span> : null}</div>
     {editing ? <form action={editAction} className="note-edit"><input type="hidden" name="noteId" value={note.id} /><input type="hidden" name="clientId" value={note.clientId} /><label><span className="sr-only">Editar nota {noteLabel}</span><textarea autoFocus name="content" className="form-control form-textarea" defaultValue={note.content} required maxLength={4000} /></label><div><button className="primary-button" disabled={editingPending}>Guardar</button><button type="button" className="quiet-button" onClick={() => setEditing(false)}>Cancelar</button></div>{editState.status === "error" ? <p role="alert" className="field-error">{editState.fieldErrors?.content?.[0] ?? editState.message}</p> : null}</form> : <p>{note.content}</p>}
-    <div className="note-entry__actions"><button type="button" className="quiet-button" aria-label={`Editar ${noteLabel}`} onClick={() => { setDeleting(false); setEditing(true); }}><Edit3 size={14} /> Editar</button><button ref={deleteOpenerRef} type="button" className="quiet-button" aria-label={`Eliminar ${noteLabel}`} onClick={() => { setEditing(false); setDeleting(true); }}><Trash2 size={14} /> Eliminar</button></div>
+    <div className="note-entry__actions"><button ref={editOpenerRef} type="button" className="quiet-button" aria-label={`Editar ${noteLabel}`} onClick={() => { setDeleting(false); setEditing(true); }}><Edit3 size={14} /> Editar</button><button ref={deleteOpenerRef} type="button" className="quiet-button" aria-label={`Eliminar ${noteLabel}`} onClick={() => { setEditing(false); setDeleting(true); }}><Trash2 size={14} /> Eliminar</button></div>
     {deleting ? <form action={deleteAction} className="note-delete-confirm" role="group" aria-labelledby={deleteTitleId}><input type="hidden" name="noteId" value={note.id} /><strong id={deleteTitleId}>Eliminar nota {noteLabel}</strong><span>La nota se quitará del historial. Esta acción no se puede deshacer.</span><button ref={deleteButtonRef} className="danger-button" disabled={deletingPending} aria-label={`Confirmar eliminación de ${noteLabel}`}>Eliminar nota</button><button type="button" className="quiet-button" onClick={() => { setDeleting(false); requestAnimationFrame(() => deleteOpenerRef.current?.focus()); }}>Volver</button>{deleteState.status === "error" ? <p role="alert" className="field-error">{deleteState.message}</p> : null}</form> : null}
   </li>;
 }

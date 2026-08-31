@@ -41,11 +41,13 @@ export function ServiceForm({
   action,
   clientId,
   currencyLocked = false,
+  defaultCurrency = "USD",
   defaults = {},
 }: {
   action: ServiceFormAction;
   clientId: string;
   currencyLocked?: boolean;
+  defaultCurrency?: "USD" | "ARS";
   defaults?: ServiceDefaults;
 }) {
   const router = useRouter();
@@ -56,7 +58,7 @@ export function ServiceForm({
   );
   const recurring = billingType === "recurring";
   const error = (field: string) => state.fieldErrors?.[field]?.[0];
-  const currency = defaults.currency ?? "USD";
+  const currency = defaults.currency ?? defaultCurrency;
   const editing = Boolean(defaults.id);
   const cancelled = defaults.status === "cancelled";
 

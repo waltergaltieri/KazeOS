@@ -861,6 +861,16 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .settings-sheet footer { display: flex; justify-content: flex-end; padding-top: 4px; border-top: 1px solid var(--ledger-rule-soft); }
 .settings-business-info { grid-column: 1 / -1; }
 .form-success { color: var(--collection-green); font-size: 12px; font-weight: 680; }
+.financial-history-sheet { padding: 22px; border: 1px solid var(--ledger-rule); border-radius: 12px; background: var(--paper-sheet); box-shadow: 0 8px 24px rgba(19,31,56,.04); }
+.financial-history-sheet > header { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--ledger-rule); }
+.financial-history-sheet h2 { margin: 0; font-size: 19px; }.financial-history-sheet > header > span { color: var(--ink-tertiary); font-size: 11px; }
+.financial-history-rail { padding: 0; margin: 0; list-style: none; }
+.financial-history-rail li { display: grid; grid-template-columns: 38px minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 15px 0; border-bottom: 1px solid var(--ledger-rule-soft); }
+.financial-history-rail li > div { display: grid; gap: 4px; }.financial-history-rail li > div:last-child { justify-items: end; }
+.financial-history-rail time, .financial-history-rail .movement-kind, .financial-history-rail li > div:last-child > span { color: var(--ink-tertiary); font-size: 10px; }
+.financial-history-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; }.financial-history-mark--charge { background: var(--reminder-amber-soft); color: var(--reminder-amber); }.financial-history-mark--payment { background: var(--collection-green-soft); color: var(--collection-green); }
+.financial-history-sheet > footer { display: flex; justify-content: center; padding-top: 16px; }
+.financial-history-empty { display: grid; grid-template-columns: 40px minmax(0,1fr) auto; align-items: center; gap: 14px; padding: 26px 0 4px; }.financial-history-empty > svg { color: var(--ink-muted); }.financial-history-empty p { margin: 4px 0 0; color: var(--ink-tertiary); font-size: 11px; }
 
 @media (max-width: 720px) {
   .notes-layout { grid-template-columns: 1fr; }
@@ -870,4 +880,8 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   .note-delete-confirm { grid-template-columns: 1fr; }
   .note-delete-confirm > :is(strong, span, .field-error) { grid-column: 1; }
   .settings-business-info { grid-column: auto; }
+  .financial-history-sheet { padding: 18px 14px; }
+  .financial-history-sheet > header { align-items: start; }.financial-history-sheet > header > span { display: none; }
+  .financial-history-rail li { grid-template-columns: 34px minmax(0,1fr); align-items: start; }.financial-history-rail li > div:last-child { grid-column: 2; justify-items: start; }
+  .financial-history-empty { grid-template-columns: 36px minmax(0,1fr); }.financial-history-empty .secondary-button { grid-column: 1 / -1; width: 100%; }
 }

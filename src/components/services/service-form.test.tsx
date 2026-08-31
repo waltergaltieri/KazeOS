@@ -9,6 +9,17 @@ vi.mock("next/navigation", () => ({
 import { ServiceForm } from "./service-form";
 
 describe("ServiceForm", () => {
+  it("uses the owner's primary currency when creating a service", () => {
+    render(
+      <ServiceForm
+        action={vi.fn().mockResolvedValue({ status: "idle" })}
+        clientId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        defaultCurrency="ARS"
+      />,
+    );
+    expect(screen.getByLabelText("Moneda")).toHaveValue("ARS");
+  });
+
   it("switches coherently between recurring and one-time billing", async () => {
     const user = userEvent.setup();
     render(
@@ -35,6 +46,7 @@ describe("ServiceForm", () => {
         action={vi.fn().mockResolvedValue({ status: "idle" })}
         clientId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         currencyLocked
+        defaultCurrency="ARS"
         defaults={{
           id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
           name: "Soporte",
@@ -51,6 +63,7 @@ describe("ServiceForm", () => {
     );
 
     expect(screen.getByLabelText("Moneda")).toBeDisabled();
+    expect(screen.getByLabelText("Moneda")).toHaveValue("USD");
     expect(
       screen.getByText(/moneda queda protegida porque ya existen cargos/i),
     ).toBeInTheDocument();

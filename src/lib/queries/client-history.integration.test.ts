@@ -15,8 +15,9 @@ vi.mock("@/db", () => ({ withAuthenticatedDb: (ownerId: string, operation: (db: 
 
 import { createAuthenticatedDrizzleRunner } from "@/db/authenticated";
 import * as schema from "@/db/schema";
-import { clientNotes, clients, profiles, settings } from "@/db/schema";
+import { charges, clientNotes, clients, payments, profiles, settings } from "@/db/schema";
 import { getClientNotes } from "./client-notes";
+import { getClientFinancialHistory } from "./client-financial-history";
 import { getSettings } from "./settings";
 
 config({ path: ".env.local", quiet: true });
@@ -33,7 +34,7 @@ describeDatabase("client history and settings through RLS", () => {
   it("isolates newest-first notes and returns saved regional preferences", async () => {
     try {
       await database!.transaction(async (transaction: Transaction) => {
-        const ownerId = randomUUID(); const otherOwnerId = randomUUID(); const clientId = randomUUID(); const otherClientId = randomUUID(); const ownNoteId = randomUUID(); const otherNoteId = randomUUID();
+        const ownerId = randomUUID(); const otherOwnerId = randomUUID(); const clientId = randomUUID(); const otherClientId = randomUUID(); const ownNoteId = randomUUID(); const otherNoteId = randomUUID(); const chargeId = randomUUID(); const otherChargeId = randomUUID();
         await transaction.execute(sql`insert into auth.users (id, email) values (${ownerId}, 'history-owner@example.invalid'), (${otherOwnerId}, 'history-other@example.invalid')`);
         await transaction.insert(clients).values([{ id: clientId, ownerId, firstName: "Historial" }, { id: otherClientId, ownerId: otherOwnerId, firstName: "Ajeno" }]);
         await transaction.insert(clientNotes).values([
@@ -43,10 +44,20 @@ describeDatabase("client history and settings through RLS", () => {
         ]);
         await transaction.insert(profiles).values({ id: ownerId, fullName: "Agustín RLS", email: "history-owner@example.invalid" });
         await transaction.insert(settings).values({ ownerId, primaryCurrency: "ARS", timezone: "America/Argentina/Buenos_Aires", locale: "es-AR", businessName: "Kaze RLS" });
+        await transaction.insert(charges).values([
+          { id: chargeId, ownerId, clientId, description: "Implementación", amountMinor: 10_000, currency: "USD", dueDate: "2026-08-30" },
+          { id: otherChargeId, ownerId: otherOwnerId, clientId: otherClientId, description: "No visible", amountMinor: 90_000, currency: "ARS", dueDate: "2026-08-31" },
+        ]);
+        await transaction.insert(payments).values({ ownerId, clientId, chargeId, amountMinor: 4_000, currency: "USD", paymentDate: "2026-08-31", paymentMethod: "bank_transfer" });
         runtime.userId = ownerId; runtime.email = "history-owner@example.invalid"; runtime.run = createAuthenticatedDrizzleRunner(transaction) as typeof runtime.run;
         await expect(getClientNotes(clientId)).resolves.toMatchObject([{ content: "Reciente" }, { content: "Anterior" }]);
         await expect(getClientNotes(otherClientId)).resolves.toEqual([]);
         await expect(getSettings()).resolves.toMatchObject({ profile: { fullName: "Agustín RLS" }, business: { primaryCurrency: "ARS", timezone: "America/Argentina/Buenos_Aires", locale: "es-AR", businessName: "Kaze RLS" } });
+        await expect(getClientFinancialHistory(clientId, "2026-08-31", 20)).resolves.toMatchObject({ hasMore: false, items: [
+          { kind: "payment", chargeId, amountMinor: "4000", currency: "USD", date: "2026-08-31" },
+          { kind: "charge", chargeId, amountMinor: "10000", currency: "USD", date: "2026-08-30", status: "partial" },
+        ] });
+        await expect(getClientFinancialHistory(otherClientId, "2026-08-31", 20)).resolves.toMatchObject({ items: [] });
         const authenticated = createAuthenticatedDrizzleRunner(transaction);
         await authenticated(ownerId, async (ownerDatabase) => {
           const changed = await ownerDatabase.update(clientNotes).set({ content: "Editada" }).where(eq(clientNotes.id, ownNoteId)).returning({ id: clientNotes.id });

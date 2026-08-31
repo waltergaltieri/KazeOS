@@ -24,6 +24,8 @@ test.describe("authenticated client history", () => {
     const clientEmail = `history-e2e-${marker}@example.invalid`;
     const firstNote = `Conversación inicial ${marker}`;
     const editedNote = `Seguimiento confirmado ${marker}`;
+    const chargeId = randomUUID();
+    const paymentId = randomUUID();
     let clientId: string | undefined;
     try {
       await page.goto("/login?next=%2Fclients%2Fnew");
@@ -49,6 +51,24 @@ test.describe("authenticated client history", () => {
       await page.getByRole("button", { name: "Guardar", exact: true }).click();
       await expect(page.getByText(editedNote, { exact: true })).toBeVisible();
 
+      const [fixtureClient] = await cleanupDatabase!`select owner_id from clients where id = ${clientId!} and email = ${clientEmail}`;
+      expect(fixtureClient?.owner_id).toBeTruthy();
+      const [savedPreference] = await cleanupDatabase!`select primary_currency from settings where owner_id = ${fixtureClient.owner_id}`;
+      const fixtureCurrency = (savedPreference?.primary_currency ?? "USD") as "USD" | "ARS";
+      await cleanupDatabase!`insert into charges (id, owner_id, client_id, description, amount_minor, currency, due_date) values (${chargeId}, ${fixtureClient.owner_id}, ${clientId!}, ${`Legajo ${marker}`}, 12345, ${fixtureCurrency}, current_date)`;
+      await cleanupDatabase!`insert into payments (id, owner_id, client_id, charge_id, amount_minor, currency, payment_date, payment_method) values (${paymentId}, ${fixtureClient.owner_id}, ${clientId!}, ${chargeId}, 2345, ${fixtureCurrency}, current_date, 'bank_transfer')`;
+
+      await page.goto(`/clients/${clientId}`);
+      await expect(page.getByRole("heading", { name: "Historial financiero" })).toBeVisible();
+      await expect(page.getByText(`Legajo ${marker}`, { exact: true })).toBeVisible();
+      await expect(page.getByText("Pago · Transferencia", { exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: new RegExp(`Ver cobro de Legajo ${marker}`) })).toHaveAttribute("href", `/charges/${chargeId}`);
+
+      await page.goto(`/charges/new?clientId=${clientId}`);
+      await expect(page.locator('input[type="hidden"][name="currency"]')).toHaveValue(fixtureCurrency);
+      await page.goto(`/clients/${clientId}/services/new`);
+      await expect(page.getByLabel("Moneda")).toHaveValue(fixtureCurrency);
+
       await page.getByRole("link", { name: "Servicios" }).click();
       await expect(page).toHaveURL(new RegExp(`/clients/${clientId}/services$`));
       await page.getByRole("link", { name: "Cobros" }).click();
@@ -59,6 +79,8 @@ test.describe("authenticated client history", () => {
       if (cleanupDatabase) {
         const fixtures = clientId ? [{ id: clientId }] : await cleanupDatabase`select id from clients where first_name = ${clientName} and company = ${marker} and email = ${clientEmail}`;
         for (const fixture of fixtures) {
+          await cleanupDatabase`delete from payments where id = ${paymentId} and client_id = ${fixture.id}`;
+          await cleanupDatabase`delete from charges where id = ${chargeId} and client_id = ${fixture.id}`;
           await cleanupDatabase`delete from client_notes where client_id = ${fixture.id}`;
           await cleanupDatabase`delete from clients where id = ${fixture.id} and first_name = ${clientName} and company = ${marker} and email = ${clientEmail}`;
         }

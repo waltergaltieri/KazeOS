@@ -3,18 +3,21 @@ import { notFound } from "next/navigation";
 
 import { ClientHeader } from "@/components/clients/client-header";
 import { ClientTabs } from "@/components/clients/client-tabs";
+import { FinancialHistory } from "@/components/clients/financial-history";
 import { formatAggregateMoney } from "@/lib/domain/money";
 import { todayInBusinessZone } from "@/lib/domain/commercial-date";
 import { getClientById, getClientSummary, type AggregateCurrencyPair } from "@/lib/queries/clients";
+import { getClientFinancialHistory, parseHistoryLimit } from "@/lib/queries/client-financial-history";
 
 function MoneyPair({ value }: { value: AggregateCurrencyPair }) {
   return <span className="currency-stack"><span>{formatAggregateMoney(value.USD, "USD")}</span><span>{formatAggregateMoney(value.ARS, "ARS")}</span></span>;
 }
 
-export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ClientDetailPage({ params, searchParams = Promise.resolve({}) }: { params: Promise<{ id: string }>; searchParams?: Promise<{ historyLimit?: string }> }) {
   const { id } = await params;
+  const { historyLimit } = await searchParams;
   const asOf = todayInBusinessZone(new Date());
-  const [client, summary] = await Promise.all([getClientById(id), getClientSummary(id, asOf)]);
+  const [client, summary, financialHistory] = await Promise.all([getClientById(id), getClientSummary(id, asOf), getClientFinancialHistory(id, asOf, parseHistoryLimit(historyLimit))]);
   if (!client || !summary) notFound();
 
   return (
@@ -43,11 +46,12 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         </section>
 
         <aside className="chronology-sheet" aria-labelledby="chronology-title">
-          <header><p className="eyebrow">Riel cronológico</p><h2 id="chronology-title">Historia del legajo</h2></header>
+          <header><p className="eyebrow">Origen del legajo</p><h2 id="chronology-title">Alta del cliente</h2></header>
           <div className="chronology-item"><span aria-hidden="true"><CalendarDays size={16} /></span><div><strong>Cliente incorporado</strong><time dateTime={client.joinedAt}>{new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${client.joinedAt}T00:00:00Z`))}</time></div></div>
-          <div className="chronology-item"><span aria-hidden="true"><ReceiptText size={16} /></span><div><strong>Actividad vinculada</strong><span>{summary.activeServices} servicios activos · {summary.pendingTasks} tareas pendientes · {summary.notes} notas</span></div></div>
         </aside>
       </div>
+
+      <FinancialHistory clientId={client.id} result={financialHistory} />
 
       {client.notes ? <section className="dossier-note"><p className="eyebrow">Nota del legajo</p><p>{client.notes}</p></section> : null}
     </main>

@@ -5,7 +5,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth/require-user", () => ({ requireUser: mocks.requireUser }));
 vi.mock("@/db", () => ({ withAuthenticatedDb: mocks.withAuthenticatedDb }));
 
-import { getSettings } from "./settings";
+import { getPrimaryCurrency, getSettings } from "./settings";
 
 describe("getSettings", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.requireUser.mockResolvedValue({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "admin@example.com" }); mocks.withAuthenticatedDb.mockResolvedValue({ profile: { fullName: "Agustín", email: "stale@example.com" }, business: null }); });
@@ -15,5 +15,17 @@ describe("getSettings", () => {
       business: { primaryCurrency: "USD", timezone: "America/Argentina/Buenos_Aires", locale: "es-AR", businessName: null, businessInfo: null },
     });
     expect(mocks.withAuthenticatedDb).toHaveBeenCalledWith("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expect.any(Function));
+  });
+  it("reads the owner's primary currency and falls back to USD without a settings row", async () => {
+    const runWithRows = (rows: Array<{ primaryCurrency: "USD" | "ARS" }>) => {
+      mocks.withAuthenticatedDb.mockImplementationOnce(async (_ownerId, operation) => operation({
+        select: () => ({ from: () => ({ where: () => ({ limit: async () => rows }) }) }),
+      }));
+    };
+    runWithRows([{ primaryCurrency: "ARS" }]);
+    await expect(getPrimaryCurrency()).resolves.toBe("ARS");
+    runWithRows([]);
+    await expect(getPrimaryCurrency()).resolves.toBe("USD");
+    expect(mocks.withAuthenticatedDb).toHaveBeenNthCalledWith(1, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expect.any(Function));
   });
 });

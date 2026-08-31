@@ -6,6 +6,7 @@ import { ServiceForm } from "@/components/services/service-form";
 import { createServiceAction } from "@/lib/actions/services";
 import { todayInBusinessZone } from "@/lib/domain/commercial-date";
 import { getClientById } from "@/lib/queries/clients";
+import { getPrimaryCurrency } from "@/lib/queries/settings";
 
 export default async function NewServicePage({
   params,
@@ -13,7 +14,7 @@ export default async function NewServicePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const client = await getClientById(id);
+  const [client, primaryCurrency] = await Promise.all([getClientById(id), getPrimaryCurrency()]);
   if (!client) notFound();
 
   const today = todayInBusinessZone(new Date());
@@ -31,12 +32,12 @@ export default async function NewServicePage({
       <ServiceForm
         action={createServiceAction}
         clientId={client.id}
+        defaultCurrency={primaryCurrency}
         defaults={{
           automaticChargeGeneration: true,
           billingDay: Number(today.slice(-2)),
           billingFrequency: "monthly",
           billingType: "recurring",
-          currency: "USD",
           startDate: today,
           status: "active",
         }}

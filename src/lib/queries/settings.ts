@@ -17,6 +17,18 @@ export interface UserSettings {
   };
 }
 
+export async function getPrimaryCurrency(): Promise<"USD" | "ARS"> {
+  const user = await requireUser();
+  return withAuthenticatedDb(user.id, async (database) => {
+    const [row] = await database
+      .select({ primaryCurrency: settings.primaryCurrency })
+      .from(settings)
+      .where(eq(settings.ownerId, user.id))
+      .limit(1);
+    return row?.primaryCurrency ?? "USD";
+  });
+}
+
 export async function getSettings(): Promise<UserSettings> {
   const user = await requireUser();
   const result = await withAuthenticatedDb(user.id, async (database) => {
