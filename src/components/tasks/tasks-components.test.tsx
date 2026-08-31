@@ -71,13 +71,35 @@ describe("task UI", () => {
     expect(screen.getByRole("link", { name: "Crear tarea" })).toHaveAttribute("href", "/tasks/new");
   });
 
-  it("requires confirmation before delete and focuses the confirmation action", async () => {
+  it("labels a destructive single-task confirmation with the exact task name", async () => {
     const user = userEvent.setup();
     render(<TaskList basePath="/tasks" today="2026-08-31" tasks={[{
       id: taskId, clientId: null, clientName: null, title: "Ordenar agenda", description: null, dueDate: null, priority: "low", status: "pending", recurring: false, recurrence: null, parentId: null, completedAt: null,
     }]} />);
     await user.click(screen.getByRole("button", { name: "Eliminar Ordenar agenda" }));
-    expect(screen.getByText(/¿Eliminar esta tarea\?/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirmar eliminación" })).toHaveFocus();
+    expect(screen.getByRole("group", { name: "Eliminar tarea Ordenar agenda" })).toHaveAccessibleDescription(/sólo esta tarea/i);
+    expect(screen.getByRole("button", { name: "Eliminar tarea Ordenar agenda" })).toHaveFocus();
+    expect(document.querySelector('input[name="deleteScope"]')).toHaveValue("single");
+  });
+
+  it("explains that deleting a recurring root removes the entire series", async () => {
+    const user = userEvent.setup();
+    render(<TaskList basePath="/tasks" today="2026-08-31" tasks={[{
+      id: taskId, clientId, clientName: "Estudio Norte", title: "Cierre mensual", description: null, dueDate: "2026-08-31", priority: "high", status: "completed", recurring: true, recurrence: "monthly", parentId: null, completedAt: new Date("2026-08-31T15:00:00Z"),
+    }]} />);
+    await user.click(screen.getByRole("button", { name: "Eliminar Cierre mensual" }));
+    expect(screen.getByRole("group", { name: "Eliminar serie Cierre mensual" })).toHaveAccessibleDescription(/raíz y todas sus ocurrencias/i);
+    expect(screen.getByRole("button", { name: "Eliminar serie Cierre mensual" })).toHaveFocus();
+    expect(document.querySelector('input[name="deleteScope"]')).toHaveValue("series");
+  });
+
+  it("keeps deletion of a generated occurrence scoped to that occurrence", async () => {
+    const user = userEvent.setup();
+    render(<TaskList basePath="/tasks" today="2026-08-31" tasks={[{
+      id: taskId, clientId, clientName: "Estudio Norte", title: "Cierre de septiembre", description: null, dueDate: "2026-09-30", priority: "high", status: "pending", recurring: false, recurrence: null, parentId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", completedAt: null,
+    }]} />);
+    await user.click(screen.getByRole("button", { name: "Eliminar Cierre de septiembre" }));
+    expect(screen.getByRole("group", { name: "Eliminar ocurrencia Cierre de septiembre" })).toHaveAccessibleDescription(/sólo esta ocurrencia/i);
+    expect(document.querySelector('input[name="deleteScope"]')).toHaveValue("single");
   });
 });

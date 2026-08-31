@@ -15,7 +15,7 @@ vi.mock("@/lib/auth/require-user", () => ({ requireUser: vi.fn() }));
 import { createAuthenticatedDrizzleRunner } from "@/db/authenticated";
 import * as schema from "@/db/schema";
 import { clients, tasks } from "@/db/schema";
-import { completeTask, createTask, deleteTask, reopenTask, updateTask } from "@/lib/services/task-manager";
+import { completeTask, createTask, deleteTask, deleteTaskSeries, reopenTask, updateTask } from "@/lib/services/task-manager";
 import { queryTaskById, queryTasks } from "./tasks";
 
 config({ path: ".env.local", quiet: true });
@@ -65,7 +65,8 @@ describeDatabase("task queries and transactional lifecycle", () => {
           await expect(queryTasks(authenticated, ownerId, { status: "undated" }, "2026-08-15")).resolves.toEqual([expect.objectContaining({ id: undatedId })]);
           expect(await queryTasks(authenticated, ownerId, { status: "all", search: "métricas", clientId, priority: "high" }, "2026-08-15")).toEqual([expect.objectContaining({ id: todayId })]);
 
-          const root = await createTask(authenticated, { ownerId, values: { clientId, title: "Cierre mensual", description: null, dueDate: "2027-01-31", priority: "high", status: "pending", recurring: true, recurrence: "monthly" } });
+          const root = await createTask(authenticated, { ownerId, values: { clientId, title: "Cierre mensual", description: null, dueDate: "2027-01-31", priority: "high", status: "completed", recurring: true, recurrence: "monthly" } });
+          expect(await queryTaskById(authenticated, ownerId, root.id)).toMatchObject({ status: "pending", completedAt: null });
           const completedAt = new Date("2027-01-31T18:00:00Z");
           const firstCompletion = await completeTask(authenticated, { ownerId, taskId: root.id, completedAt });
           expect(firstCompletion).toMatchObject({ id: root.id, createdNext: true });
@@ -86,6 +87,15 @@ describeDatabase("task queries and transactional lifecycle", () => {
           const chain = await transaction.select().from(tasks).where(sql`${tasks.parentId} = ${root.id}`).orderBy(tasks.dueDate);
           expect(chain).toHaveLength(2);
           expect(chain[1]?.dueDate).toBe("2027-03-31");
+
+          await expect(deleteTaskSeries(authenticated, { ownerId: otherOwnerId, taskId: root.id })).rejects.toThrow();
+          await deleteTask(authenticated, { ownerId, taskId: chain[1]!.id });
+          expect(await queryTaskById(authenticated, ownerId, root.id)).not.toBeNull();
+          expect(await transaction.select().from(tasks).where(sql`${tasks.parentId} = ${root.id}`)).toHaveLength(1);
+          const deletedSeries = await deleteTaskSeries(authenticated, { ownerId, taskId: root.id });
+          expect(deletedSeries).toMatchObject({ id: root.id, deletedOccurrences: 1 });
+          expect(await queryTaskById(authenticated, ownerId, root.id)).toBeNull();
+          expect(await transaction.select().from(tasks).where(sql`${tasks.parentId} = ${root.id}`)).toHaveLength(0);
 
           await updateTask(authenticated, { ownerId, taskId: upcomingId, values: { clientId, title: "Preparar reunión editada", description: null, dueDate: null, priority: "high", status: "pending", recurring: false, recurrence: null } });
           expect(await queryTaskById(authenticated, ownerId, upcomingId)).toMatchObject({ title: "Preparar reunión editada", dueDate: null, priority: "high" });

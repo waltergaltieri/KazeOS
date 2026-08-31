@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   completeTask: vi.fn(),
   reopenTask: vi.fn(),
   deleteTask: vi.fn(),
+  deleteTaskSeries: vi.fn(),
   revalidatePath: vi.fn(),
 }));
 
@@ -21,6 +22,7 @@ vi.mock("@/lib/services/task-manager", () => ({
   completeTask: mocks.completeTask,
   reopenTask: mocks.reopenTask,
   deleteTask: mocks.deleteTask,
+  deleteTaskSeries: mocks.deleteTaskSeries,
   TaskNotFoundError: class extends Error {},
   TaskStatusTransitionError: class extends Error {},
   TaskOccurrenceRecurrenceError: class extends Error {},
@@ -54,15 +56,16 @@ describe("task actions", () => {
     mocks.completeTask.mockResolvedValue({ id: taskId, clientId, createdNext: true });
     mocks.reopenTask.mockResolvedValue({ id: taskId, clientId });
     mocks.deleteTask.mockResolvedValue({ id: taskId, clientId });
+    mocks.deleteTaskSeries.mockResolvedValue({ id: taskId, clientId, deletedOccurrences: 2 });
   });
 
   it("creates a normalized task only in the verified owner scope", async () => {
-    const result = await createTaskAction({ status: "idle" }, taskForm());
+    const result = await createTaskAction({ status: "idle" }, taskForm({ status: "completed" }));
     expect(result).toMatchObject({ status: "success", taskId, clientId });
     expect(mocks.withAuthenticatedDb).toHaveBeenCalledWith(ownerId, expect.any(Function));
     expect(mocks.createTask).toHaveBeenCalledWith(expect.anything(), {
       ownerId,
-      values: expect.objectContaining({ clientId, title: "Preparar informe", recurring: true, recurrence: "monthly" }),
+      values: expect.objectContaining({ clientId, title: "Preparar informe", status: "pending", recurring: true, recurrence: "monthly" }),
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith(`/clients/${clientId}/tasks`);
   });
@@ -102,7 +105,14 @@ describe("task actions", () => {
     const valid = new FormData();
     valid.set("taskId", taskId);
     valid.set("clientId", clientId);
+    valid.set("deleteScope", "single");
     expect((await deleteTaskAction({ status: "idle" }, valid)).status).toBe("success");
     expect(mocks.deleteTask).toHaveBeenCalledWith(expect.anything(), { ownerId, taskId });
+
+    const series = new FormData();
+    series.set("taskId", taskId);
+    series.set("deleteScope", "series");
+    expect((await deleteTaskAction({ status: "idle" }, series)).status).toBe("success");
+    expect(mocks.deleteTaskSeries).toHaveBeenCalledWith(expect.anything(), { ownerId, taskId });
   });
 });

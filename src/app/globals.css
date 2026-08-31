@@ -781,7 +781,8 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .task-row__body > p { margin: 8px 0 0; color: var(--ink-secondary); font-size: 12px; }
 .task-row__actions { display: flex; align-items: center; gap: 6px; }
 .task-delete-confirm { display: grid; grid-template-columns: auto auto; gap: 6px; max-width: 300px; padding: 9px; border: 1px solid color-mix(in srgb, var(--overdue-red) 24%, transparent); border-radius: 9px; background: var(--overdue-red-soft); }
-.task-delete-confirm > span, .task-delete-confirm > .field-error { grid-column: 1 / -1; color: var(--overdue-red); font-size: 11px; font-weight: 680; }
+.task-delete-confirm > :is(strong, span, .field-error) { grid-column: 1 / -1; color: var(--overdue-red); font-size: 11px; font-weight: 680; }
+.task-delete-confirm > span { color: var(--ink-secondary); font-weight: 500; }
 .task-delete-confirm :is(.danger-button, .quiet-button) { min-height: 30px; padding: 0 9px; font-size: 10px; }
 .task-empty { display: grid; min-height: 270px; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 18px; padding: 28px; border: 1px solid var(--ledger-rule); border-radius: 12px; background: var(--paper-sheet); }
 .task-empty > svg { padding: 11px; width: 44px; height: 44px; border-radius: 11px; background: var(--action-violet-soft); color: var(--action-violet); }
@@ -820,5 +821,5 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   .task-date { justify-self: start; }
   .task-row__actions > .icon-button { flex: 1 1 0; }
   .task-delete-confirm { grid-template-columns: 1fr; }
-  .task-delete-confirm > span, .task-delete-confirm > .field-error { grid-column: 1; }
+  .task-delete-confirm > :is(strong, span, .field-error) { grid-column: 1; }
 }

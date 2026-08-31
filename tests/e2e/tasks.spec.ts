@@ -67,7 +67,10 @@ test.describe("authenticated task lifecycle", () => {
       await expect.poll(async () => (await cleanupDatabase!`select status from tasks where id = ${createdTaskId}`)[0]?.status).toBe("completed");
       await expect.poll(async () => (await cleanupDatabase!`select count(*)::int as count from tasks where parent_id = ${createdTaskId}`)[0]?.count).toBe(1);
 
-      await page.getByRole("link", { name: `Editar ${taskTitle}` }).click();
+      const completedRoot = page.getByRole("listitem").filter({
+        has: page.getByRole("checkbox", { name: `Reabrir ${taskTitle}` }),
+      });
+      await completedRoot.getByRole("link", { name: `Editar ${taskTitle}` }).click();
       await page.getByLabel("Descripción").fill(`Verificado ${marker}`);
       await page.getByRole("button", { name: "Guardar cambios" }).click();
       await expect(page).toHaveURL(new RegExp(`/clients/${createdClientId}/tasks$`));
@@ -77,7 +80,7 @@ test.describe("authenticated task lifecycle", () => {
       await page.getByLabel("Título *").fill(disposableTitle);
       await page.getByRole("button", { name: "Crear tarea" }).click();
       await page.getByRole("button", { name: `Eliminar ${disposableTitle}` }).click();
-      await page.getByRole("button", { name: "Confirmar eliminación" }).click();
+      await page.getByRole("button", { name: `Eliminar tarea ${disposableTitle}` }).click();
       await expect.poll(async () => (await cleanupDatabase!`select count(*)::int as count from tasks where client_id = ${createdClientId} and title = ${disposableTitle}`)[0]?.count).toBe(0);
     } finally {
       if (cleanupDatabase) {

@@ -24,6 +24,7 @@ export interface TaskListItem {
   recurrence: "monthly" | null;
   parentId: string | null;
   completedAt: Date | null;
+  hasOccurrences?: boolean;
 }
 
 function conditions(filters: TaskFilters, asOf: string): SQL[] {
@@ -55,6 +56,7 @@ const selection = {
   recurrence: tasks.recurrence,
   parentId: tasks.parentId,
   completedAt: tasks.completedAt,
+  hasOccurrences: sql<boolean>`exists (select 1 from tasks occurrence where occurrence.owner_id = ${tasks.ownerId} and occurrence.parent_id = ${tasks.id})`,
 };
 
 export async function queryTasks(database: TaskDatabase, ownerId: string, input: unknown, asOfInput: string): Promise<TaskListItem[]> {

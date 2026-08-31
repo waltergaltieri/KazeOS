@@ -12,6 +12,7 @@ type TaskScope = { ownerId: string; taskId: string };
 export class TaskNotFoundError extends Error {}
 export class TaskStatusTransitionError extends Error {}
 export class TaskOccurrenceRecurrenceError extends Error {}
+export class TaskSeriesDeletionError extends Error {}
 
 async function assertOwnedClient(database: TaskDatabase, ownerId: string, clientId: string | null) {
   if (clientId === null) return;
@@ -33,7 +34,8 @@ export async function createTask(database: TaskDatabase, input: { ownerId: strin
   const [created] = await database.insert(tasks).values({
     ...input.values,
     ownerId: input.ownerId,
-    completedAt: input.values.status === "completed" ? (input.now ?? new Date()) : null,
+    status: "pending",
+    completedAt: null,
   }).returning({ id: tasks.id, clientId: tasks.clientId });
   if (!created) throw new Error("Task insert did not return a row");
   return created;
@@ -110,4 +112,20 @@ export async function deleteTask(database: TaskDatabase, input: TaskScope) {
     .returning({ id: tasks.id, clientId: tasks.clientId });
   if (!deleted) throw new TaskNotFoundError();
   return deleted;
+}
+
+export async function deleteTaskSeries(database: TaskDatabase, input: TaskScope) {
+  const root = await lockTask(database, input);
+  if (root.parentId !== null) throw new TaskSeriesDeletionError();
+
+  const deletedOccurrences = await database.delete(tasks)
+    .where(and(eq(tasks.ownerId, input.ownerId), eq(tasks.parentId, root.id)))
+    .returning({ id: tasks.id });
+  if (!root.recurring && deletedOccurrences.length === 0) throw new TaskSeriesDeletionError();
+
+  const [deletedRoot] = await database.delete(tasks)
+    .where(and(eq(tasks.ownerId, input.ownerId), eq(tasks.id, root.id)))
+    .returning({ id: tasks.id, clientId: tasks.clientId });
+  if (!deletedRoot) throw new TaskNotFoundError();
+  return { ...deletedRoot, deletedOccurrences: deletedOccurrences.length };
 }

@@ -9,6 +9,7 @@ import {
   completeTask,
   createTask,
   deleteTask,
+  deleteTaskSeries,
   reopenTask,
   TaskOccurrenceRecurrenceError,
   TaskStatusTransitionError,
@@ -71,7 +72,7 @@ export async function createTaskAction(_state: TaskActionState, formData: FormDa
   if (!parsed.success) return invalid(parsed.error);
   const user = await requireUser();
   try {
-    const created = await withAuthenticatedDb(user.id, (database) => createTask(database, { ownerId: user.id, values: parsed.data }));
+    const created = await withAuthenticatedDb(user.id, (database) => createTask(database, { ownerId: user.id, values: { ...parsed.data, status: "pending" } }));
     revalidateTaskPaths(created.clientId, created.id);
     return { status: "success", taskId: created.id, clientId: created.clientId };
   } catch (error) {
@@ -120,5 +121,7 @@ export async function reopenTaskAction(_state: TaskActionState, formData: FormDa
 }
 
 export async function deleteTaskAction(_state: TaskActionState, formData: FormData) {
-  return runCommand(formData, (ownerId, taskId) => withAuthenticatedDb(ownerId, (database) => deleteTask(database, { ownerId, taskId })));
+  const scope = formData.get("deleteScope");
+  if (scope !== "single" && scope !== "series") return { status: "error", message: "El alcance de eliminación no es válido." } satisfies TaskActionState;
+  return runCommand(formData, (ownerId, taskId) => withAuthenticatedDb(ownerId, (database) => scope === "series" ? deleteTaskSeries(database, { ownerId, taskId }) : deleteTask(database, { ownerId, taskId })));
 }

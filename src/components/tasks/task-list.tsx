@@ -2,7 +2,7 @@
 
 import { CalendarCheck2, Check, Pencil, Repeat2, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 
 import { completeTaskAction, deleteTaskAction, reopenTaskAction, type TaskActionState } from "@/lib/actions/tasks";
 import type { TaskListItem } from "@/lib/queries/tasks";
@@ -29,9 +29,15 @@ function TaskDeleteControl({ task }: { task: TaskListItem }) {
   const [state, formAction, pending] = useActionState(deleteTaskAction, initial);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  const deletesSeries = task.parentId === null && (task.recurring || task.hasOccurrences);
+  const occurrence = task.parentId !== null;
+  const accessibleAction = deletesSeries ? `Eliminar serie ${task.title}` : occurrence ? `Eliminar ocurrencia ${task.title}` : `Eliminar tarea ${task.title}`;
+  const description = deletesSeries ? "Se eliminarán la tarea raíz y todas sus ocurrencias. Esta acción no se puede deshacer." : occurrence ? "Se eliminará sólo esta ocurrencia. La raíz y las demás ocurrencias se conservan." : "Se eliminará sólo esta tarea. Esta acción no se puede deshacer.";
   useEffect(() => { if (confirming) confirmRef.current?.focus(); }, [confirming]);
   if (!confirming) return <button ref={openerRef} type="button" className="icon-button" aria-label={`Eliminar ${task.title}`} onClick={() => setConfirming(true)}><Trash2 size={15} /></button>;
-  return <form action={formAction} className="task-delete-confirm"><input type="hidden" name="taskId" value={task.id} /><span>¿Eliminar esta tarea?</span><button ref={confirmRef} className="danger-button" disabled={pending}>Confirmar eliminación</button><button type="button" className="quiet-button" onClick={() => { setConfirming(false); requestAnimationFrame(() => openerRef.current?.focus()); }}>Volver</button>{state.status === "error" ? <small className="field-error" role="alert">{state.message}</small> : null}</form>;
+  return <form action={formAction} className="task-delete-confirm" role="group" aria-labelledby={titleId} aria-describedby={descriptionId}><input type="hidden" name="taskId" value={task.id} /><input type="hidden" name="deleteScope" value={deletesSeries ? "series" : "single"} /><strong id={titleId}>{accessibleAction}</strong><span id={descriptionId}>{description}</span><button ref={confirmRef} className="danger-button" aria-label={accessibleAction} disabled={pending}>{deletesSeries ? "Eliminar serie" : occurrence ? "Eliminar ocurrencia" : "Eliminar tarea"}</button><button type="button" className="quiet-button" onClick={() => { setConfirming(false); requestAnimationFrame(() => openerRef.current?.focus()); }}>Volver</button>{state.status === "error" ? <small className="field-error" role="alert">{state.message}</small> : null}</form>;
 }
 
 export function TaskList({ basePath, tasks, today, filtersApplied = false, createHref = "/tasks/new" }: { basePath: string; tasks: TaskListItem[]; today: string; filtersApplied?: boolean; createHref?: string }) {
