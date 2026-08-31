@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -75,24 +75,67 @@ export function DesktopSidebar() {
   );
 }
 
-export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+const DRAWER_FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+export function MobileDrawer({
+  open,
+  onClose,
+  returnFocusRef,
+}: {
+  open: boolean;
+  onClose: () => void;
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
+}) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
+    const backgroundRegions = Array.from(
+      document.querySelectorAll<HTMLElement>(".workspace, .desktop-sidebar"),
+    );
+    const previouslyInert = backgroundRegions.map((region) =>
+      region.hasAttribute("inert"),
+    );
+    const returnFocusTarget = returnFocusRef.current;
     document.body.style.overflow = "hidden";
+    backgroundRegions.forEach((region) => region.setAttribute("inert", ""));
     closeRef.current?.focus();
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", closeOnEscape);
     return () => {
       document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", closeOnEscape);
+      backgroundRegions.forEach((region, index) => {
+        if (!previouslyInert[index]) region.removeAttribute("inert");
+      });
+      queueMicrotask(() => returnFocusTarget?.focus());
     };
-  }, [onClose, open]);
+  }, [open, returnFocusRef]);
+
+  function onDrawerKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      drawerRef.current?.querySelectorAll<HTMLElement>(
+        DRAWER_FOCUSABLE_SELECTOR,
+      ) ?? [],
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
 
   if (!open) return null;
 
@@ -101,14 +144,17 @@ export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => 
       <button
         className="drawer-scrim"
         type="button"
+        tabIndex={-1}
         aria-label="Cerrar menú principal"
         onClick={onClose}
       />
       <aside
+        ref={drawerRef}
         className="mobile-drawer"
         role="dialog"
         aria-modal="true"
         aria-label="Menú principal"
+        onKeyDown={onDrawerKeyDown}
       >
         <div className="drawer-heading">
           <Brand />

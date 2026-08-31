@@ -10,14 +10,16 @@ import {
   UserPlus,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useMemo } from "react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useAccessibleMenu } from "@/components/ui/use-accessible-menu";
 import { logout } from "@/lib/auth/actions";
 
 type TopbarProps = {
   user: { name: string; email: string };
   onOpenNavigation: () => void;
+  navigationTriggerRef: RefObject<HTMLButtonElement | null>;
 };
 
 const quickActions = [
@@ -26,31 +28,26 @@ const quickActions = [
   { href: "/tasks/new", label: "Nueva tarea", icon: CheckSquare2 },
 ] as const;
 
-export function Topbar({ user, onOpenNavigation }: TopbarProps) {
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [userOpen, setUserOpen] = useState(false);
-  const quickRef = useRef<HTMLDivElement>(null);
-  const userRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function closeMenus(event: MouseEvent) {
-      const node = event.target as Node;
-      if (!quickRef.current?.contains(node)) setQuickOpen(false);
-      if (!userRef.current?.contains(node)) setUserOpen(false);
-    }
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setQuickOpen(false);
-        setUserOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", closeMenus);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeMenus);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, []);
+export function Topbar({ user, onOpenNavigation, navigationTriggerRef }: TopbarProps) {
+  const {
+    open: quickOpen,
+    menuId: quickMenuId,
+    triggerRef: quickTriggerRef,
+    menuRef: quickMenuRef,
+    closeMenu: closeQuickMenu,
+    onTriggerClick: onQuickTriggerClick,
+    onTriggerKeyDown: onQuickTriggerKeyDown,
+    onMenuKeyDown: onQuickMenuKeyDown,
+  } = useAccessibleMenu();
+  const {
+    open: userOpen,
+    menuId: userMenuId,
+    triggerRef: userTriggerRef,
+    menuRef: userMenuRef,
+    onTriggerClick: onUserTriggerClick,
+    onTriggerKeyDown: onUserTriggerKeyDown,
+    onMenuKeyDown: onUserMenuKeyDown,
+  } = useAccessibleMenu();
 
   const initials = useMemo(
     () =>
@@ -66,6 +63,7 @@ export function Topbar({ user, onOpenNavigation }: TopbarProps) {
   return (
     <header className="topbar">
       <button
+        ref={navigationTriggerRef}
         type="button"
         className="icon-button mobile-menu-trigger"
         aria-label="Abrir menú principal"
@@ -80,27 +78,40 @@ export function Topbar({ user, onOpenNavigation }: TopbarProps) {
       </div>
 
       <div className="topbar-actions">
-        <div className="menu-anchor" ref={quickRef}>
+        <div className="menu-anchor">
           <button
+            ref={quickTriggerRef}
             type="button"
             className="primary-button quick-create-trigger"
             aria-label="Creación rápida"
             aria-haspopup="menu"
             aria-expanded={quickOpen}
-            onClick={() => {
-              setUserOpen(false);
-              setQuickOpen((open) => !open);
-            }}
+            aria-controls={quickOpen ? quickMenuId : undefined}
+            onClick={onQuickTriggerClick}
+            onKeyDown={onQuickTriggerKeyDown}
           >
             <Plus aria-hidden="true" size={17} />
             <span>Nuevo</span>
             <ChevronDown aria-hidden="true" size={15} />
           </button>
           {quickOpen ? (
-            <div className="overlay-menu quick-menu" role="menu" aria-label="Creación rápida">
+            <div
+              ref={quickMenuRef}
+              id={quickMenuId}
+              className="overlay-menu quick-menu"
+              role="menu"
+              aria-label="Creación rápida"
+              onKeyDown={onQuickMenuKeyDown}
+            >
               <p className="overlay-menu__label">Crear registro</p>
               {quickActions.map(({ href, label, icon: Icon }) => (
-                <Link key={href} href={href} role="menuitem" onClick={() => setQuickOpen(false)}>
+                <Link
+                  key={href}
+                  href={href}
+                  role="menuitem"
+                  tabIndex={-1}
+                  onClick={() => closeQuickMenu(false)}
+                >
                   <Icon aria-hidden="true" size={17} />
                   <span>{label}</span>
                 </Link>
@@ -109,22 +120,19 @@ export function Topbar({ user, onOpenNavigation }: TopbarProps) {
           ) : null}
         </div>
 
-        <ThemeToggle onOpen={() => {
-          setQuickOpen(false);
-          setUserOpen(false);
-        }} />
+        <ThemeToggle />
 
-        <div className="menu-anchor user-anchor" ref={userRef}>
+        <div className="menu-anchor user-anchor">
           <button
+            ref={userTriggerRef}
             type="button"
             className="user-trigger"
             aria-label={`Cuenta de ${user.name}`}
             aria-haspopup="menu"
             aria-expanded={userOpen}
-            onClick={() => {
-              setQuickOpen(false);
-              setUserOpen((open) => !open);
-            }}
+            aria-controls={userOpen ? userMenuId : undefined}
+            onClick={onUserTriggerClick}
+            onKeyDown={onUserTriggerKeyDown}
           >
             <span className="user-avatar" aria-hidden="true">{initials}</span>
             <span className="user-copy">
@@ -134,13 +142,25 @@ export function Topbar({ user, onOpenNavigation }: TopbarProps) {
             <ChevronDown aria-hidden="true" size={15} />
           </button>
           {userOpen ? (
-            <div className="overlay-menu user-menu" role="menu" aria-label="Cuenta">
+            <div
+              ref={userMenuRef}
+              id={userMenuId}
+              className="overlay-menu user-menu"
+              role="menu"
+              aria-label="Cuenta"
+              onKeyDown={onUserMenuKeyDown}
+            >
               <div className="user-menu__identity">
                 <strong>{user.name}</strong>
                 <span>{user.email}</span>
               </div>
               <form action={logout}>
-                <button type="submit" role="menuitem" className="danger-menu-item">
+                <button
+                  type="submit"
+                  role="menuitem"
+                  tabIndex={-1}
+                  className="danger-menu-item"
+                >
                   <LogOut aria-hidden="true" size={17} />
                   Cerrar sesión
                 </button>

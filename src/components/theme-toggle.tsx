@@ -2,7 +2,8 @@
 
 import { Check, Laptop, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useRef, useState } from "react";
+
+import { useAccessibleMenu } from "@/components/ui/use-accessible-menu";
 
 const options = [
   { value: "light", label: "Claro", icon: Sun },
@@ -10,56 +11,57 @@ const options = [
   { value: "system", label: "Sistema", icon: Laptop },
 ] as const;
 
-export function ThemeToggle({ onOpen }: { onOpen?: () => void }) {
+export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function closeOnOutsideClick(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutsideClick);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, []);
+  const {
+    open,
+    menuId,
+    triggerRef,
+    menuRef,
+    closeMenu,
+    onTriggerClick,
+    onTriggerKeyDown,
+    onMenuKeyDown,
+  } = useAccessibleMenu();
 
   const CurrentIcon =
     options.find((option) => option.value === theme)?.icon ?? Laptop;
 
   return (
-    <div className="menu-anchor" ref={containerRef}>
+    <div className="menu-anchor">
       <button
+        ref={triggerRef}
         type="button"
         className="icon-button topbar-icon"
         aria-label="Tema"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => {
-          onOpen?.();
-          setOpen((isOpen) => !isOpen);
-        }}
+        aria-controls={open ? menuId : undefined}
+        onClick={onTriggerClick}
+        onKeyDown={onTriggerKeyDown}
       >
         <CurrentIcon aria-hidden="true" size={19} />
       </button>
       {open ? (
-        <div className="overlay-menu theme-menu" role="menu" aria-label="Elegir tema">
+        <div
+          ref={menuRef}
+          id={menuId}
+          className="overlay-menu theme-menu"
+          role="menu"
+          aria-label="Elegir tema"
+          onKeyDown={onMenuKeyDown}
+        >
           <p className="overlay-menu__label">Apariencia</p>
           {options.map(({ value, label, icon: Icon }) => (
             <button
               key={value}
               type="button"
               role="menuitemradio"
+              tabIndex={-1}
               aria-checked={theme === value}
               onClick={() => {
                 setTheme(value);
-                setOpen(false);
+                closeMenu(true);
               }}
             >
               <Icon aria-hidden="true" size={17} />
