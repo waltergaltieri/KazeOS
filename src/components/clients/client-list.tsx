@@ -30,8 +30,32 @@ function Balance({ client }: { client: ClientListItem }) {
   );
 }
 
-export function ClientList({ clients: items }: { clients: ClientListItem[] }) {
+export function ClientList({
+  clients: items,
+  hasActiveFilters = false,
+}: {
+  clients: ClientListItem[];
+  hasActiveFilters?: boolean;
+}) {
   if (items.length === 0) {
+    if (hasActiveFilters) {
+      return (
+        <section className="client-empty" aria-labelledby="empty-client-title">
+          <span className="client-empty__mark" aria-hidden="true">
+            <FolderOpen size={24} />
+          </span>
+          <div>
+            <p className="eyebrow">Sin coincidencias</p>
+            <h2 id="empty-client-title">No encontramos clientes</h2>
+            <p>No hay legajos que coincidan con la búsqueda o los filtros aplicados.</p>
+          </div>
+          <Link className="secondary-button" href="/clients">
+            Limpiar búsqueda y filtros
+          </Link>
+        </section>
+      );
+    }
+
     return (
       <section className="client-empty" aria-labelledby="empty-client-title">
         <span className="client-empty__mark" aria-hidden="true">

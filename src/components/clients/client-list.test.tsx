@@ -15,6 +15,20 @@ describe("ClientList", () => {
     );
   });
 
+  it("shows contextual no-results guidance when search or filters are active", () => {
+    render(<ClientList clients={[]} hasActiveFilters />);
+
+    expect(
+      screen.getByRole("heading", { name: "No encontramos clientes" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Limpiar búsqueda y filtros" }),
+    ).toHaveAttribute("href", "/clients");
+    expect(
+      screen.queryByRole("heading", { name: "Todavía no hay clientes" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders a client dossier with separated currency balances", () => {
     render(
       <ClientList

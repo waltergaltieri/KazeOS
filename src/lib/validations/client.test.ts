@@ -4,6 +4,7 @@ import {
   clientFiltersSchema,
   clientFormSchema,
   clientIdSchema,
+  clientUpdateSchema,
 } from "./client";
 
 const validClient = {
@@ -64,6 +65,34 @@ describe("clientFormSchema", () => {
       clientFormSchema.safeParse({ ...validClient, notes: "x".repeat(5001) })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("clientUpdateSchema", () => {
+  it("maps present blank optional fields to null while preserving omitted keys", () => {
+    expect(
+      clientUpdateSchema.parse({
+        firstName: " Agustín ",
+        company: " ",
+        email: "",
+        phone: null,
+        whatsapp: " ",
+        taxId: "",
+        website: null,
+        address: " ",
+        notes: "",
+      }),
+    ).toEqual({
+      firstName: "Agustín",
+      company: null,
+      email: null,
+      phone: null,
+      whatsapp: null,
+      taxId: null,
+      website: null,
+      address: null,
+      notes: null,
+    });
   });
 });
 

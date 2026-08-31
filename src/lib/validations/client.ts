@@ -38,6 +38,45 @@ const optionalWebsite = z.preprocess(
     .optional(),
 );
 
+const updateOptionalText = (max: number) =>
+  z.preprocess(
+    (value) => {
+      if (value === null) return null;
+      if (typeof value !== "string") return value;
+      const normalized = value.trim();
+      return normalized.length === 0 ? null : normalized;
+    },
+    z.string().max(max).nullable().optional(),
+  );
+
+const updateOptionalEmail = z.preprocess(
+  (value) => {
+    if (value === null) return null;
+    if (typeof value !== "string") return value;
+    const normalized = value.trim().toLowerCase();
+    return normalized.length === 0 ? null : normalized;
+  },
+  z.string().email("Ingresá un email válido.").max(254).nullable().optional(),
+);
+
+const updateOptionalWebsite = z.preprocess(
+  (value) => {
+    if (value === null) return null;
+    if (typeof value !== "string") return value;
+    const normalized = value.trim();
+    return normalized.length === 0 ? null : normalized;
+  },
+  z
+    .string()
+    .url("Ingresá una URL válida.")
+    .max(2_048)
+    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), {
+      message: "La URL debe comenzar con http:// o https://.",
+    })
+    .nullable()
+    .optional(),
+);
+
 export const clientStatusSchema = z.enum(["active", "paused", "archived"]);
 
 export const clientFormSchema = z
@@ -60,6 +99,26 @@ export const clientFormSchema = z
   })
   .strict();
 
+/**
+ * Update patch semantics: omitted keys stay unchanged; present blank or null
+ * optional values clear the stored column to SQL null.
+ */
+export const clientUpdateSchema = z
+  .object({
+    firstName: z.string().trim().min(1, "El nombre es obligatorio.").max(120).optional(),
+    lastName: updateOptionalText(120),
+    company: updateOptionalText(200),
+    email: updateOptionalEmail,
+    phone: updateOptionalText(50),
+    whatsapp: updateOptionalText(50),
+    taxId: updateOptionalText(64),
+    website: updateOptionalWebsite,
+    address: updateOptionalText(500),
+    notes: updateOptionalText(5_000),
+    status: clientStatusSchema.optional(),
+  })
+  .strict();
+
 export const clientIdSchema = z.string().uuid("El cliente no es válido.");
 
 export const clientFilterSchema = z.enum([
@@ -79,5 +138,6 @@ export const clientFiltersSchema = z
   .strict();
 
 export type ClientFormValues = z.infer<typeof clientFormSchema>;
+export type ClientUpdateValues = z.infer<typeof clientUpdateSchema>;
 export type ClientFilter = z.infer<typeof clientFilterSchema>;
 export type ClientFilters = z.infer<typeof clientFiltersSchema>;

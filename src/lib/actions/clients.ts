@@ -2,6 +2,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import type { ZodError } from "zod";
 
 import { withAuthenticatedDb } from "@/db";
 import { clients } from "@/db/schema";
@@ -9,7 +10,7 @@ import { requireUser } from "@/lib/auth/require-user";
 import {
   clientFormSchema,
   clientIdSchema,
-  type ClientFormValues,
+  clientUpdateSchema,
 } from "@/lib/validations/client";
 
 export interface ClientActionState {
@@ -35,8 +36,30 @@ function clientInputFromFormData(formData: FormData): Record<string, unknown> {
   };
 }
 
+const clientPatchFields = [
+  "firstName",
+  "lastName",
+  "company",
+  "email",
+  "phone",
+  "whatsapp",
+  "taxId",
+  "website",
+  "address",
+  "notes",
+  "status",
+] as const;
+
+function clientPatchFromFormData(formData: FormData): Record<string, unknown> {
+  return Object.fromEntries(
+    clientPatchFields
+      .filter((field) => formData.has(field))
+      .map((field) => [field, formData.get(field)]),
+  );
+}
+
 function validationError(
-  issues: ReturnType<typeof clientFormSchema.safeParse> & { success: false },
+  issues: { error: ZodError },
 ): ClientActionState {
   return {
     status: "error",
@@ -84,8 +107,8 @@ export async function updateClientAction(
 ): Promise<ClientActionState> {
   const user = await requireUser();
   const idResult = clientIdSchema.safeParse(formData.get("id"));
-  const clientResult = clientFormSchema.safeParse(
-    clientInputFromFormData(formData),
+  const clientResult = clientUpdateSchema.safeParse(
+    clientPatchFromFormData(formData),
   );
 
   if (!idResult.success) {
@@ -98,7 +121,7 @@ export async function updateClientAction(
       return db
         .update(clients)
         .set({
-          ...(clientResult.data as ClientFormValues),
+          ...clientResult.data,
           updatedAt: new Date(),
         })
         .where(

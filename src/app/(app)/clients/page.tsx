@@ -19,6 +19,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const activeFilter = filters.some(({ value }) => value === params.filter)
     ? (params.filter as ClientFilter)
     : "all";
+  const hasActiveFilters = Boolean(params.q?.trim()) || activeFilter !== "all";
   const items = await getClients({ search: params.q, filter: activeFilter });
 
   return (
@@ -48,7 +49,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
       </section>
 
       <div className="client-result-count" aria-live="polite">{items.length} {items.length === 1 ? "legajo" : "legajos"}</div>
-      <ClientList clients={items} />
+      <ClientList clients={items} hasActiveFilters={hasActiveFilters} />
     </main>
   );
 }

@@ -77,7 +77,10 @@ describe("client actions", () => {
   it("updates only an owned client and returns a generic missing message", async () => {
     const returning = vi.fn().mockResolvedValue([]);
     const where = vi.fn(() => ({ returning }));
-    const set = vi.fn(() => ({ where }));
+    const set = vi.fn((patch: Record<string, unknown>) => {
+      void patch;
+      return { where };
+    });
     const update = vi.fn(() => ({ set }));
     mocks.withAuthenticatedDb.mockImplementation(
       (_id: string, operation: (db: unknown) => unknown) => operation({ update }),
@@ -93,10 +96,62 @@ describe("client actions", () => {
     });
   });
 
+  it("clears present blank optional fields without overwriting omitted patch fields", async () => {
+    const returning = vi.fn().mockResolvedValue([{ id: clientId }]);
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn((patch: Record<string, unknown>) => {
+      void patch;
+      return { where };
+    });
+    const update = vi.fn(() => ({ set }));
+    mocks.withAuthenticatedDb.mockImplementation(
+      (_id: string, operation: (db: unknown) => unknown) => operation({ update }),
+    );
+    const data = new FormData();
+    data.set("id", clientId);
+    data.set("firstName", " Agustín ");
+    for (const field of [
+      "company",
+      "email",
+      "phone",
+      "whatsapp",
+      "taxId",
+      "website",
+      "address",
+      "notes",
+    ]) {
+      data.set(field, " ");
+    }
+
+    const result = await updateClientAction({ status: "idle" }, data);
+
+    expect(result).toEqual({ status: "success", clientId });
+    const patch = set.mock.calls[0]?.[0];
+    expect(patch).toEqual(
+      expect.objectContaining({
+        firstName: "Agustín",
+        company: null,
+        email: null,
+        phone: null,
+        whatsapp: null,
+        taxId: null,
+        website: null,
+        address: null,
+        notes: null,
+        updatedAt: expect.any(Date),
+      }),
+    );
+    expect(patch).not.toHaveProperty("lastName");
+    expect(patch).not.toHaveProperty("status");
+  });
+
   it("archives instead of deleting", async () => {
     const returning = vi.fn().mockResolvedValue([{ id: clientId }]);
     const where = vi.fn(() => ({ returning }));
-    const set = vi.fn(() => ({ where }));
+    const set = vi.fn((patch: Record<string, unknown>) => {
+      void patch;
+      return { where };
+    });
     const update = vi.fn(() => ({ set }));
     mocks.withAuthenticatedDb.mockImplementation(
       (_id: string, operation: (db: unknown) => unknown) => operation({ update }),
