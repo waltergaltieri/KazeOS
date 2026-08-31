@@ -5,7 +5,6 @@ import {
   date,
   foreignKey,
   index,
-  pgPolicy,
   pgTable,
   text,
   timestamp,
@@ -13,7 +12,6 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
 import { clients } from "./clients";
 import {
@@ -21,7 +19,11 @@ import {
   taskRecurrenceEnum,
   taskStatusEnum,
 } from "./enums";
-import { auditColumns, ownerIdColumn } from "./shared";
+import {
+  auditColumns,
+  authenticatedOwnerPolicies,
+  ownerIdColumn,
+} from "./shared";
 
 export const tasks = pgTable(
   "tasks",
@@ -53,7 +55,7 @@ export const tasks = pgTable(
         or
         (${table.recurring} = false and ${table.recurrence} is null and ${table.parentId} is null and ${table.recurrenceKey} is null)
         or
-        (${table.recurring} = false and ${table.recurrence} is null and ${table.parentId} is not null and btrim(${table.recurrenceKey}) <> '')
+        (${table.recurring} = false and ${table.recurrence} is null and ${table.parentId} is not null and ${table.recurrenceKey} is not null and btrim(${table.recurrenceKey}) <> '')
       )`,
     ),
     check(
@@ -89,12 +91,8 @@ export const tasks = pgTable(
     uniqueIndex("tasks_parent_id_recurrence_key_unique")
       .on(table.parentId, table.recurrenceKey)
       .where(sql`${table.parentId} is not null and ${table.recurrenceKey} is not null`),
-    pgPolicy("tasks_authenticated_owner_access", {
-      as: "permissive",
-      for: "all",
-      to: authenticatedRole,
-      using: sql`${authUid} = ${table.ownerId}`,
-      withCheck: sql`${authUid} = ${table.ownerId}`,
+    ...authenticatedOwnerPolicies("tasks", table.ownerId, {
+      allowDelete: true,
     }),
   ],
 ).enableRLS();

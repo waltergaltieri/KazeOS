@@ -1,5 +1,5 @@
-import { getTableName } from "drizzle-orm";
-import { getTableConfig } from "drizzle-orm/pg-core";
+import { getTableName, type SQL } from "drizzle-orm";
+import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -41,6 +41,40 @@ function configOf(table: (typeof allTables)[number]) {
 
 function columnNames(table: (typeof allTables)[number]) {
   return configOf(table).columns.map((column) => column.name);
+}
+
+const dialect = new PgDialect();
+
+function renderSql(value: SQL | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  return dialect
+    .sqlToQuery(value)
+    .sql.replaceAll('"', "")
+    .replace(
+      /\b(?:profiles|clients|services|charges|payments|tasks|client_notes|settings)\./g,
+      "",
+    )
+    .replace(/\s+/g, " ");
+}
+
+function foreignKeyContract(
+  table: (typeof allTables)[number],
+  name: string,
+) {
+  const foreignKey = configOf(table).foreignKeys.find(
+    (candidate) => candidate.getName() === name,
+  );
+  const reference = foreignKey?.reference();
+
+  return {
+    columns: reference?.columns.map((column) => column.name),
+    foreignTable: reference && getTableName(reference.foreignTable),
+    foreignColumns: reference?.foreignColumns.map((column) => column.name),
+    onDelete: foreignKey?.onDelete,
+  };
 }
 
 describe("database schema contract", () => {
@@ -138,6 +172,10 @@ describe("database schema contract", () => {
       expect(table.createdAt.columnType).toBe("PgTimestamp");
       expect(table.updatedAt.columnType).toBe("PgTimestamp");
     }
+
+    expect(renderSql(clients.joinedAt.default as SQL)).toContain(
+      "now() at time zone 'America/Argentina/Buenos_Aires'",
+    );
   });
 
   it("declares foreign keys, checks, and planned indexes", () => {
@@ -155,6 +193,7 @@ describe("database schema contract", () => {
       expect.arrayContaining([
         "services_name_not_blank",
         "services_amount_minor_positive",
+        "services_amount_minor_js_safe",
         "services_billing_day_range",
         "services_end_date_valid",
         "services_billing_consistency",
@@ -164,7 +203,9 @@ describe("database schema contract", () => {
       expect.arrayContaining([
         "charges_description_not_blank",
         "charges_amount_minor_positive",
+        "charges_amount_minor_js_safe",
         "charges_amount_paid_minor_valid",
+        "charges_status_amount_paid_consistency",
         "charges_period_key_consistency",
       ]),
     );
@@ -191,6 +232,29 @@ describe("database schema contract", () => {
     expect(configOf(tasks).indexes.map((entry) => entry.config.name)).toContain(
       "tasks_owner_id_status_due_date_idx",
     );
+
+    const notesIndex = configOf(clientNotes).indexes.find(
+      (entry) => entry.config.name === "client_notes_owner_client_created_idx",
+    );
+    expect(
+      notesIndex?.config.columns.map((column) =>
+        "name" in column ? column.name : undefined,
+      ),
+    ).toEqual(["owner_id", "client_id", "created_at"]);
+    const createdAtIndexColumn = notesIndex?.config.columns[2];
+    expect(
+      createdAtIndexColumn && "indexConfig" in createdAtIndexColumn
+        ? createdAtIndexColumn.indexConfig?.order
+        : undefined,
+    ).toBe("desc");
+
+    expect(
+      renderSql(
+        configOf(tasks).checks.find(
+          (constraint) => constraint.name === "tasks_recurrence_consistency",
+        )?.value,
+      ),
+    ).toContain("recurrence_key is not null");
   });
 
   it("keeps related rows in the same owner boundary", () => {
@@ -200,21 +264,39 @@ describe("database schema contract", () => {
       ).toContain(`${getTableName(table)}_owner_id_id_unique`);
     }
 
-    expect(configOf(services).foreignKeys.map((key) => key.getName())).toContain(
-      "services_owner_id_client_id_clients_owner_id_id_fk",
-    );
-    expect(configOf(charges).foreignKeys.map((key) => key.getName())).toEqual(
-      expect.arrayContaining([
-        "charges_owner_id_client_id_clients_owner_id_id_fk",
-        "charges_owner_id_service_id_services_owner_id_id_fk",
-      ]),
-    );
-    expect(configOf(payments).foreignKeys.map((key) => key.getName())).toEqual(
-      expect.arrayContaining([
-        "payments_owner_id_client_id_clients_owner_id_id_fk",
-        "payments_owner_id_charge_id_charges_owner_id_id_fk",
-      ]),
-    );
+    expect(
+      foreignKeyContract(
+        services,
+        "services_owner_id_client_id_clients_owner_id_id_fk",
+      ),
+    ).toEqual({
+      columns: ["owner_id", "client_id"],
+      foreignTable: "clients",
+      foreignColumns: ["owner_id", "id"],
+      onDelete: "restrict",
+    });
+    expect(
+      foreignKeyContract(
+        charges,
+        "charges_service_owner_client_services_id_owner_client_fk",
+      ),
+    ).toEqual({
+      columns: ["service_id", "owner_id", "client_id"],
+      foreignTable: "services",
+      foreignColumns: ["id", "owner_id", "client_id"],
+      onDelete: "restrict",
+    });
+    expect(
+      foreignKeyContract(
+        payments,
+        "payments_charge_owner_client_currency_charges_fk",
+      ),
+    ).toEqual({
+      columns: ["charge_id", "owner_id", "client_id", "currency"],
+      foreignTable: "charges",
+      foreignColumns: ["id", "owner_id", "client_id", "currency"],
+      onDelete: "restrict",
+    });
     expect(configOf(tasks).foreignKeys.map((key) => key.getName())).toEqual(
       expect.arrayContaining([
         "tasks_owner_id_client_id_clients_owner_id_id_fk",
@@ -226,18 +308,69 @@ describe("database schema contract", () => {
     );
   });
 
-  it("enables RLS with authenticated owner policies on every table", () => {
+  it("enables command-specific authenticated policies with retained history", () => {
     for (const table of allTables) {
       const config = configOf(table);
       expect(config.enableRLS).toBe(true);
-      expect(config.policies).toHaveLength(1);
-      expect(config.policies[0]).toMatchObject({
-        as: "permissive",
-        for: "all",
-      });
-      expect(config.policies[0]?.to).toBeDefined();
-      expect(config.policies[0]?.using).toBeDefined();
-      expect(config.policies[0]?.withCheck).toBeDefined();
+
+      const commands = config.policies.map((policy) => policy.for).sort();
+      const expectedCommands = ["insert", "select", "update"];
+      if (table === tasks || table === clientNotes) {
+        expectedCommands.push("delete");
+      }
+
+      expect(commands).toEqual(expectedCommands.sort());
+      for (const policy of config.policies) {
+        expect((policy.to as { name: string }).name).toBe("authenticated");
+        expect(policy.for).not.toBe("all");
+
+        if (policy.for !== "insert") {
+          expect(renderSql(policy.using)).toContain("select auth.uid()");
+        }
+        if (policy.for === "insert" || policy.for === "update") {
+          expect(renderSql(policy.withCheck)).toContain("select auth.uid()");
+        }
+      }
     }
+  });
+
+  it("keeps all JavaScript number-mode money inside the safe integer range", () => {
+    const moneyChecks = [
+      [services, "services_amount_minor_js_safe"],
+      [charges, "charges_amount_minor_js_safe"],
+      [charges, "charges_amount_paid_minor_valid"],
+      [payments, "payments_amount_minor_js_safe"],
+    ] as const;
+
+    for (const [table, name] of moneyChecks) {
+      const expression = renderSql(
+        configOf(table).checks.find((constraint) => constraint.name === name)
+          ?.value,
+      );
+      expect(expression).toContain("9007199254740991");
+    }
+  });
+
+  it("allows overpayment only when the persisted status agrees", () => {
+    const paidAmountCheck = renderSql(
+      configOf(charges).checks.find(
+        (constraint) => constraint.name === "charges_amount_paid_minor_valid",
+      )?.value,
+    );
+    const statusCheck = renderSql(
+      configOf(charges).checks.find(
+        (constraint) =>
+          constraint.name === "charges_status_amount_paid_consistency",
+      )?.value,
+    );
+
+    expect(paidAmountCheck).not.toContain("<= amount_minor");
+    expect(statusCheck).toContain("status = 'pending' and amount_paid_minor = 0");
+    expect(statusCheck).toContain(
+      "status = 'partial' and amount_paid_minor > 0 and amount_paid_minor < amount_minor",
+    );
+    expect(statusCheck).toContain(
+      "status = 'paid' and amount_paid_minor >= amount_minor",
+    );
   });
 });

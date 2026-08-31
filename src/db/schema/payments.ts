@@ -5,17 +5,19 @@ import {
   date,
   foreignKey,
   index,
-  pgPolicy,
   pgTable,
   text,
   uuid,
 } from "drizzle-orm/pg-core";
-import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
 import { charges } from "./charges";
 import { clients } from "./clients";
 import { currencyEnum, paymentMethodEnum } from "./enums";
-import { auditColumns, ownerIdColumn } from "./shared";
+import {
+  auditColumns,
+  authenticatedOwnerPolicies,
+  ownerIdColumn,
+} from "./shared";
 
 export const payments = pgTable(
   "payments",
@@ -34,6 +36,10 @@ export const payments = pgTable(
   },
   (table) => [
     check("payments_amount_minor_positive", sql`${table.amountMinor} > 0`),
+    check(
+      "payments_amount_minor_js_safe",
+      sql`${table.amountMinor} <= 9007199254740991`,
+    ),
     foreignKey({
       name: "payments_owner_id_client_id_clients_owner_id_id_fk",
       columns: [table.ownerId, table.clientId],
@@ -42,24 +48,33 @@ export const payments = pgTable(
       .onDelete("restrict")
       .onUpdate("cascade"),
     foreignKey({
-      name: "payments_owner_id_charge_id_charges_owner_id_id_fk",
-      columns: [table.ownerId, table.chargeId],
-      foreignColumns: [charges.ownerId, charges.id],
+      name: "payments_charge_owner_client_currency_charges_fk",
+      columns: [
+        table.chargeId,
+        table.ownerId,
+        table.clientId,
+        table.currency,
+      ],
+      foreignColumns: [
+        charges.id,
+        charges.ownerId,
+        charges.clientId,
+        charges.currency,
+      ],
     })
       .onDelete("restrict")
       .onUpdate("cascade"),
     index("payments_owner_id_client_id_idx").on(table.ownerId, table.clientId),
-    index("payments_owner_id_charge_id_idx").on(table.ownerId, table.chargeId),
+    index("payments_charge_owner_client_currency_idx").on(
+      table.chargeId,
+      table.ownerId,
+      table.clientId,
+      table.currency,
+    ),
     index("payments_owner_id_payment_date_idx").on(
       table.ownerId,
       table.paymentDate,
     ),
-    pgPolicy("payments_authenticated_owner_access", {
-      as: "permissive",
-      for: "all",
-      to: authenticatedRole,
-      using: sql`${authUid} = ${table.ownerId}`,
-      withCheck: sql`${authUid} = ${table.ownerId}`,
-    }),
+    ...authenticatedOwnerPolicies("payments", table.ownerId),
   ],
 ).enableRLS();

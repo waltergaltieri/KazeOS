@@ -7,13 +7,11 @@ import {
   foreignKey,
   index,
   integer,
-  pgPolicy,
   pgTable,
   text,
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
 import { clients } from "./clients";
 import {
@@ -22,7 +20,11 @@ import {
   currencyEnum,
   serviceStatusEnum,
 } from "./enums";
-import { auditColumns, ownerIdColumn } from "./shared";
+import {
+  auditColumns,
+  authenticatedOwnerPolicies,
+  ownerIdColumn,
+} from "./shared";
 
 export const services = pgTable(
   "services",
@@ -49,6 +51,10 @@ export const services = pgTable(
     check("services_name_not_blank", sql`btrim(${table.name}) <> ''`),
     check("services_amount_minor_positive", sql`${table.amountMinor} > 0`),
     check(
+      "services_amount_minor_js_safe",
+      sql`${table.amountMinor} <= 9007199254740991`,
+    ),
+    check(
       "services_billing_day_range",
       sql`${table.billingDay} is null or ${table.billingDay} between 1 and 31`,
     ),
@@ -72,14 +78,13 @@ export const services = pgTable(
       .onDelete("restrict")
       .onUpdate("cascade"),
     unique("services_owner_id_id_unique").on(table.ownerId, table.id),
+    unique("services_id_owner_id_client_id_unique").on(
+      table.id,
+      table.ownerId,
+      table.clientId,
+    ),
     index("services_owner_id_client_id_idx").on(table.ownerId, table.clientId),
     index("services_owner_id_status_idx").on(table.ownerId, table.status),
-    pgPolicy("services_authenticated_owner_access", {
-      as: "permissive",
-      for: "all",
-      to: authenticatedRole,
-      using: sql`${authUid} = ${table.ownerId}`,
-      withCheck: sql`${authUid} = ${table.ownerId}`,
-    }),
+    ...authenticatedOwnerPolicies("services", table.ownerId),
   ],
 ).enableRLS();

@@ -3,16 +3,18 @@ import {
   check,
   date,
   index,
-  pgPolicy,
   pgTable,
   text,
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
 import { clientStatusEnum } from "./enums";
-import { auditColumns, ownerIdColumn } from "./shared";
+import {
+  auditColumns,
+  authenticatedOwnerPolicies,
+  ownerIdColumn,
+} from "./shared";
 
 export const clients = pgTable(
   "clients",
@@ -31,7 +33,9 @@ export const clients = pgTable(
     notes: text("notes"),
     status: clientStatusEnum("status").default("active").notNull(),
     joinedAt: date("joined_at", { mode: "string" })
-      .default(sql`current_date`)
+      .default(
+        sql`(now() at time zone 'America/Argentina/Buenos_Aires')::date`,
+      )
       .notNull(),
     ...auditColumns(),
   },
@@ -39,12 +43,6 @@ export const clients = pgTable(
     check("clients_first_name_not_blank", sql`btrim(${table.firstName}) <> ''`),
     unique("clients_owner_id_id_unique").on(table.ownerId, table.id),
     index("clients_owner_id_status_idx").on(table.ownerId, table.status),
-    pgPolicy("clients_authenticated_owner_access", {
-      as: "permissive",
-      for: "all",
-      to: authenticatedRole,
-      using: sql`${authUid} = ${table.ownerId}`,
-      withCheck: sql`${authUid} = ${table.ownerId}`,
-    }),
+    ...authenticatedOwnerPolicies("clients", table.ownerId),
   ],
 ).enableRLS();

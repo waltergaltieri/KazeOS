@@ -6,19 +6,21 @@ import {
   date,
   foreignKey,
   index,
-  pgPolicy,
   pgTable,
   text,
   unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
 import { clients } from "./clients";
 import { chargeStatusEnum, currencyEnum } from "./enums";
 import { services } from "./services";
-import { auditColumns, ownerIdColumn } from "./shared";
+import {
+  auditColumns,
+  authenticatedOwnerPolicies,
+  ownerIdColumn,
+} from "./shared";
 
 export const charges = pgTable(
   "charges",
@@ -45,8 +47,21 @@ export const charges = pgTable(
     check("charges_description_not_blank", sql`btrim(${table.description}) <> ''`),
     check("charges_amount_minor_positive", sql`${table.amountMinor} > 0`),
     check(
+      "charges_amount_minor_js_safe",
+      sql`${table.amountMinor} <= 9007199254740991`,
+    ),
+    check(
       "charges_amount_paid_minor_valid",
-      sql`${table.amountPaidMinor} >= 0 and ${table.amountPaidMinor} <= ${table.amountMinor}`,
+      sql`${table.amountPaidMinor} >= 0 and ${table.amountPaidMinor} <= 9007199254740991`,
+    ),
+    check(
+      "charges_status_amount_paid_consistency",
+      sql`(
+        ${table.status} = 'cancelled'
+        or (${table.status} = 'pending' and ${table.amountPaidMinor} = 0)
+        or (${table.status} = 'partial' and ${table.amountPaidMinor} > 0 and ${table.amountPaidMinor} < ${table.amountMinor})
+        or (${table.status} = 'paid' and ${table.amountPaidMinor} >= ${table.amountMinor})
+      )`,
     ),
     check(
       "charges_period_key_consistency",
@@ -64,15 +79,25 @@ export const charges = pgTable(
       .onDelete("restrict")
       .onUpdate("cascade"),
     foreignKey({
-      name: "charges_owner_id_service_id_services_owner_id_id_fk",
-      columns: [table.ownerId, table.serviceId],
-      foreignColumns: [services.ownerId, services.id],
+      name: "charges_service_owner_client_services_id_owner_client_fk",
+      columns: [table.serviceId, table.ownerId, table.clientId],
+      foreignColumns: [services.id, services.ownerId, services.clientId],
     })
       .onDelete("restrict")
       .onUpdate("cascade"),
     unique("charges_owner_id_id_unique").on(table.ownerId, table.id),
+    unique("charges_id_owner_client_currency_unique").on(
+      table.id,
+      table.ownerId,
+      table.clientId,
+      table.currency,
+    ),
     index("charges_owner_id_client_id_idx").on(table.ownerId, table.clientId),
-    index("charges_owner_id_service_id_idx").on(table.ownerId, table.serviceId),
+    index("charges_service_owner_client_idx").on(
+      table.serviceId,
+      table.ownerId,
+      table.clientId,
+    ),
     index("charges_owner_id_due_date_idx").on(table.ownerId, table.dueDate),
     index("charges_owner_id_status_due_date_idx").on(
       table.ownerId,
@@ -82,12 +107,6 @@ export const charges = pgTable(
     uniqueIndex("charges_service_id_period_key_unique")
       .on(table.serviceId, table.periodKey)
       .where(sql`${table.serviceId} is not null and ${table.periodKey} is not null`),
-    pgPolicy("charges_authenticated_owner_access", {
-      as: "permissive",
-      for: "all",
-      to: authenticatedRole,
-      using: sql`${authUid} = ${table.ownerId}`,
-      withCheck: sql`${authUid} = ${table.ownerId}`,
-    }),
+    ...authenticatedOwnerPolicies("charges", table.ownerId),
   ],
 ).enableRLS();

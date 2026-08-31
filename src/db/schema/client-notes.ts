@@ -3,15 +3,17 @@ import {
   check,
   foreignKey,
   index,
-  pgPolicy,
   pgTable,
   text,
   uuid,
 } from "drizzle-orm/pg-core";
-import { authenticatedRole, authUid } from "drizzle-orm/supabase";
 
 import { clients } from "./clients";
-import { auditColumns, ownerIdColumn } from "./shared";
+import {
+  auditColumns,
+  authenticatedOwnerPolicies,
+  ownerIdColumn,
+} from "./shared";
 
 export const clientNotes = pgTable(
   "client_notes",
@@ -31,16 +33,13 @@ export const clientNotes = pgTable(
     })
       .onDelete("restrict")
       .onUpdate("cascade"),
-    index("client_notes_owner_id_client_id_idx").on(
+    index("client_notes_owner_client_created_idx").on(
       table.ownerId,
       table.clientId,
+      table.createdAt.desc(),
     ),
-    pgPolicy("client_notes_authenticated_owner_access", {
-      as: "permissive",
-      for: "all",
-      to: authenticatedRole,
-      using: sql`${authUid} = ${table.ownerId}`,
-      withCheck: sql`${authUid} = ${table.ownerId}`,
+    ...authenticatedOwnerPolicies("client_notes", table.ownerId, {
+      allowDelete: true,
     }),
   ],
 ).enableRLS();
