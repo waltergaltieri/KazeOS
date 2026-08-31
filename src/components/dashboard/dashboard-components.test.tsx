@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
@@ -81,12 +81,25 @@ describe("dashboard components", () => {
         ]}
       />,
     );
-    expect(screen.getByRole("img", { name: "Ingresos mensuales de USD y ARS" })).toBeVisible();
-    expect(screen.getByText("Mar")).toBeVisible();
-    expect(screen.getByText("Ago")).toBeVisible();
-    const usdPoints = document.querySelector(".dashboard-chart-line--usd")!.getAttribute("points")!;
-    const usdRange = usdPoints.split(" ").map((point) => Number(point.split(",")[1]));
-    expect(Math.max(...usdRange) - Math.min(...usdRange)).toBeGreaterThan(80);
+    expect(screen.getByText("USD · escala propia")).toBeVisible();
+    expect(screen.getByText("ARS · escala propia")).toBeVisible();
+    expect(screen.getByText(/Mín\. USD\s+10,00/)).toBeVisible();
+    expect(screen.getByText(/Máx\. USD\s+60,00/)).toBeVisible();
+    expect(screen.getByText(/Mín\. ARS\s+10\.000\.000,00/)).toBeVisible();
+    expect(screen.getByText(/Máx\. ARS\s+20\.000\.000,00/)).toBeVisible();
+    expect(screen.getByRole("img", { name: "Tendencia de ingresos USD con escala propia" })).toBeVisible();
+    expect(screen.getByRole("img", { name: "Tendencia de ingresos ARS con escala propia" })).toBeVisible();
+    expect(screen.queryByRole("img", { name: "Ingresos mensuales de USD y ARS" })).not.toBeInTheDocument();
+
+    const exactData = screen.getByRole("table", { name: "Datos exactos de ingresos de los últimos 6 meses" });
+    expect(within(exactData).getByRole("row", { name: /Marzo 2026 USD\s+10,00 ARS\s+10\.000\.000,00/ })).toBeInTheDocument();
+    expect(within(exactData).getByRole("row", { name: /Agosto 2026 USD\s+60,00 ARS\s+20\.000\.000,00/ })).toBeInTheDocument();
+
+    for (const currency of ["usd", "ars"]) {
+      const points = document.querySelector(`.dashboard-chart-line--${currency}`)!.getAttribute("points")!;
+      const range = points.split(" ").map((point) => Number(point.split(",")[1]));
+      expect(Math.max(...range) - Math.min(...range)).toBeGreaterThan(80);
+    }
 
     rerender(<UpcomingCharges charges={[]} today="2026-08-15" />);
     expect(screen.getByRole("link", { name: "Crear primer cobro" })).toHaveAttribute("href", "/charges/new");
