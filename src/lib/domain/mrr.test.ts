@@ -50,7 +50,7 @@ describe("calculateMrr", () => {
     ).toEqual({ USD: 200, ARS: 0 });
   });
 
-  it("rounds each fractional monthly amount to the nearest minor unit with halves up", () => {
+  it("rounds the aggregate fractional amount to the nearest minor unit with halves up", () => {
     expect(
       calculateMrr([
         service({ amountMinor: 100, billingFrequency: "quarterly" }),
@@ -58,6 +58,26 @@ describe("calculateMrr", () => {
         service({ amountMinor: 6, billingFrequency: "yearly" }),
       ]),
     ).toEqual({ USD: 34, ARS: 0 });
+  });
+
+  it("preserves fractional yearly amounts until their currency total is rounded", () => {
+    expect(
+      calculateMrr(
+        Array.from({ length: 12 }, () =>
+          service({ amountMinor: 1, billingFrequency: "yearly" }),
+        ),
+      ),
+    ).toEqual({ USD: 1, ARS: 0 });
+  });
+
+  it("does not accumulate per-service half-up rounding bias", () => {
+    expect(
+      calculateMrr(
+        Array.from({ length: 12 }, () =>
+          service({ amountMinor: 6, billingFrequency: "yearly" }),
+        ),
+      ),
+    ).toEqual({ USD: 6, ARS: 0 });
   });
 
   it("returns explicit zeroes for missing currencies", () => {

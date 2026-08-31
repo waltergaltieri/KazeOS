@@ -57,31 +57,37 @@ function validateService(service: Readonly<MrrServiceInput>): void {
   }
 }
 
-/**
- * Normalizes a service amount to monthly minor units. Fractional minor units
- * are rounded independently per service to the nearest unit, with exact halves
- * rounded up. BigInt keeps the quotient and remainder deterministic.
- */
-function normalizeMonthlyAmount(
+function toMonthlyTwelfths(
   amountMinor: number,
   frequency: Exclude<BillingFrequency, "one_time">,
 ): bigint {
-  const divisor =
+  const weight =
     frequency === "monthly"
-      ? BigInt(1)
+      ? BigInt(12)
       : frequency === "quarterly"
-        ? BigInt(3)
-        : BigInt(12);
-  const amount = BigInt(amountMinor);
-  const quotient = amount / divisor;
-  const remainder = amount % divisor;
+        ? BigInt(4)
+        : BigInt(1);
 
-  return quotient + (remainder * BigInt(2) >= divisor ? BigInt(1) : BigInt(0));
+  return BigInt(amountMinor) * weight;
+}
+
+function roundMonthlyTwelfths(monthlyTwelfths: bigint): bigint {
+  const denominator = BigInt(12);
+  const quotient = monthlyTwelfths / denominator;
+  const remainder = monthlyTwelfths % denominator;
+
+  return (
+    quotient +
+    (remainder * BigInt(2) >= denominator ? BigInt(1) : BigInt(0))
+  );
 }
 
 /**
  * Calculates MRR independently for USD and ARS. Missing currencies are
  * represented by zero; no conversion or cross-currency total is produced.
+ * Each service contributes exact twelfths of a monthly minor unit (monthly
+ * amounts use a 12 weight, quarterly 4, and yearly 1). Each currency total is
+ * rounded once to the nearest minor unit, with exact halves rounded up.
  */
 export function calculateMrr(
   services: readonly Readonly<MrrServiceInput>[],
@@ -102,18 +108,21 @@ export function calculateMrr(
       continue;
     }
 
-    totals[service.currency] += normalizeMonthlyAmount(
+    totals[service.currency] += toMonthlyTwelfths(
       service.amountMinor,
       service.billingFrequency,
     );
   }
 
-  if (totals.USD > maxSafeMinorUnits || totals.ARS > maxSafeMinorUnits) {
+  const roundedUsd = roundMonthlyTwelfths(totals.USD);
+  const roundedArs = roundMonthlyTwelfths(totals.ARS);
+
+  if (roundedUsd > maxSafeMinorUnits || roundedArs > maxSafeMinorUnits) {
     throw new RangeError("MRR total exceeds the safe integer range");
   }
 
   return {
-    USD: Number(totals.USD),
-    ARS: Number(totals.ARS),
+    USD: Number(roundedUsd),
+    ARS: Number(roundedArs),
   };
 }
