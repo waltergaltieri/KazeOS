@@ -531,6 +531,12 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   .login-context-copy h1 { font-size: 42px; }
 }
 
+.ledger-select { position: relative; }
+.ledger-select__trigger { display: flex; align-items: center; justify-content: space-between; text-align: left; }
+.ledger-select__options { position: absolute; z-index: 45; top: calc(100% + 5px); right: 0; left: 0; display: grid; max-height: 240px; overflow: auto; padding: 5px; border: 1px solid var(--ledger-rule); border-radius: 9px; background: var(--paper-overlay); box-shadow: var(--quiet-shadow); }
+.ledger-select__options button { display: flex; min-height: 36px; align-items: center; justify-content: space-between; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-secondary); text-align: left; }
+.ledger-select__options button:hover, .ledger-select__options button[aria-selected="true"] { background: var(--action-violet-soft); color: var(--action-violet); }
+
 @media (max-width: 720px) {
   .login-page { display: block; }
   .login-context {
@@ -589,4 +595,50 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   .service-pause-confirm > :is(.danger-button, .quiet-button) { flex: 1 1 0; }
   .service-empty { grid-template-columns: 44px minmax(0, 1fr); padding: 24px 20px; }
   .service-empty .primary-button { grid-column: 1 / -1; width: 100%; }
+}
+
+/* Charges: actionable receivables ledger and chronological payment rail. */
+.charges-page, .charge-editor-page, .charge-detail-page { max-width: 1280px; margin: 0 auto; }
+.charge-toolbar { display: grid; gap: 10px; margin-bottom: 14px; }
+.charge-advanced { width: fit-content; }.charge-advanced summary { color: var(--action-violet); font-size: 11px; font-weight: 700; cursor: pointer; }.charge-advanced form { display: grid; grid-template-columns: 150px 150px 150px auto; align-items: end; gap: 8px; padding: 10px; margin-top: 7px; border: 1px solid var(--ledger-rule); border-radius: 10px; background: var(--paper-sheet); }.charge-advanced label { display: grid; gap: 4px; }.charge-advanced label > span { color: var(--ink-tertiary); font-size: 10px; font-weight: 680; }
+.charge-ledger { overflow: hidden; border: 1px solid var(--ledger-rule); border-radius: 13px; background: var(--paper-sheet); box-shadow: 0 8px 24px rgba(19,31,56,.04); }
+.charge-table-wrap { overflow-x: auto; }
+.charge-table { width: 100%; border-collapse: collapse; }
+.charge-table th { padding: 12px 14px; border-bottom: 1px solid var(--ledger-rule); color: var(--ink-muted); font-size: 10px; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+.charge-table td { padding: 13px 14px; border-bottom: 1px solid var(--ledger-rule-soft); vertical-align: middle; }
+.charge-table tbody tr:last-child td { border-bottom: 0; }
+.charge-table tbody tr:hover { background: color-mix(in srgb, var(--action-violet-soft) 28%, transparent); }
+.charge-table td:first-child { min-width: 210px; }
+.charge-table td:first-child strong, .charge-table td:first-child small { display: block; }
+.charge-table td:first-child small { margin-top: 3px; color: var(--ink-tertiary); }
+.charge-table .align-end { text-align: right; }
+.money-data { font-variant-numeric: tabular-nums; font-weight: 680; white-space: nowrap; }
+.charge-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
+.primary-button--compact { min-height: 32px; padding: 0 10px; font-size: 11px; }
+.charge-status { display: inline-flex; min-height: 24px; align-items: center; padding: 0 8px; border-radius: 999px; background: var(--paper-inset); color: var(--ink-secondary); font-size: 10px; font-weight: 730; white-space: nowrap; }
+.charge-status--overdue, .charge-status--cancelled { background: var(--overdue-red-soft); color: var(--overdue-red); }
+.charge-status--due_today, .charge-status--partial { background: var(--reminder-amber-soft); color: var(--reminder-amber); }
+.charge-status--paid { background: var(--collection-green-soft); color: var(--collection-green); }
+.charge-card-list { display: none; }
+.charge-empty { display: grid; min-height: 270px; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 18px; padding: 28px; border: 1px solid var(--ledger-rule); border-radius: 12px; background: var(--paper-sheet); }
+.charge-empty > svg { padding: 11px; width: 44px; height: 44px; border-radius: 11px; background: var(--action-violet-soft); color: var(--action-violet); }
+.charge-empty h2 { margin: 0; }.charge-empty p { margin: 5px 0 0; color: var(--ink-secondary); }
+.charge-form { display: grid; gap: 16px; }.charge-form .field-stack { align-content: start; }.charge-form .field-stack > span { color: var(--ink-secondary); font-size: 12px; font-weight: 680; }
+.payment-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100svh - 32px); padding: 0; border: 1px solid var(--ledger-rule); border-radius: 14px; background: var(--paper-overlay); color: var(--ink-primary); box-shadow: var(--quiet-shadow); }
+.payment-dialog::backdrop { background: rgba(10,14,24,.48); backdrop-filter: blur(2px); }
+.payment-dialog > header { display: flex; align-items: start; justify-content: space-between; gap: 18px; padding: 20px 20px 16px; border-bottom: 1px solid var(--ledger-rule); }
+.payment-dialog h2 { margin: 0; font-size: 20px; }.payment-dialog header p:last-child { margin: 4px 0 0; color: var(--ink-tertiary); }
+.payment-form { display: grid; gap: 14px; padding: 20px; }.payment-form .field-stack { display: grid; gap: 6px; }.payment-form .field-stack > span { color: var(--ink-secondary); font-size: 12px; font-weight: 680; }
+.payment-balance { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px; border: 1px solid var(--ledger-rule-soft); border-radius: 9px; background: var(--paper-inset); }.payment-balance span { color: var(--ink-tertiary); font-size: 11px; }.payment-balance strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.payment-form footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.overpay-confirm { display: flex; gap: 10px; padding: 12px; border: 1px solid color-mix(in srgb, var(--reminder-amber) 28%, transparent); border-radius: 9px; background: var(--reminder-amber-soft); color: var(--reminder-amber); }.overpay-confirm input { width: 18px; height: 18px; accent-color: var(--reminder-amber); }.overpay-confirm span { display: grid; }.overpay-confirm small { margin-top: 2px; }
+.charge-detail-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }.charge-detail-summary > div { display: grid; gap: 8px; padding: 18px; border: 1px solid var(--ledger-rule); border-radius: 11px; background: var(--paper-sheet); }.charge-detail-summary span:first-child { color: var(--ink-tertiary); font-size: 11px; }.charge-detail-summary strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+.payment-history-sheet { padding: 22px; border: 1px solid var(--ledger-rule); border-radius: 12px; background: var(--paper-sheet); }.payment-history-sheet h2 { margin: 0; font-size: 19px; }
+.payment-rail { padding: 0; margin: 20px 0 0; list-style: none; }.payment-rail li { position: relative; display: grid; grid-template-columns: 38px minmax(0,1fr) auto; gap: 12px; padding-bottom: 22px; }.payment-rail li:not(:last-child)::before { position: absolute; top: 32px; bottom: 0; left: 16px; width: 1px; background: var(--ledger-rule); content: ""; }.payment-rail__mark { z-index: 1; display: grid; width: 33px; height: 33px; place-items: center; border: 4px solid var(--paper-sheet); border-radius: 50%; background: var(--collection-green-soft); color: var(--collection-green); }.payment-rail li > div { display: grid; align-content: start; }.payment-rail strong { font-variant-numeric: tabular-nums; }.payment-rail li > div > span, .payment-rail small, .payment-rail time { color: var(--ink-tertiary); font-size: 11px; }.payment-rail p { margin: 5px 0 0; }.payment-empty { padding: 24px; margin-top: 18px; border: 1px dashed var(--ledger-rule); border-radius: 9px; background: var(--paper-inset); }.payment-empty p { margin: 0; }.payment-empty span { color: var(--ink-tertiary); font-size: 11px; }
+
+@media (max-width: 720px) {
+  .charges-page .page-heading--actions { flex-direction: column; align-items: stretch; }
+  .charges-page .page-heading--actions .primary-button { width: 100%; min-height: 42px; align-self: auto; }
+  .charge-advanced { width: 100%; }.charge-advanced form { grid-template-columns: 1fr 1fr; }.charge-advanced form > label:first-of-type, .charge-advanced form .secondary-button { grid-column: 1 / -1; }
+  .charge-table-wrap { display: none; }.charge-ledger { overflow: visible; border: 0; background: transparent; box-shadow: none; }.charge-card-list { display: grid; gap: 10px; }.charge-card { padding: 17px 16px; border: 1px solid var(--ledger-rule); border-radius: 11px; background: var(--paper-sheet); }.charge-card header { display: flex; align-items: start; justify-content: space-between; gap: 12px; }.charge-card header div { display: grid; }.charge-card header span:not(.charge-status) { color: var(--ink-tertiary); font-size: 11px; }.charge-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; padding-top: 13px; border-top: 1px solid var(--ledger-rule-soft); }.charge-card dt { color: var(--ink-muted); font-size: 9px; font-weight: 720; letter-spacing: .08em; text-transform: uppercase; }.charge-card dd { margin: 3px 0 0; font-variant-numeric: tabular-nums; font-weight: 680; }.charge-card footer { display: flex; gap: 8px; }.charge-card footer > * { flex: 1 1 0; }.charge-empty { grid-template-columns: 44px 1fr; padding: 22px 18px; }.charge-empty .primary-button { grid-column: 1 / -1; width: 100%; }.charge-detail-summary { grid-template-columns: 1fr; }.payment-history-sheet { padding: 18px 14px; }.payment-rail li { grid-template-columns: 36px 1fr; }.payment-rail time { grid-column: 2; }.payment-dialog { width: calc(100vw - 16px); max-height: calc(100svh - 16px); }.payment-dialog > header, .payment-form { padding: 16px; }.payment-form .form-grid--two { grid-template-columns: 1fr; }.payment-form footer > * { flex: 1 1 0; }
 }

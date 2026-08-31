@@ -3,12 +3,12 @@ import Link from "next/link";
 const tabs = [
   { key: "summary", label: "Resumen", available: true },
   { key: "services", label: "Servicios", available: true },
-  { key: "charges", label: "Cobros", available: false },
+  { key: "charges", label: "Cobros", available: true },
   { key: "tasks", label: "Tareas", available: false },
   { key: "notes", label: "Notas", available: false },
 ] as const;
 
-type AvailableTab = "summary" | "services";
+type AvailableTab = "summary" | "services" | "charges";
 
 export function ClientTabs({
   clientId,
@@ -23,7 +23,7 @@ export function ClientTabs({
         tab.available ? (
           <Link
             key={tab.key}
-            href={tab.key === "services" ? `/clients/${clientId}/services` : `/clients/${clientId}`}
+            href={tab.key === "summary" ? `/clients/${clientId}` : `/clients/${clientId}/${tab.key}`}
             aria-current={tab.key === active ? "page" : undefined}
           >
             {tab.label}

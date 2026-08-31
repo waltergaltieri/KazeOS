@@ -1,0 +1,8 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+const mocks = vi.hoisted(() => ({ requireUser: vi.fn(), withAuthenticatedDb: vi.fn(), createManualCharge: vi.fn(), revalidatePath: vi.fn() }));
+vi.mock("server-only", () => ({})); vi.mock("@/lib/auth/require-user", () => ({ requireUser: mocks.requireUser })); vi.mock("@/db", () => ({ withAuthenticatedDb: mocks.withAuthenticatedDb })); vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath })); vi.mock("@/lib/services/charge-manager", () => ({ createManualCharge: mocks.createManualCharge, updateManualCharge: vi.fn(), cancelManualCharge: vi.fn(), ChargeFinanciallyLockedError: class extends Error {} }));
+import { createChargeAction } from "./charges";
+describe("charge actions", () => {
+  beforeEach(() => { vi.clearAllMocks(); mocks.requireUser.mockResolvedValue({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }); mocks.withAuthenticatedDb.mockImplementation((_id: string, operation: (db: object) => unknown) => operation({})); mocks.createManualCharge.mockResolvedValue({ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", clientId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }); });
+  it("parses and creates in the verified owner scope", async () => { const form = new FormData(); Object.entries({ clientId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", description: "Abono", amount: "1.000,00", currency: "ARS", dueDate: "2026-09-01", notes: "" }).forEach(([k,v]) => form.set(k,v)); const result = await createChargeAction({ status: "idle" }, form); expect(result.status).toBe("success"); expect(mocks.createManualCharge).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ ownerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", values: expect.objectContaining({ amountMinor: 100000 }) })); });
+});
