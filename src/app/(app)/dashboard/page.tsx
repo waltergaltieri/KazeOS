@@ -1,29 +1,44 @@
-import { CircleCheck, CircleDollarSign, Clock3 } from "lucide-react";
+import { KpiStrip } from "@/components/dashboard/kpi-strip";
+import { PendingTasks } from "@/components/dashboard/pending-tasks";
+import { RevenueTrend } from "@/components/dashboard/revenue-trend";
+import { UpcomingCharges } from "@/components/dashboard/upcoming-charges";
+import { UpcomingMovements } from "@/components/dashboard/upcoming-movements";
+import { todayInBusinessZone } from "@/lib/domain/commercial-date";
+import {
+  getDashboardMetrics,
+  getMonthlyRevenue,
+  getPendingTasks,
+  getUpcomingCharges,
+  getUpcomingMovements,
+} from "@/lib/queries/dashboard";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const today = todayInBusinessZone(new Date());
+  const [metrics, upcomingCharges, pendingTasks, upcomingMovements, monthlyRevenue] = await Promise.all([
+    getDashboardMetrics(today),
+    getUpcomingCharges(today),
+    getPendingTasks(today),
+    getUpcomingMovements(today),
+    getMonthlyRevenue(today),
+  ]);
+
   return (
-    <section className="dashboard-entry" aria-labelledby="dashboard-title">
-      <header className="dashboard-entry__heading">
+    <main className="dashboard-page" aria-labelledby="dashboard-title">
+      <header className="dashboard-page__heading">
         <p className="eyebrow">Agenda operativa</p>
         <h1 id="dashboard-title">Resumen diario</h1>
-        <p>Cobros, obligaciones y tareas en un único recorrido.</p>
+        <p>Lo que entró, lo que vence y lo que necesita tu atención.</p>
       </header>
 
-      <div className="empty-ledger">
-        <div className="empty-ledger__rail" aria-hidden="true">
-          <span className="is-collected"><CircleCheck size={17} /></span>
-          <span className="is-reminder"><Clock3 size={17} /></span>
-          <span><CircleDollarSign size={17} /></span>
-        </div>
-        <div>
-          <p className="empty-ledger__label">Espacio listo</p>
-          <h2>Tu información va a tomar forma acá.</h2>
-          <p>
-            El resumen mostrará movimientos reales cuando estén disponibles,
-            sin inventar información para completar la vista.
-          </p>
-        </div>
+      <KpiStrip metrics={metrics} />
+      <div className="dashboard-operational-grid">
+        <UpcomingCharges charges={upcomingCharges} today={today} />
+        <PendingTasks tasks={pendingTasks} today={today} />
       </div>
-    </section>
+      <div className="dashboard-insight-grid">
+        <UpcomingMovements movements={upcomingMovements} />
+        <RevenueTrend points={monthlyRevenue} />
+      </div>
+    </main>
   );
 }
