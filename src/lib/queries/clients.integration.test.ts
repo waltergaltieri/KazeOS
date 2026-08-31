@@ -64,12 +64,61 @@ describeDatabase("client queries against RLS", () => {
 
         const debt = await getClients({ filter: "debt" });
         expect(debt).toHaveLength(1);
-        expect(debt[0]).toMatchObject({ id: debtClientId, outstanding: { USD: 10_000, ARS: 90_000 } });
+        expect(debt[0]).toMatchObject({ id: debtClientId, outstanding: { USD: "10000", ARS: "90000" } });
         await expect(getClients({ filter: "current" })).resolves.toEqual([
           expect.objectContaining({ id: currentClientId }),
         ]);
         await expect(getClientSummary(debtClientId)).resolves.toMatchObject({
-          outstanding: { USD: 10_000, ARS: 90_000 },
+          outstanding: { USD: "10000", ARS: "90000" },
+        });
+
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    }
+  }, 30_000);
+
+  it("returns two maximum charge rows as an exact serializable aggregate", async () => {
+    try {
+      await database!.transaction(async (transaction: Transaction) => {
+        const ownerId = randomUUID();
+        const clientId = randomUUID();
+        const exactTotal = (BigInt(Number.MAX_SAFE_INTEGER) * BigInt(2)).toString();
+        await transaction.execute(sql`insert into auth.users (id) values (${ownerId})`);
+        await transaction.insert(clients).values({
+          id: clientId,
+          ownerId,
+          firstName: "Total exacto",
+        });
+        await transaction.insert(charges).values([
+          {
+            ownerId,
+            clientId,
+            description: "Máximo uno",
+            amountMinor: Number.MAX_SAFE_INTEGER,
+            currency: "USD",
+            dueDate: "2026-08-01",
+            status: "pending",
+          },
+          {
+            ownerId,
+            clientId,
+            description: "Máximo dos",
+            amountMinor: Number.MAX_SAFE_INTEGER,
+            currency: "USD",
+            dueDate: "2026-08-02",
+            status: "pending",
+          },
+        ]);
+
+        runtime.userId = ownerId;
+        runtime.run = createAuthenticatedDrizzleRunner(transaction) as typeof runtime.run;
+
+        const listed = await getClients();
+        expect(listed[0]?.outstanding).toEqual({ USD: exactTotal, ARS: "0" });
+        await expect(getClientSummary(clientId)).resolves.toMatchObject({
+          outstanding: { USD: exactTotal, ARS: "0" },
         });
 
         throw rollback;

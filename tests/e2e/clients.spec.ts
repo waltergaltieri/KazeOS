@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { expect, test } from "@playwright/test";
 import { config } from "dotenv";
 import postgres from "postgres";
@@ -28,7 +30,9 @@ test.describe("authenticated client lifecycle", () => {
   );
 
   test("creates, finds, opens, edits and archives a client", async ({ page }) => {
-    const uniqueName = `Cliente E2E ${Date.now()}`;
+    const fixtureMarker = randomUUID();
+    const uniqueName = `Cliente E2E ${fixtureMarker}`;
+    const fixtureEmail = `client-e2e-${fixtureMarker}@example.com`;
     let createdClientId: string | undefined;
 
     try {
@@ -41,7 +45,7 @@ test.describe("authenticated client lifecycle", () => {
       await page.getByRole("link", { name: "Nuevo cliente" }).click();
       await page.getByLabel("Nombre *").fill(uniqueName);
       await page.getByLabel("Empresa").fill("Verificación KazeOS");
-      await page.getByLabel("Email").fill("client-e2e@example.com");
+      await page.getByLabel("Email").fill(fixtureEmail);
       await page.getByRole("button", { name: "Guardar cliente" }).click();
       await expect(page).toHaveURL(/\/clients\/[0-9a-f-]+$/);
       createdClientId = new URL(page.url()).pathname.split("/").at(-1);
@@ -65,7 +69,7 @@ test.describe("authenticated client lifecycle", () => {
       await page.getByLabel("Email").fill("");
       await page.getByRole("button", { name: "Guardar cliente" }).click();
       await expect(page.getByText("Verificación actualizada")).toBeVisible();
-      await expect(page.getByText("client-e2e@example.com")).not.toBeVisible();
+      await expect(page.getByText(fixtureEmail)).not.toBeVisible();
 
       await page.getByRole("button", { name: "Archivar" }).click();
       await page.getByRole("button", { name: "Confirmar" }).click();
@@ -79,6 +83,9 @@ test.describe("authenticated client lifecycle", () => {
     } finally {
       if (createdClientId) {
         await cleanupDatabase!`delete from clients where id = ${createdClientId}`;
+      } else {
+        await cleanupDatabase!`delete from clients
+          where email = ${fixtureEmail} and first_name = ${uniqueName}`;
       }
     }
   });

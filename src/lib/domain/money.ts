@@ -1,4 +1,5 @@
 export type Currency = "USD" | "ARS";
+export type AggregateMinorUnits = `${bigint}`;
 
 export interface ParseMoneyOptions {
   allowNegative?: boolean;
@@ -14,12 +15,7 @@ const MAX_GROUPING_SEPARATORS = Math.floor((MAX_MAJOR_DIGITS - 1) / 3);
 const MAX_TRIMMED_INPUT_LENGTH =
   1 + MAX_MAJOR_DIGITS + MAX_GROUPING_SEPARATORS + 1 + 2;
 
-export function formatMoney(amountMinor: number, currency: Currency): string {
-  if (!Number.isSafeInteger(amountMinor)) {
-    throw new RangeError("Money amount must be a safe integer in minor units");
-  }
-
-  const minorUnits = BigInt(amountMinor);
+function formatMinorUnits(minorUnits: bigint, currency: Currency): string {
   const isNegative = minorUnits < BigInt(0);
   const absoluteMinor = isNegative ? -minorUnits : minorUnits;
   const major = absoluteMinor / BigInt(100);
@@ -28,6 +24,25 @@ export function formatMoney(amountMinor: number, currency: Currency): string {
   return `${currency}\u00a0${isNegative ? "-" : ""}${integerFormatter.format(major)},${minor
     .toString()
     .padStart(2, "0")}`;
+}
+
+export function formatMoney(amountMinor: number, currency: Currency): string {
+  if (!Number.isSafeInteger(amountMinor)) {
+    throw new RangeError("Money amount must be a safe integer in minor units");
+  }
+
+  return formatMinorUnits(BigInt(amountMinor), currency);
+}
+
+export function formatAggregateMoney(
+  amountMinor: AggregateMinorUnits,
+  currency: Currency,
+): string {
+  if (!/^-?(0|[1-9]\d*)$/.test(amountMinor)) {
+    throw new RangeError("Aggregate money amount must be integer minor units");
+  }
+
+  return formatMinorUnits(BigInt(amountMinor), currency);
 }
 
 /**

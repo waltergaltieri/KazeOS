@@ -1,7 +1,7 @@
 import { ArrowRight, Building2, FolderOpen, UserPlus } from "lucide-react";
 import Link from "next/link";
 
-import { formatMoney } from "@/lib/domain/money";
+import { formatAggregateMoney } from "@/lib/domain/money";
 import type { ClientListItem } from "@/lib/queries/clients";
 
 const statusLabel = {
@@ -15,16 +15,16 @@ function displayName(client: ClientListItem) {
 }
 
 function Balance({ client }: { client: ClientListItem }) {
-  const hasDebt = client.outstanding.USD > 0 || client.outstanding.ARS > 0;
+  const hasDebt = client.outstanding.USD !== "0" || client.outstanding.ARS !== "0";
   if (!hasDebt) return <span className="balance-current">Al día</span>;
 
   return (
     <span className="currency-stack" aria-label="Saldo pendiente">
-      {client.outstanding.USD > 0 ? (
-        <span>{formatMoney(client.outstanding.USD, "USD")}</span>
+      {client.outstanding.USD !== "0" ? (
+        <span>{formatAggregateMoney(client.outstanding.USD, "USD")}</span>
       ) : null}
-      {client.outstanding.ARS > 0 ? (
-        <span>{formatMoney(client.outstanding.ARS, "ARS")}</span>
+      {client.outstanding.ARS !== "0" ? (
+        <span>{formatAggregateMoney(client.outstanding.ARS, "ARS")}</span>
       ) : null}
     </span>
   );

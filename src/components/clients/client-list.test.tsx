@@ -43,7 +43,7 @@ describe("ClientList", () => {
             phone: null,
             status: "active",
             joinedAt: "2026-08-31",
-            outstanding: { USD: 12_500, ARS: 850_000_00 },
+            outstanding: { USD: "12500", ARS: "85000000" },
           },
         ]}
       />,
@@ -55,5 +55,29 @@ describe("ClientList", () => {
     );
     expect(screen.getAllByText(/USD\s*125,00/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/ARS\s*850\.000,00/).length).toBeGreaterThan(0);
+  });
+
+  it("renders an aggregate balance above MAX_SAFE_INTEGER without losing minor units", () => {
+    const twoMaximumRows = (BigInt(Number.MAX_SAFE_INTEGER) * BigInt(2)).toString() as `${bigint}`;
+
+    render(
+      <ClientList
+        clients={[
+          {
+            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            firstName: "Total",
+            lastName: "Exacto",
+            company: null,
+            email: null,
+            phone: null,
+            status: "active",
+            joinedAt: "2026-08-31",
+            outstanding: { USD: twoMaximumRows, ARS: "0" },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText(/USD\s*180\.143\.985\.094\.819,82/u)).toHaveLength(2);
   });
 });

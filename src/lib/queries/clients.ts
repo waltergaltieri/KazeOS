@@ -14,15 +14,16 @@ import {
 import { withAuthenticatedDb } from "@/db";
 import { charges, clients } from "@/db/schema";
 import { requireUser } from "@/lib/auth/require-user";
+import type { AggregateMinorUnits } from "@/lib/domain/money";
 import {
   clientFiltersSchema,
   clientIdSchema,
   type ClientFilters,
 } from "@/lib/validations/client";
 
-export interface CurrencyPair {
-  USD: number;
-  ARS: number;
+export interface AggregateCurrencyPair {
+  USD: AggregateMinorUnits;
+  ARS: AggregateMinorUnits;
 }
 
 export interface ClientListItem {
@@ -34,19 +35,35 @@ export interface ClientListItem {
   phone: string | null;
   status: "active" | "paused" | "archived";
   joinedAt: string;
-  outstanding: CurrencyPair;
+  outstanding: AggregateCurrencyPair;
 }
 
 export interface ClientSummary {
-  outstanding: CurrencyPair;
-  collected: CurrencyPair;
-  mrr: CurrencyPair;
+  outstanding: AggregateCurrencyPair;
+  collected: AggregateCurrencyPair;
+  mrr: AggregateCurrencyPair;
   activeServices: number;
   pendingTasks: number;
   notes: number;
 }
 
-const numberFromSql = (value: unknown) => Number(value ?? 0);
+const aggregateMinorUnitsFromSql = (value: unknown): AggregateMinorUnits => {
+  if (typeof value !== "string" || !/^-?(0|[1-9]\d*)$/.test(value)) {
+    throw new RangeError("Database aggregate is not integer minor units");
+  }
+
+  return value as AggregateMinorUnits;
+};
+
+const countFromSql = (value: unknown) => {
+  const count = Number(value ?? 0);
+
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new RangeError("Database count is outside the safe integer range");
+  }
+
+  return count;
+};
 
 function statusConditions(filters: ClientFilters): SQL[] {
   if (["active", "paused", "archived"].includes(filters.filter)) {
@@ -109,18 +126,18 @@ export async function getClients(input: unknown = {}): Promise<ClientListItem[]>
         phone: clients.phone,
         status: clients.status,
         joinedAt: clients.joinedAt,
-        outstandingUsd: sql<number>`coalesce(sum(
+        outstandingUsd: sql<AggregateMinorUnits>`coalesce(sum(
           case when ${charges.currency} = 'USD'
             and ${charges.status} <> 'cancelled'
             then greatest(${charges.amountMinor} - ${charges.amountPaidMinor}, 0)
             else 0 end
-        ), 0)::bigint`.mapWith(numberFromSql),
-        outstandingArs: sql<number>`coalesce(sum(
+        ), 0)::text`.mapWith(aggregateMinorUnitsFromSql),
+        outstandingArs: sql<AggregateMinorUnits>`coalesce(sum(
           case when ${charges.currency} = 'ARS'
             and ${charges.status} <> 'cancelled'
             then greatest(${charges.amountMinor} - ${charges.amountPaidMinor}, 0)
             else 0 end
-        ), 0)::bigint`.mapWith(numberFromSql),
+        ), 0)::text`.mapWith(aggregateMinorUnitsFromSql),
       })
       .from(clients)
       .leftJoin(
@@ -169,48 +186,48 @@ export async function getClientSummary(
   return withAuthenticatedDb(user.id, async (db) => {
     const [row] = await db
       .select({
-        outstandingUsd: sql<number>`(
-          select coalesce(sum(greatest(c.amount_minor - c.amount_paid_minor, 0)), 0)::bigint
+        outstandingUsd: sql<AggregateMinorUnits>`(
+          select coalesce(sum(greatest(c.amount_minor - c.amount_paid_minor, 0)), 0)::text
           from charges c where c.owner_id = ${user.id} and c.client_id = ${id}
           and c.currency = 'USD' and c.status <> 'cancelled'
-        )`.mapWith(numberFromSql),
-        outstandingArs: sql<number>`(
-          select coalesce(sum(greatest(c.amount_minor - c.amount_paid_minor, 0)), 0)::bigint
+        )`.mapWith(aggregateMinorUnitsFromSql),
+        outstandingArs: sql<AggregateMinorUnits>`(
+          select coalesce(sum(greatest(c.amount_minor - c.amount_paid_minor, 0)), 0)::text
           from charges c where c.owner_id = ${user.id} and c.client_id = ${id}
           and c.currency = 'ARS' and c.status <> 'cancelled'
-        )`.mapWith(numberFromSql),
-        collectedUsd: sql<number>`(
-          select coalesce(sum(p.amount_minor), 0)::bigint from payments p
+        )`.mapWith(aggregateMinorUnitsFromSql),
+        collectedUsd: sql<AggregateMinorUnits>`(
+          select coalesce(sum(p.amount_minor), 0)::text from payments p
           where p.owner_id = ${user.id} and p.client_id = ${id} and p.currency = 'USD'
-        )`.mapWith(numberFromSql),
-        collectedArs: sql<number>`(
-          select coalesce(sum(p.amount_minor), 0)::bigint from payments p
+        )`.mapWith(aggregateMinorUnitsFromSql),
+        collectedArs: sql<AggregateMinorUnits>`(
+          select coalesce(sum(p.amount_minor), 0)::text from payments p
           where p.owner_id = ${user.id} and p.client_id = ${id} and p.currency = 'ARS'
-        )`.mapWith(numberFromSql),
-        mrrUsd: sql<number>`(
+        )`.mapWith(aggregateMinorUnitsFromSql),
+        mrrUsd: sql<AggregateMinorUnits>`(
           select coalesce(round(sum(s.amount_minor * case s.billing_frequency
-            when 'monthly' then 12 when 'quarterly' then 4 when 'yearly' then 1 else 0 end) / 12.0), 0)::bigint
+            when 'monthly' then 12 when 'quarterly' then 4 when 'yearly' then 1 else 0 end) / 12.0), 0)::text
           from services s where s.owner_id = ${user.id} and s.client_id = ${id}
           and s.currency = 'USD' and s.status = 'active' and s.billing_type = 'recurring'
-        )`.mapWith(numberFromSql),
-        mrrArs: sql<number>`(
+        )`.mapWith(aggregateMinorUnitsFromSql),
+        mrrArs: sql<AggregateMinorUnits>`(
           select coalesce(round(sum(s.amount_minor * case s.billing_frequency
-            when 'monthly' then 12 when 'quarterly' then 4 when 'yearly' then 1 else 0 end) / 12.0), 0)::bigint
+            when 'monthly' then 12 when 'quarterly' then 4 when 'yearly' then 1 else 0 end) / 12.0), 0)::text
           from services s where s.owner_id = ${user.id} and s.client_id = ${id}
           and s.currency = 'ARS' and s.status = 'active' and s.billing_type = 'recurring'
-        )`.mapWith(numberFromSql),
+        )`.mapWith(aggregateMinorUnitsFromSql),
         activeServices: sql<number>`(
           select count(*)::integer from services s where s.owner_id = ${user.id}
           and s.client_id = ${id} and s.status = 'active'
-        )`.mapWith(numberFromSql),
+        )`.mapWith(countFromSql),
         pendingTasks: sql<number>`(
           select count(*)::integer from tasks t where t.owner_id = ${user.id}
           and t.client_id = ${id} and t.status = 'pending'
-        )`.mapWith(numberFromSql),
+        )`.mapWith(countFromSql),
         notes: sql<number>`(
           select count(*)::integer from client_notes n where n.owner_id = ${user.id}
           and n.client_id = ${id}
-        )`.mapWith(numberFromSql),
+        )`.mapWith(countFromSql),
       })
       .from(clients)
       .where(and(eq(clients.id, id), eq(clients.ownerId, user.id)))

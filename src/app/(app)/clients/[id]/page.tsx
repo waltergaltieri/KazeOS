@@ -3,11 +3,11 @@ import { notFound } from "next/navigation";
 
 import { ClientHeader } from "@/components/clients/client-header";
 import { ClientTabs } from "@/components/clients/client-tabs";
-import { formatMoney } from "@/lib/domain/money";
-import { getClientById, getClientSummary } from "@/lib/queries/clients";
+import { formatAggregateMoney } from "@/lib/domain/money";
+import { getClientById, getClientSummary, type AggregateCurrencyPair } from "@/lib/queries/clients";
 
-function MoneyPair({ value }: { value: { USD: number; ARS: number } }) {
-  return <span className="currency-stack"><span>{formatMoney(value.USD, "USD")}</span><span>{formatMoney(value.ARS, "ARS")}</span></span>;
+function MoneyPair({ value }: { value: AggregateCurrencyPair }) {
+  return <span className="currency-stack"><span>{formatAggregateMoney(value.USD, "USD")}</span><span>{formatAggregateMoney(value.ARS, "ARS")}</span></span>;
 }
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {

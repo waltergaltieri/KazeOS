@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatMoney, parseMoneyInput } from "./money";
+import { formatAggregateMoney, formatMoney, parseMoneyInput } from "./money";
 
 describe("formatMoney", () => {
   it("formats USD minor units for es-AR without losing the currency code", () => {
@@ -23,6 +23,16 @@ describe("formatMoney", () => {
     expect(() =>
       formatMoney(Number.MAX_SAFE_INTEGER + 1, "USD"),
     ).toThrow(RangeError);
+  });
+});
+
+describe("formatAggregateMoney", () => {
+  it("formats aggregate minor units beyond the JavaScript safe integer range exactly", () => {
+    const twoMaximumRows = (BigInt(Number.MAX_SAFE_INTEGER) * BigInt(2)).toString() as `${bigint}`;
+
+    expect(formatAggregateMoney(twoMaximumRows, "USD")).toMatch(
+      /^USD\s?180\.143\.985\.094\.819,82$/u,
+    );
   });
 });
 
