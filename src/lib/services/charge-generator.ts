@@ -89,7 +89,8 @@ export async function generateRecurringCharges(
         serviceId === undefined ? undefined : eq(services.id, serviceId),
       ),
     )
-    .orderBy(asc(services.ownerId), asc(services.id));
+    .orderBy(asc(services.ownerId), asc(services.id))
+    .for("update");
 
   const values = eligible.flatMap((service) =>
     buildChargePeriods(
