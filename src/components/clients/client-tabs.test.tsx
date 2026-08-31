@@ -21,4 +21,11 @@ describe("ClientTabs", () => {
       "page",
     );
   });
+
+  it("exposes the client task agenda as a first-class dossier tab", () => {
+    const clientId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    render(<ClientTabs clientId={clientId} active="tasks" />);
+    expect(screen.getByRole("link", { name: "Tareas" })).toHaveAttribute("href", `/clients/${clientId}/tasks`);
+    expect(screen.getByRole("link", { name: "Tareas" })).toHaveAttribute("aria-current", "page");
+  });
 });

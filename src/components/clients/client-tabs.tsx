@@ -4,11 +4,11 @@ const tabs = [
   { key: "summary", label: "Resumen", available: true },
   { key: "services", label: "Servicios", available: true },
   { key: "charges", label: "Cobros", available: true },
-  { key: "tasks", label: "Tareas", available: false },
+  { key: "tasks", label: "Tareas", available: true },
   { key: "notes", label: "Notas", available: false },
 ] as const;
 
-type AvailableTab = "summary" | "services" | "charges";
+type AvailableTab = "summary" | "services" | "charges" | "tasks";
 
 export function ClientTabs({
   clientId,
