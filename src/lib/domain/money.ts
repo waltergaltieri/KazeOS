@@ -8,6 +8,11 @@ const integerFormatter = new Intl.NumberFormat("es-AR", {
   maximumFractionDigits: 0,
   useGrouping: true,
 });
+const MAX_SAFE_MINOR_UNITS = BigInt(Number.MAX_SAFE_INTEGER);
+const MAX_MAJOR_DIGITS = (MAX_SAFE_MINOR_UNITS / BigInt(100)).toString().length;
+const MAX_GROUPING_SEPARATORS = Math.floor((MAX_MAJOR_DIGITS - 1) / 3);
+const MAX_TRIMMED_INPUT_LENGTH =
+  1 + MAX_MAJOR_DIGITS + MAX_GROUPING_SEPARATORS + 1 + 2;
 
 export function formatMoney(amountMinor: number, currency: Currency): string {
   if (!Number.isSafeInteger(amountMinor)) {
@@ -36,6 +41,11 @@ export function parseMoneyInput(
   options: ParseMoneyOptions = {},
 ): number {
   const trimmedInput = input.trim();
+
+  if (trimmedInput.length > MAX_TRIMMED_INPUT_LENGTH) {
+    throw new RangeError("Money amount input is too long");
+  }
+
   const isNegative = trimmedInput.startsWith("-");
 
   if (isNegative && !options.allowNegative) {
@@ -46,7 +56,7 @@ export function parseMoneyInput(
   const apiDecimalMatch = /^(\d+)\.(\d{1,2})$/.exec(normalizedInput);
   const match = apiDecimalMatch
     ? [apiDecimalMatch[0], apiDecimalMatch[1], apiDecimalMatch[2]]
-    : /^(\d{1,3}(?:\.\d{3})*|\d+)(?:,(\d{1,2}))?$/.exec(
+    : /^((?:0|[1-9]\d{0,2})(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?$/.exec(
         normalizedInput,
       );
 
@@ -57,10 +67,14 @@ export function parseMoneyInput(
   const majorDigits = match[1].replaceAll(".", "");
   const minorDigits = (match[2] ?? "").padEnd(2, "0");
 
+  if (majorDigits.length > MAX_MAJOR_DIGITS) {
+    throw new RangeError("Money amount input is too long");
+  }
+
   const amountMinor =
     BigInt(majorDigits) * BigInt(100) + BigInt(minorDigits || "0");
 
-  if (amountMinor > BigInt(Number.MAX_SAFE_INTEGER)) {
+  if (amountMinor > MAX_SAFE_MINOR_UNITS) {
     throw new RangeError("Money amount exceeds the safe integer range");
   }
 

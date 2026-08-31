@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BUSINESS_TIME_ZONE,
+  addCommercialPeriod,
   compareCommercialDates,
   todayInBusinessZone,
   validateCommercialDate,
@@ -63,5 +64,59 @@ describe("compareCommercialDates", () => {
     expect(() =>
       compareCommercialDates("2026-03-01", "2026-02-30"),
     ).toThrow(RangeError);
+  });
+});
+
+describe("addCommercialPeriod", () => {
+  it("clamps a month end without leaving ISO calendar arithmetic", () => {
+    expect(addCommercialPeriod("2026-01-31", "monthly")).toBe("2026-02-28");
+    expect(addCommercialPeriod("2024-01-31", "monthly")).toBe("2024-02-29");
+  });
+
+  it("clamps leap day when adding a yearly period", () => {
+    expect(addCommercialPeriod("2024-02-29", "yearly")).toBe("2025-02-28");
+  });
+
+  it("adds a quarterly period across a year boundary", () => {
+    expect(addCommercialPeriod("2026-10-31", "quarterly")).toBe(
+      "2027-01-31",
+    );
+    expect(addCommercialPeriod("2026-11-30", "quarterly")).toBe(
+      "2027-02-28",
+    );
+  });
+
+  it("adds multiple periods from the original calendar date", () => {
+    expect(addCommercialPeriod("2026-01-31", "monthly", 2)).toBe(
+      "2026-03-31",
+    );
+    expect(addCommercialPeriod("2026-12-31", "yearly", 2)).toBe(
+      "2028-12-31",
+    );
+  });
+
+  it("preserves a canonical date when a yearly period crosses a year", () => {
+    expect(addCommercialPeriod("2026-12-31", "yearly")).toBe("2027-12-31");
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects the invalid period count %s",
+    (count) => {
+      expect(() =>
+        addCommercialPeriod("2026-01-01", "monthly", count),
+      ).toThrow(RangeError);
+    },
+  );
+
+  it("rejects invalid dates, frequencies, and out-of-range results", () => {
+    expect(() => addCommercialPeriod("2026-02-30", "monthly")).toThrow(
+      RangeError,
+    );
+    expect(() =>
+      addCommercialPeriod("2026-01-01", "weekly" as never),
+    ).toThrow(RangeError);
+    expect(() => addCommercialPeriod("9999-12-31", "monthly")).toThrow(
+      RangeError,
+    );
   });
 });

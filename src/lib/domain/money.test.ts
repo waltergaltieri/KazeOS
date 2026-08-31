@@ -52,18 +52,38 @@ describe("parseMoneyInput", () => {
   });
 
   it("treats a lone dot followed by three digits as Argentine grouping", () => {
+    expect(parseMoneyInput("0.001")).toBe(100);
     expect(parseMoneyInput("1.250")).toBe(125_000);
     expect(parseMoneyInput("1.250.000")).toBe(125_000_000);
   });
 
+  it.each(["00.001", "000.001", "01.000", "00.001,50"])(
+    "rejects noncanonical leading-zero grouping %j",
+    (input) => {
+      expect(() => parseMoneyInput(input)).toThrow(RangeError);
+    },
+  );
+
   it("accepts the largest safe amount in minor units exactly", () => {
     expect(parseMoneyInput("90071992547409.91")).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
+    expect(parseMoneyInput("90.071.992.547.409,91")).toBe(
       Number.MAX_SAFE_INTEGER,
     );
   });
 
   it("rejects negative amounts by default", () => {
     expect(() => parseMoneyInput("-1,00")).toThrow(RangeError);
+  });
+
+  it("rejects oversized input before numeric conversion", () => {
+    expect(() => parseMoneyInput("9".repeat(100_000))).toThrow(
+      "Money amount input is too long",
+    );
+    expect(() => parseMoneyInput("900719925474099")).toThrow(
+      "Money amount input is too long",
+    );
   });
 
   it.each([
