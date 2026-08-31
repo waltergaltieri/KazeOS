@@ -10,6 +10,7 @@ import {
   createServiceWithCharges,
   deactivateServiceWithCharges,
   ServiceCurrencyLockedError,
+  ServiceStatusLockedError,
   updateServiceWithCharges,
 } from "@/lib/services/service-manager";
 import { clientIdSchema } from "@/lib/validations/client";
@@ -62,6 +63,16 @@ function currencyLockedError(): ServiceActionState {
     message: "La moneda no puede cambiar porque el servicio ya tiene cargos.",
     fieldErrors: {
       currency: ["Conservá la moneda original para proteger el historial."],
+    },
+  };
+}
+
+function statusLockedError(): ServiceActionState {
+  return {
+    status: "error",
+    message: "Un servicio cancelado no se puede reactivar.",
+    fieldErrors: {
+      status: ["La cancelación es definitiva para proteger su historial."],
     },
   };
 }
@@ -137,6 +148,7 @@ export async function updateServiceAction(
     };
   } catch (error) {
     if (error instanceof ServiceCurrencyLockedError) return currencyLockedError();
+    if (error instanceof ServiceStatusLockedError) return statusLockedError();
     return { status: "error", message: "No pudimos actualizar el servicio." };
   }
 }

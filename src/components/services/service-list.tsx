@@ -105,7 +105,7 @@ function ServicePauseControl({ clientId, service }: { clientId: string; service:
     <form action={action} className="service-pause-confirm">
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="serviceId" value={service.id} />
-      <span>¿Pausar este acuerdo?</span>
+      <span>¿Pausar este acuerdo? Los cargos ya proyectados se conservan.</span>
       <button ref={confirmRef} className="danger-button" type="submit" disabled={pending} aria-label="Confirmar pausa">
         {pending ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Pause size={15} aria-hidden="true" />} Confirmar
       </button>

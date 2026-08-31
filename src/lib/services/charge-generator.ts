@@ -11,7 +11,6 @@ import { validateCommercialDate } from "@/lib/domain/commercial-date";
 
 export interface ChargeGenerationInput {
   asOf: string;
-  afterDateExclusive?: string;
   horizonMonths?: number;
   ownerId?: string;
   serviceId?: string;
@@ -32,10 +31,6 @@ const uuidPattern =
 function validateInput(input: Readonly<ChargeGenerationInput>) {
   validateCommercialDate(input.asOf);
 
-  if (input.afterDateExclusive !== undefined) {
-    validateCommercialDate(input.afterDateExclusive);
-  }
-
   const horizonMonths = input.horizonMonths ?? 3;
 
   if (!Number.isSafeInteger(horizonMonths) || horizonMonths < 1) {
@@ -51,7 +46,6 @@ function validateInput(input: Readonly<ChargeGenerationInput>) {
   }
 
   return {
-    afterDateExclusive: input.afterDateExclusive,
     horizonMonths,
     ownerId: input.ownerId,
     serviceId: input.serviceId,
@@ -68,8 +62,7 @@ export async function generateRecurringCharges(
   database: ChargeGeneratorDatabase,
   input: Readonly<ChargeGenerationInput>,
 ): Promise<ChargeGenerationResult> {
-  const { afterDateExclusive, horizonMonths, ownerId, serviceId } =
-    validateInput(input);
+  const { horizonMonths, ownerId, serviceId } = validateInput(input);
   const eligible = await database
     .select({
       amountMinor: services.amountMinor,
@@ -103,13 +96,7 @@ export async function generateRecurringCharges(
       service as RecurringServiceInput,
       input.asOf,
       horizonMonths,
-    )
-      .filter(
-        (candidate) =>
-          afterDateExclusive === undefined ||
-          candidate.dueDate > afterDateExclusive,
-      )
-      .map((candidate) => ({
+    ).map((candidate) => ({
       amountMinor: candidate.amountMinor,
       amountPaidMinor: 0,
       clientId: service.clientId,
@@ -121,7 +108,7 @@ export async function generateRecurringCharges(
       periodKey: candidate.periodKey,
       serviceId: service.id,
       status: "pending" as const,
-      })),
+    })),
   );
 
   if (values.length === 0) {

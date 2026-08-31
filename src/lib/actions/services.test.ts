@@ -15,8 +15,10 @@ vi.mock("@/db", () => ({ withAuthenticatedDb: mocks.withAuthenticatedDb }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/services/service-manager", async () => {
   class ServiceCurrencyLockedError extends Error {}
+  class ServiceStatusLockedError extends Error {}
   return {
     ServiceCurrencyLockedError,
+    ServiceStatusLockedError,
     createServiceWithCharges: mocks.createServiceWithCharges,
     updateServiceWithCharges: mocks.updateServiceWithCharges,
     deactivateServiceWithCharges: mocks.deactivateServiceWithCharges,
@@ -28,7 +30,10 @@ import {
   deactivateServiceAction,
   updateServiceAction,
 } from "./services";
-import { ServiceCurrencyLockedError } from "@/lib/services/service-manager";
+import {
+  ServiceCurrencyLockedError,
+  ServiceStatusLockedError,
+} from "@/lib/services/service-manager";
 
 const ownerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const clientId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -118,6 +123,24 @@ describe("service actions", () => {
       message: "La moneda no puede cambiar porque el servicio ya tiene cargos.",
       fieldErrors: {
         currency: ["Conservá la moneda original para proteger el historial."],
+      },
+    });
+  });
+
+  it("maps a cancelled-service resume attempt to a safe status error", async () => {
+    mocks.updateServiceWithCharges.mockRejectedValue(
+      new ServiceStatusLockedError(),
+    );
+    const data = recurringFormData();
+    data.set("serviceId", serviceId);
+
+    const result = await updateServiceAction({ status: "idle" }, data);
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Un servicio cancelado no se puede reactivar.",
+      fieldErrors: {
+        status: ["La cancelación es definitiva para proteger su historial."],
       },
     });
   });

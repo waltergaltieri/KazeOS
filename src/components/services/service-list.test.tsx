@@ -86,7 +86,8 @@ describe("ServiceList", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Pausar Soporte mensual" }));
-    expect(screen.getByText("¿Pausar este acuerdo?")).toBeInTheDocument();
+    expect(screen.getByText(/¿Pausar este acuerdo\?/)).toBeInTheDocument();
+    expect(screen.getByText(/cargos ya proyectados se conservan/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirmar pausa" })).toHaveFocus();
   });
 });

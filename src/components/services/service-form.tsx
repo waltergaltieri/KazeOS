@@ -57,6 +57,8 @@ export function ServiceForm({
   const recurring = billingType === "recurring";
   const error = (field: string) => state.fieldErrors?.[field]?.[0];
   const currency = defaults.currency ?? "USD";
+  const editing = Boolean(defaults.id);
+  const cancelled = defaults.status === "cancelled";
 
   useEffect(() => {
     if (state.status === "success" && state.clientId) {
@@ -129,14 +131,22 @@ export function ServiceForm({
           <Field label="Día de cobro" name="billingDay" type="number" min="1" max="31" disabled={!recurring} required={recurring} error={error("billingDay")} defaultValue={defaults.billingDay?.toString()} />
           <Field label="Inicio" name="startDate" type="date" required error={error("startDate")} defaultValue={defaults.startDate} />
           <Field label="Fin opcional" name="endDate" type="date" error={error("endDate")} defaultValue={defaults.endDate} />
-          <label className="field-stack">
-            <span>Estado</span>
-            <select className="form-control" name="status" defaultValue={defaults.status ?? "active"}>
+          <div className="field-stack">
+            <label htmlFor="service-status">Estado</label>
+            <select id="service-status" className="form-control" name="status" defaultValue={defaults.status ?? "active"} disabled={cancelled} aria-describedby={editing ? "service-status-note" : undefined}>
               <option value="active">Activo</option>
               <option value="paused">En pausa</option>
-              <option value="cancelled">Cancelado</option>
+              {editing ? <option value="cancelled">Cancelado</option> : null}
             </select>
-          </label>
+            {cancelled ? <input type="hidden" name="status" value="cancelled" /> : null}
+            {editing ? (
+              <small id="service-status-note" className="field-note">
+                {cancelled
+                  ? "Este servicio cancelado no se puede reactivar."
+                  : "Pausar conserva los cargos ya proyectados. Cancelar es definitivo y sólo anula proyecciones futuras elegibles."}
+              </small>
+            ) : null}
+          </div>
         </div>
         <label className={`automation-switch${recurring ? "" : " is-disabled"}`}>
           <input type="checkbox" name="automaticChargeGeneration" aria-label="Generar cargos automáticamente" checked={recurring && automatic} onChange={(event) => setAutomatic(event.target.checked)} disabled={!recurring} />

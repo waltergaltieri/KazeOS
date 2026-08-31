@@ -118,7 +118,7 @@ test.describe("authenticated service lifecycle", () => {
         select status from charges where service_id = ${serviceId}
       `;
       expect(pausedRows).toHaveLength(3);
-      expect(pausedRows.every((row) => row.status === "cancelled")).toBe(true);
+      expect(pausedRows.every((row) => row.status === "pending")).toBe(true);
     } finally {
       const clientRows = createdClientId
         ? [{ id: createdClientId }]

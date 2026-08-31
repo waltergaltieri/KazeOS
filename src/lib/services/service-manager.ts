@@ -48,6 +48,13 @@ export class ServiceCurrencyLockedError extends Error {
   }
 }
 
+export class ServiceStatusLockedError extends Error {
+  constructor() {
+    super("Cancelled services cannot be resumed");
+    this.name = "ServiceStatusLockedError";
+  }
+}
+
 const emptyGenerationResult = (): ChargeGenerationResult => ({
   candidates: 0,
   eligibleServices: 0,
@@ -81,6 +88,32 @@ function futureChargeWhere(input: {
   );
 }
 
+function assertStatusTransition(
+  current: "active" | "paused" | "cancelled",
+  next: "active" | "paused" | "cancelled",
+) {
+  if (current === "cancelled" && next !== "cancelled") {
+    throw new ServiceStatusLockedError();
+  }
+}
+
+async function cancelEligibleFutureProjections(
+  database: ChargeGeneratorDatabase,
+  input: Readonly<ServiceScope & { serviceId: string }>,
+) {
+  await database
+    .update(charges)
+    .set({ status: "cancelled", updatedAt: new Date() })
+    .where(
+      and(
+        futureChargeWhere(input),
+        eq(charges.generatedAutomatically, true),
+        eq(charges.status, "pending"),
+        eq(charges.amountPaidMinor, 0),
+      ),
+    );
+}
+
 export async function createServiceWithCharges(
   database: ChargeGeneratorDatabase,
   input: Readonly<CreateServiceInput>,
@@ -111,13 +144,15 @@ export async function updateServiceWithCharges(
   input: Readonly<UpdateServiceInput>,
 ): Promise<ServiceMutationResult> {
   const [current] = await database
-    .select({ currency: services.currency, id: services.id })
+    .select({ currency: services.currency, id: services.id, status: services.status })
     .from(services)
     .where(serviceWhere(input))
     .limit(1)
     .for("update");
 
   if (!current) throw new Error("Service was not found");
+
+  assertStatusTransition(current.status, input.values.status);
 
   if (current.currency !== input.values.currency) {
     const [linkedCharge] = await database
@@ -140,6 +175,15 @@ export async function updateServiceWithCharges(
     .set({ ...input.values, updatedAt: new Date() })
     .where(serviceWhere(input));
 
+  if (input.values.status === "paused") {
+    return { id: input.serviceId, generated: emptyGenerationResult() };
+  }
+
+  if (input.values.status === "cancelled") {
+    await cancelEligibleFutureProjections(database, input);
+    return { id: input.serviceId, generated: emptyGenerationResult() };
+  }
+
   const existing = await database
     .select({
       amountPaidMinor: charges.amountPaidMinor,
@@ -153,30 +197,11 @@ export async function updateServiceWithCharges(
     .where(futureChargeWhere(input))
     .orderBy(asc(charges.dueDate), asc(charges.id));
 
-  const immutableProtectionDate = existing
-    .filter(
-      (charge) =>
-        charge.status !== "cancelled" &&
-        (charge.status !== "pending" || charge.amountPaidMinor !== 0),
-    )
-    .reduce<string | undefined>(
-      (latest, charge) =>
-        latest === undefined || charge.dueDate > latest
-          ? charge.dueDate
-          : latest,
-      undefined,
-    );
-
   const canGenerate =
-    input.values.status === "active" &&
     input.values.billingType === "recurring" &&
     input.values.automaticChargeGeneration;
   const candidates = canGenerate
-    ? buildChargePeriods(input.values, input.asOf, 3).filter(
-        (candidate) =>
-          immutableProtectionDate === undefined ||
-          candidate.dueDate > immutableProtectionDate,
-      )
+    ? buildChargePeriods(input.values, input.asOf, 3)
     : [];
   const candidatesByPeriod = new Map(
     candidates.map((candidate) => [candidate.periodKey, candidate]),
@@ -237,7 +262,6 @@ export async function updateServiceWithCharges(
 
   const generated = canGenerate
     ? await generateRecurringCharges(database, {
-        afterDateExclusive: immutableProtectionDate,
         asOf: input.asOf,
         horizonMonths: 3,
         ownerId: input.ownerId,
@@ -252,6 +276,16 @@ export async function deactivateServiceWithCharges(
   database: ChargeGeneratorDatabase,
   input: Readonly<DeactivateServiceInput>,
 ): Promise<ServiceMutationResult> {
+  const [current] = await database
+    .select({ id: services.id, status: services.status })
+    .from(services)
+    .where(serviceWhere(input))
+    .limit(1)
+    .for("update");
+
+  if (!current) throw new Error("Service was not found");
+  assertStatusTransition(current.status, input.status);
+
   const updated = await database
     .update(services)
     .set({ status: input.status, updatedAt: new Date() })
@@ -260,17 +294,9 @@ export async function deactivateServiceWithCharges(
 
   if (!updated[0]) throw new Error("Service was not found");
 
-  await database
-    .update(charges)
-    .set({ status: "cancelled", updatedAt: new Date() })
-    .where(
-      and(
-        futureChargeWhere(input),
-        eq(charges.generatedAutomatically, true),
-        eq(charges.status, "pending"),
-        eq(charges.amountPaidMinor, 0),
-      ),
-    );
+  if (input.status === "cancelled") {
+    await cancelEligibleFutureProjections(database, input);
+  }
 
   return { id: input.serviceId, generated: emptyGenerationResult() };
 }
