@@ -34,7 +34,8 @@ export function formatMoney(amountMinor: number, currency: Currency): string {
  * Converts a decimal input to minor units using digit-string and BigInt
  * arithmetic. A comma is the Argentine decimal separator. A lone dot with
  * one or two trailing digits is an API-style decimal separator; with exactly
- * three trailing digits it is treated as Argentine thousands grouping.
+ * three trailing digits it is grouping only when its leading group is
+ * nonzero, so ambiguous zero-prefixed dot input is rejected.
  */
 export function parseMoneyInput(
   input: string,
@@ -56,7 +57,7 @@ export function parseMoneyInput(
   const apiDecimalMatch = /^(\d+)\.(\d{1,2})$/.exec(normalizedInput);
   const match = apiDecimalMatch
     ? [apiDecimalMatch[0], apiDecimalMatch[1], apiDecimalMatch[2]]
-    : /^((?:0|[1-9]\d{0,2})(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?$/.exec(
+    : /^([1-9]\d{0,2}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?$/.exec(
         normalizedInput,
       );
 

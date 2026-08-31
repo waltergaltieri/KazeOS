@@ -51,13 +51,21 @@ describe("parseMoneyInput", () => {
     expect(parseMoneyInput("1250")).toBe(125_000);
   });
 
-  it("treats a lone dot followed by three digits as Argentine grouping", () => {
-    expect(parseMoneyInput("0.001")).toBe(100);
+  it("treats a lone dot after a nonzero prefix as Argentine grouping", () => {
+    expect(parseMoneyInput("1.000")).toBe(100_000);
     expect(parseMoneyInput("1.250")).toBe(125_000);
     expect(parseMoneyInput("1.250.000")).toBe(125_000_000);
   });
 
-  it.each(["00.001", "000.001", "01.000", "00.001,50"])(
+  it.each([
+    "0.000",
+    "0.001",
+    "0.001,50",
+    "00.001",
+    "000.001",
+    "01.000",
+    "00.001,50",
+  ])(
     "rejects noncanonical leading-zero grouping %j",
     (input) => {
       expect(() => parseMoneyInput(input)).toThrow(RangeError);
