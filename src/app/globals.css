@@ -347,7 +347,7 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 979px) {
   .app-shell { display: block; }
   .desktop-sidebar { display: none; }
   .drawer-layer { display: block; }

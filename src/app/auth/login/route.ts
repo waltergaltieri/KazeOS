@@ -7,6 +7,7 @@ import {
   type LoginError,
   type LoginSuccess,
 } from "@/lib/auth/contracts";
+import { rejectUntrustedOrigin } from "@/lib/auth/same-origin";
 import { createResponseClient } from "@/lib/supabase/response";
 
 const credentialsSchema = z.object({
@@ -34,6 +35,9 @@ function jsonResponse(body: LoginError | LoginSuccess, status: number) {
 }
 
 export async function POST(request: NextRequest) {
+  const originRejection = rejectUntrustedOrigin(request);
+  if (originRejection) return originRejection;
+
   let formData: FormData;
 
   try {

@@ -71,6 +71,23 @@ const optionalHttpsUrl = z.preprocess(
   httpsUrl.optional(),
 );
 
+export const appOriginSchema = z
+  .string()
+  .trim()
+  .min(1, "is required")
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+
+      return (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        url.origin === value
+      );
+    } catch {
+      return false;
+    }
+  }, "must be a canonical HTTP(S) origin without a path");
+
 export const publicEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: httpsUrl,
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publishableKey,
@@ -81,6 +98,7 @@ export const serverEnvSchema = z.object({
   SUPABASE_JWKS_URL: optionalHttpsUrl,
   SUPABASE_SECRET_KEY: optionalString,
   CRON_SECRET: optionalString,
+  APP_ORIGIN: appOriginSchema,
 });
 
 const envSchema = publicEnvSchema.extend(serverEnvSchema.shape);

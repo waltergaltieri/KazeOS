@@ -136,6 +136,7 @@ describe("AppShell", () => {
       name: "Abrir menú principal",
     });
     await user.click(trigger);
+    expect(window.matchMedia).toHaveBeenCalledWith("(min-width: 980px)");
     expect(screen.getByRole("dialog", { name: "Menú principal" })).toBeVisible();
     expect(document.querySelector(".workspace")).toHaveAttribute("inert");
 

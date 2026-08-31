@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseEnv } from "./env";
 
 const validEnv = {
+  APP_ORIGIN: "http://127.0.0.1:3000",
   NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
   DATABASE_URL:
@@ -14,8 +15,20 @@ const validEnv = {
 describe("parseEnv", () => {
   it("names every missing required variable in a readable error", () => {
     expect(() => parseEnv({})).toThrowError(
-      /NEXT_PUBLIC_SUPABASE_URL[\s\S]*NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY[\s\S]*DATABASE_URL/,
+      /NEXT_PUBLIC_SUPABASE_URL[\s\S]*NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY[\s\S]*DATABASE_URL[\s\S]*APP_ORIGIN/,
     );
+  });
+
+  it("requires APP_ORIGIN to be a canonical HTTP origin without a path", () => {
+    for (const APP_ORIGIN of [
+      "https://app.example/path",
+      "https://app.example/",
+      "javascript:alert(1)",
+    ]) {
+      expect(() => parseEnv({ ...validEnv, APP_ORIGIN })).toThrowError(
+        /APP_ORIGIN/,
+      );
+    }
   });
 
   it("rejects a malformed Supabase URL", () => {

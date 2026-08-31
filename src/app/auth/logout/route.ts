@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 
+import { rejectUntrustedOrigin } from "@/lib/auth/same-origin";
 import { createResponseClient } from "@/lib/supabase/response";
 
 function logoutRedirect(request: NextRequest) {
@@ -11,6 +12,9 @@ function logoutRedirect(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const originRejection = rejectUntrustedOrigin(request);
+  if (originRejection) return originRejection;
+
   let responseClient: ReturnType<typeof createResponseClient>;
 
   try {
