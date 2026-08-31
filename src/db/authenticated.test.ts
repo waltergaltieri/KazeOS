@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { createAuthenticatedDatabaseRunner } from "./authenticated";
+import {
+  createAuthenticatedDatabaseRunner,
+  createAuthenticatedDrizzleRunner,
+} from "./authenticated";
 
 describe("createAuthenticatedDatabaseRunner", () => {
   it("sets transaction-local verified claims and the authenticated role", async () => {
@@ -57,5 +60,37 @@ describe("createAuthenticatedDatabaseRunner", () => {
       "verified user id",
     );
     expect(client.begin).not.toHaveBeenCalled();
+  });
+});
+
+describe("createAuthenticatedDrizzleRunner", () => {
+  it("runs verified claims and application work in one Drizzle transaction", async () => {
+    const transaction = { execute: vi.fn(async () => []) };
+    const database = {
+      transaction: vi.fn(
+        async (operation: (database: typeof transaction) => unknown) =>
+          operation(transaction),
+      ),
+    };
+    const operation = vi.fn(async (scopedDatabase) => scopedDatabase);
+    const run = createAuthenticatedDrizzleRunner(database as never);
+
+    await expect(
+      run("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", operation),
+    ).resolves.toBe(transaction);
+
+    expect(database.transaction).toHaveBeenCalledOnce();
+    expect(transaction.execute).toHaveBeenCalledTimes(2);
+    expect(operation).toHaveBeenCalledWith(transaction);
+  });
+
+  it("rejects an invalid identity before starting a Drizzle transaction", async () => {
+    const database = { transaction: vi.fn() };
+    const run = createAuthenticatedDrizzleRunner(database as never);
+
+    await expect(run("not-a-uuid", vi.fn())).rejects.toThrow(
+      "verified user id",
+    );
+    expect(database.transaction).not.toHaveBeenCalled();
   });
 });

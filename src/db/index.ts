@@ -1,17 +1,16 @@
 import "server-only";
 
 import {
-  createAuthenticatedDatabaseRunner,
-  createDrizzleDatabase,
+  createAuthenticatedDrizzleRunner,
 } from "./authenticated";
-import { adminDatabaseClient } from "./internal/admin";
+import { adminDb } from "./internal/admin";
+import { runRecurringChargeCron } from "./internal/recurring-charge-cron";
 
 /**
  * Default application database entry point. The id must come from a verified
  * Supabase `getUser()`/`getClaims()` result, never from request input or
  * user_metadata.
  */
-export const withAuthenticatedDb = createAuthenticatedDatabaseRunner(
-  adminDatabaseClient,
-  createDrizzleDatabase,
-);
+export const withAuthenticatedDb = createAuthenticatedDrizzleRunner(adminDb);
+
+export { runRecurringChargeCron };
