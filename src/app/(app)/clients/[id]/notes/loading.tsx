@@ -1,0 +1,1 @@
+export default function ClientNotesLoading() { return <main className="client-detail-page notes-page" aria-busy="true"><div className="client-dossier-header skeleton-block" /><div className="notes-layout"><div className="note-compose skeleton-block" /><div className="notes-sheet skeleton-block" /></div></main>; }

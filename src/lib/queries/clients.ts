@@ -14,6 +14,7 @@ import {
 import { withAuthenticatedDb } from "@/db";
 import { charges, clients } from "@/db/schema";
 import { requireUser } from "@/lib/auth/require-user";
+import { validateCommercialDate } from "@/lib/domain/commercial-date";
 import type { AggregateMinorUnits } from "@/lib/domain/money";
 import {
   clientFiltersSchema,
@@ -45,6 +46,7 @@ export interface ClientSummary {
   activeServices: number;
   pendingTasks: number;
   notes: number;
+  nextDueDate: string | null;
 }
 
 const aggregateMinorUnitsFromSql = (value: unknown): AggregateMinorUnits => {
@@ -179,8 +181,10 @@ export async function getClientById(idInput: unknown) {
 
 export async function getClientSummary(
   idInput: unknown,
+  asOfInput: string,
 ): Promise<ClientSummary | null> {
   const id = clientIdSchema.parse(idInput);
+  const asOf = validateCommercialDate(asOfInput);
   const user = await requireUser();
 
   return withAuthenticatedDb(user.id, async (db) => {
@@ -228,6 +232,13 @@ export async function getClientSummary(
           select count(*)::integer from client_notes n where n.owner_id = ${user.id}
           and n.client_id = ${id}
         )`.mapWith(countFromSql),
+        nextDueDate: sql<string | null>`(
+          select min(c.due_date)::text from charges c
+          where c.owner_id = ${user.id} and c.client_id = ${id}
+            and c.status <> 'cancelled'
+            and c.amount_paid_minor < c.amount_minor
+            and c.due_date >= ${asOf}
+        )`,
       })
       .from(clients)
       .where(and(eq(clients.id, id), eq(clients.ownerId, user.id)))
@@ -242,6 +253,7 @@ export async function getClientSummary(
       activeServices: row.activeServices,
       pendingTasks: row.pendingTasks,
       notes: row.notes,
+      nextDueDate: row.nextDueDate,
     };
   });
 }

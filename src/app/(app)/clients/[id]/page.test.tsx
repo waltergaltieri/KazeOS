@@ -44,6 +44,7 @@ describe("ClientDetailPage", () => {
       activeServices: 0,
       pendingTasks: 0,
       notes: 0,
+      nextDueDate: "2026-09-03",
     });
 
     render(
@@ -55,5 +56,7 @@ describe("ClientDetailPage", () => {
     );
 
     expect(screen.getAllByText(/USD\s*180\.143\.985\.094\.819,82/u)).toHaveLength(3);
+    expect(screen.getByText("03/09/2026")).toBeVisible();
+    expect(screen.queryByText(/próxima etapa/i)).not.toBeInTheDocument();
   });
 });

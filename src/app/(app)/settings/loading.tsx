@@ -1,0 +1,1 @@
+export default function SettingsLoading() { return <main className="settings-page" aria-busy="true"><div className="page-heading skeleton-block" /><div className="settings-grid"><div className="settings-sheet skeleton-block" /><div className="settings-sheet skeleton-block" /></div></main>; }

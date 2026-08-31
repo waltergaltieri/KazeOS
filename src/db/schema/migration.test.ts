@@ -9,8 +9,18 @@ const migrationDirectory = resolve(process.cwd(), "supabase/migrations");
 const hardeningMigration = readdirSync(migrationDirectory).find((name) =>
   name.endsWith("_harden_schema_integrity.sql"),
 );
+const settingsLocaleMigration = readdirSync(migrationDirectory).find((name) =>
+  name.endsWith("_add_settings_locale.sql"),
+);
 
 describe("schema hardening migration", () => {
+  it("adds locale in a separate CLI-named forward-only migration", () => {
+    expect(settingsLocaleMigration).toMatch(/^\d{14}_add_settings_locale\.sql$/);
+    const sql = readFileSync(resolve(migrationDirectory, settingsLocaleMigration!), "utf8").toLowerCase().replace(/\s+/g, " ");
+    expect(sql).toContain("alter table public.settings add column locale text not null default 'es-ar'");
+    expect(sql).toContain("constraint settings_locale_not_blank");
+    expect(sql).not.toMatch(/create\s+(?:schema|table)|grant|policy/);
+  });
   it("is a separate forward-only Supabase migration", () => {
     expect(hardeningMigration).toMatch(/^\d{14}_harden_schema_integrity\.sql$/);
   });

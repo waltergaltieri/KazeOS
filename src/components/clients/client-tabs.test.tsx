@@ -28,4 +28,11 @@ describe("ClientTabs", () => {
     expect(screen.getByRole("link", { name: "Tareas" })).toHaveAttribute("href", `/clients/${clientId}/tasks`);
     expect(screen.getByRole("link", { name: "Tareas" })).toHaveAttribute("aria-current", "page");
   });
+
+  it("exposes notes as a functional dossier route", () => {
+    const clientId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    render(<ClientTabs clientId={clientId} active="notes" />);
+    expect(screen.getByRole("link", { name: "Notas" })).toHaveAttribute("href", `/clients/${clientId}/notes`);
+    expect(screen.getByRole("link", { name: "Notas" })).toHaveAttribute("aria-current", "page");
+  });
 });

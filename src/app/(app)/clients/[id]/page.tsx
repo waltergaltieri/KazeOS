@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ClientHeader } from "@/components/clients/client-header";
 import { ClientTabs } from "@/components/clients/client-tabs";
 import { formatAggregateMoney } from "@/lib/domain/money";
+import { todayInBusinessZone } from "@/lib/domain/commercial-date";
 import { getClientById, getClientSummary, type AggregateCurrencyPair } from "@/lib/queries/clients";
 
 function MoneyPair({ value }: { value: AggregateCurrencyPair }) {
@@ -12,7 +13,8 @@ function MoneyPair({ value }: { value: AggregateCurrencyPair }) {
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [client, summary] = await Promise.all([getClientById(id), getClientSummary(id)]);
+  const asOf = todayInBusinessZone(new Date());
+  const [client, summary] = await Promise.all([getClientById(id), getClientSummary(id, asOf)]);
   if (!client || !summary) notFound();
 
   return (
@@ -24,7 +26,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         <article><p>Saldo pendiente</p><MoneyPair value={summary.outstanding} /><small>Cargos no cancelados</small></article>
         <article><p>Cobrado histórico</p><MoneyPair value={summary.collected} /><small>Pagos registrados</small></article>
         <article><p>MRR</p><MoneyPair value={summary.mrr} /><small>Servicios recurrentes activos</small></article>
-        <article><p>Actividad</p><strong>{summary.activeServices} / {summary.pendingTasks}</strong><small>Servicios activos / tareas pendientes</small></article>
+        <article><p>Próximo vencimiento</p><strong>{summary.nextDueDate ? summary.nextDueDate.split("-").reverse().join("/") : "Sin vencimientos"}</strong><small>{summary.activeServices} servicios activos · {summary.pendingTasks} tareas</small></article>
       </section>
 
       <div className="dossier-grid">
@@ -43,7 +45,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         <aside className="chronology-sheet" aria-labelledby="chronology-title">
           <header><p className="eyebrow">Riel cronológico</p><h2 id="chronology-title">Historia del legajo</h2></header>
           <div className="chronology-item"><span aria-hidden="true"><CalendarDays size={16} /></span><div><strong>Cliente incorporado</strong><time dateTime={client.joinedAt}>{new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${client.joinedAt}T00:00:00Z`))}</time></div></div>
-          <div className="module-placeholder"><p>Servicios, cobros, tareas y notas aparecerán acá cuando esos módulos estén habilitados.</p><span>Próxima etapa</span></div>
+          <div className="chronology-item"><span aria-hidden="true"><ReceiptText size={16} /></span><div><strong>Actividad vinculada</strong><span>{summary.activeServices} servicios activos · {summary.pendingTasks} tareas pendientes · {summary.notes} notas</span></div></div>
         </aside>
       </div>
 

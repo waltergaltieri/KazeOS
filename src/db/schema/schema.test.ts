@@ -164,6 +164,8 @@ describe("database schema contract", () => {
     expect(payments.amountMinor.columnType).toBe("PgBigInt53");
     expect(payments.paymentDate.columnType).toBe("PgDateString");
     expect(tasks.dueDate.columnType).toBe("PgDateString");
+    expect(settings.locale.name).toBe("locale");
+    expect(settings.locale.default).toBe("es-AR");
 
     for (const table of allTables) {
       expect(columnNames(table)).toEqual(

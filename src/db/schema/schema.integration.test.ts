@@ -198,16 +198,17 @@ describeDatabase("remote database integrity", () => {
     ).toEqual(["client_notes", "tasks"]);
   });
 
-  it("has one authoritative two-migration history and indexed foreign keys", async () => {
+  it("has one authoritative migration history and indexed foreign keys", async () => {
     const migrations = await sql!`
       select version
       from supabase_migrations.schema_migrations
-      where version in ('20260831031346', '20260831040110')
+      where version in ('20260831031346', '20260831040110', '20260831191020')
       order by version
     `;
     expect(migrations.map((migration) => migration.version)).toEqual([
       "20260831031346",
       "20260831040110",
+      "20260831191020",
     ]);
 
     const missingIndexes = await sql!`

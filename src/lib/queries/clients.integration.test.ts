@@ -57,6 +57,7 @@ describeDatabase("client queries against RLS", () => {
           { ownerId, clientId: debtClientId, description: "USD", amountMinor: 10_000, currency: "USD", dueDate: "2026-08-01", status: "pending" },
           { ownerId, clientId: debtClientId, description: "ARS", amountMinor: 90_000, currency: "ARS", dueDate: "2026-08-01", status: "pending" },
           { ownerId, clientId: debtClientId, description: "Cancelado", amountMinor: 999_999, currency: "USD", dueDate: "2026-08-01", status: "cancelled" },
+          { ownerId, clientId: debtClientId, description: "Próximo", amountMinor: 1_000, currency: "ARS", dueDate: "2026-09-10", status: "pending" },
         ]);
 
         runtime.userId = ownerId;
@@ -64,12 +65,13 @@ describeDatabase("client queries against RLS", () => {
 
         const debt = await getClients({ filter: "debt" });
         expect(debt).toHaveLength(1);
-        expect(debt[0]).toMatchObject({ id: debtClientId, outstanding: { USD: "10000", ARS: "90000" } });
+        expect(debt[0]).toMatchObject({ id: debtClientId, outstanding: { USD: "10000", ARS: "91000" } });
         await expect(getClients({ filter: "current" })).resolves.toEqual([
           expect.objectContaining({ id: currentClientId }),
         ]);
-        await expect(getClientSummary(debtClientId)).resolves.toMatchObject({
-          outstanding: { USD: "10000", ARS: "90000" },
+        await expect(getClientSummary(debtClientId, "2026-08-31")).resolves.toMatchObject({
+          outstanding: { USD: "10000", ARS: "91000" },
+          nextDueDate: "2026-09-10",
         });
 
         throw rollback;
@@ -117,7 +119,7 @@ describeDatabase("client queries against RLS", () => {
 
         const listed = await getClients();
         expect(listed[0]?.outstanding).toEqual({ USD: exactTotal, ARS: "0" });
-        await expect(getClientSummary(clientId)).resolves.toMatchObject({
+        await expect(getClientSummary(clientId, "2026-08-01")).resolves.toMatchObject({
           outstanding: { USD: exactTotal, ARS: "0" },
         });
 

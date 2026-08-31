@@ -16,6 +16,7 @@ export const settings = pgTable(
     timezone: text("timezone")
       .default("America/Argentina/Buenos_Aires")
       .notNull(),
+    locale: text("locale").default("es-AR").notNull(),
     dateFormat: text("date_format").default("dd/MM/yyyy").notNull(),
     businessName: text("business_name"),
     businessInfo: text("business_info"),
@@ -23,6 +24,7 @@ export const settings = pgTable(
   },
   (table) => [
     check("settings_timezone_not_blank", sql`btrim(${table.timezone}) <> ''`),
+    check("settings_locale_not_blank", sql`btrim(${table.locale}) <> ''`),
     check("settings_date_format_not_blank", sql`btrim(${table.dateFormat}) <> ''`),
     ...authenticatedOwnerPolicies("settings", table.ownerId),
   ],

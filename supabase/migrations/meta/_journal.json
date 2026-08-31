@@ -15,6 +15,13 @@
       "when": 1788148870000,
       "tag": "20260831040110_harden_schema_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788214220000,
+      "tag": "20260831191020_add_settings_locale",
+      "breakpoints": true
     }
   ]
 }

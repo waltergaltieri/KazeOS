@@ -27,6 +27,10 @@ const base: ChargeListItem = {
 };
 
 describe("ChargeTable operations", () => {
+  it("preserves the client scope in the empty-state create action", () => {
+    render(<ChargeTable today="2026-08-31" charges={[]} createHref="/charges/new?clientId=22222222-2222-4222-8222-222222222222" />);
+    expect(screen.getByRole("link", { name: "Nuevo cobro" })).toHaveAttribute("href", "/charges/new?clientId=22222222-2222-4222-8222-222222222222");
+  });
   it("exposes edit only for eligible manual zero-paid pending charges", () => {
     render(
       <ChargeTable
