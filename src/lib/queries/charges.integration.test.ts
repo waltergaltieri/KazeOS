@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { config } from "dotenv";
+import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -26,21 +27,21 @@ describeDatabase("charge query matrix", () => {
   it("applies status precedence, every filter, stable ordering, grouped currencies and RLS", async () => {
     try {
       await database!.transaction(async (transaction) => {
-        const ownerId = "10000000-0000-4000-8000-000000000001";
-        const otherOwnerId = "10000000-0000-4000-8000-000000000002";
-        const firstClientId = "20000000-0000-4000-8000-000000000001";
-        const secondClientId = "20000000-0000-4000-8000-000000000002";
-        const otherClientId = "20000000-0000-4000-8000-000000000003";
-        const firstServiceId = "30000000-0000-4000-8000-000000000001";
-        const secondServiceId = "30000000-0000-4000-8000-000000000002";
+        const ownerId = randomUUID();
+        const otherOwnerId = randomUUID();
+        const firstClientId = randomUUID();
+        const secondClientId = randomUUID();
+        const otherClientId = randomUUID();
+        const firstServiceId = randomUUID();
+        const secondServiceId = randomUUID();
         const ids = {
-          overdue: "40000000-0000-4000-8000-000000000001",
-          dueToday: "40000000-0000-4000-8000-000000000002",
-          upcoming: "40000000-0000-4000-8000-000000000003",
-          partial: "40000000-0000-4000-8000-000000000004",
-          paid: "40000000-0000-4000-8000-000000000005",
-          cancelled: "40000000-0000-4000-8000-000000000006",
-          other: "40000000-0000-4000-8000-000000000007",
+          overdue: randomUUID(),
+          dueToday: randomUUID(),
+          upcoming: randomUUID(),
+          partial: randomUUID(),
+          paid: randomUUID(),
+          cancelled: randomUUID(),
+          other: randomUUID(),
         };
 
         await transaction.execute(
