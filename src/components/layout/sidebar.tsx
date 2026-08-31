@@ -78,6 +78,17 @@ export function DesktopSidebar() {
 const DRAWER_FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+function findDesktopNavigationFocusTarget() {
+  const sidebar = document.querySelector<HTMLElement>(".desktop-sidebar");
+
+  return (
+    sidebar?.querySelector<HTMLElement>('[aria-current="page"]') ??
+    sidebar?.querySelector<HTMLElement>(".ledger-navigation a[href]") ??
+    sidebar?.querySelector<HTMLElement>(".brand-lockup") ??
+    null
+  );
+}
+
 export function MobileDrawer({
   open,
   onClose,
@@ -99,16 +110,19 @@ export function MobileDrawer({
     const previouslyInert = backgroundRegions.map((region) =>
       region.hasAttribute("inert"),
     );
-    const returnFocusTarget = returnFocusRef.current;
+    let returnFocusTarget: HTMLElement | null = returnFocusRef.current;
     const desktopQuery = window.matchMedia?.("(min-width: 980px)");
-    const closeAtDesktop = (event: MediaQueryListEvent) => {
-      if (event.matches) onClose();
+    const closeAtDesktop = (event: { matches: boolean }) => {
+      if (event.matches) {
+        returnFocusTarget = findDesktopNavigationFocusTarget();
+        onClose();
+      }
     };
     document.body.style.overflow = "hidden";
     backgroundRegions.forEach((region) => region.setAttribute("inert", ""));
     desktopQuery?.addEventListener("change", closeAtDesktop);
     closeRef.current?.focus();
-    if (desktopQuery?.matches) onClose();
+    if (desktopQuery?.matches) closeAtDesktop({ matches: true });
     return () => {
       desktopQuery?.removeEventListener("change", closeAtDesktop);
       document.body.style.overflow = previousOverflow;

@@ -1,8 +1,11 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useThemeMock } = vi.hoisted(() => ({ useThemeMock: vi.fn() }));
+const { usePathnameMock, useThemeMock } = vi.hoisted(() => ({
+  usePathnameMock: vi.fn(),
+  useThemeMock: vi.fn(),
+}));
 
 function controllableMediaQuery(initialMatches = false) {
   const listeners = new Set<(event: MediaQueryListEvent) => void>();
@@ -30,13 +33,17 @@ function controllableMediaQuery(initialMatches = false) {
   };
 }
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
+vi.mock("next/navigation", () => ({ usePathname: usePathnameMock }));
 vi.mock("next-themes", () => ({ useTheme: useThemeMock }));
 vi.mock("@/lib/auth/actions", () => ({ logout: vi.fn() }));
 
 import { AppShell } from "./app-shell";
 
 describe("AppShell", () => {
+  beforeEach(() => {
+    usePathnameMock.mockReturnValue("/dashboard");
+  });
+
   it("grounds the page with ledger navigation and verified user context", () => {
     useThemeMock.mockReturnValue({ theme: "system", setTheme: vi.fn() });
 
@@ -147,7 +154,35 @@ describe("AppShell", () => {
     ).not.toBeInTheDocument();
     expect(document.querySelector(".workspace")).not.toHaveAttribute("inert");
     expect(document.body.style.overflow).toBe("");
-    expect(trigger).toHaveFocus();
+    expect(
+      screen.getByRole("link", { name: "Dashboard", current: "page" }),
+    ).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
+  });
+
+  it("falls back to the first desktop navigation link when no route is active", async () => {
+    const user = userEvent.setup();
+    const media = controllableMediaQuery(false);
+    vi.stubGlobal("matchMedia", vi.fn(() => media.query));
+    usePathnameMock.mockReturnValue("/unlisted");
+    useThemeMock.mockReturnValue({ theme: "system", setTheme: vi.fn() });
+    render(
+      <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
+        Contenido
+      </AppShell>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Abrir menú principal" }),
+    );
+    act(() => media.setMatches(true));
+
+    expect(
+      within(screen.getByRole("navigation", { name: "Principal" })).getByRole(
+        "link",
+        { name: "Dashboard" },
+      ),
+    ).toHaveFocus();
   });
 
   it("offers quick creation and all three theme modes", async () => {
