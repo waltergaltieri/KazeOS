@@ -1,21 +1,35 @@
 import Link from "next/link";
 
 const tabs = [
-  { label: "Resumen", available: true },
-  { label: "Servicios", available: false },
-  { label: "Cobros", available: false },
-  { label: "Tareas", available: false },
-  { label: "Notas", available: false },
+  { key: "summary", label: "Resumen", available: true },
+  { key: "services", label: "Servicios", available: true },
+  { key: "charges", label: "Cobros", available: false },
+  { key: "tasks", label: "Tareas", available: false },
+  { key: "notes", label: "Notas", available: false },
 ] as const;
 
-export function ClientTabs({ clientId }: { clientId: string }) {
+type AvailableTab = "summary" | "services";
+
+export function ClientTabs({
+  clientId,
+  active = "summary",
+}: {
+  clientId: string;
+  active?: AvailableTab;
+}) {
   return (
     <nav className="client-tabs" aria-label="Secciones del legajo">
       {tabs.map((tab) =>
         tab.available ? (
-          <Link key={tab.label} href={`/clients/${clientId}`} aria-current="page">{tab.label}</Link>
+          <Link
+            key={tab.key}
+            href={tab.key === "services" ? `/clients/${clientId}/services` : `/clients/${clientId}`}
+            aria-current={tab.key === active ? "page" : undefined}
+          >
+            {tab.label}
+          </Link>
         ) : (
-          <span key={tab.label} aria-disabled="true" title="Disponible en una próxima etapa">{tab.label}</span>
+          <span key={tab.key} aria-disabled="true" title="Disponible en una próxima etapa">{tab.label}</span>
         ),
       )}
     </nav>

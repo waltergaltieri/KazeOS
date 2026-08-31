@@ -11,8 +11,10 @@ import { validateCommercialDate } from "@/lib/domain/commercial-date";
 
 export interface ChargeGenerationInput {
   asOf: string;
+  afterDateExclusive?: string;
   horizonMonths?: number;
   ownerId?: string;
+  serviceId?: string;
 }
 
 export interface ChargeGenerationResult {
@@ -30,6 +32,10 @@ const uuidPattern =
 function validateInput(input: Readonly<ChargeGenerationInput>) {
   validateCommercialDate(input.asOf);
 
+  if (input.afterDateExclusive !== undefined) {
+    validateCommercialDate(input.afterDateExclusive);
+  }
+
   const horizonMonths = input.horizonMonths ?? 3;
 
   if (!Number.isSafeInteger(horizonMonths) || horizonMonths < 1) {
@@ -40,7 +46,16 @@ function validateInput(input: Readonly<ChargeGenerationInput>) {
     throw new RangeError("Owner id must be a UUID");
   }
 
-  return { horizonMonths, ownerId: input.ownerId };
+  if (input.serviceId !== undefined && !uuidPattern.test(input.serviceId)) {
+    throw new RangeError("Service id must be a UUID");
+  }
+
+  return {
+    afterDateExclusive: input.afterDateExclusive,
+    horizonMonths,
+    ownerId: input.ownerId,
+    serviceId: input.serviceId,
+  };
 }
 
 /**
@@ -53,7 +68,8 @@ export async function generateRecurringCharges(
   database: ChargeGeneratorDatabase,
   input: Readonly<ChargeGenerationInput>,
 ): Promise<ChargeGenerationResult> {
-  const { horizonMonths, ownerId } = validateInput(input);
+  const { afterDateExclusive, horizonMonths, ownerId, serviceId } =
+    validateInput(input);
   const eligible = await database
     .select({
       amountMinor: services.amountMinor,
@@ -77,6 +93,7 @@ export async function generateRecurringCharges(
         ne(services.billingFrequency, "one_time"),
         eq(services.automaticChargeGeneration, true),
         ownerId === undefined ? undefined : eq(services.ownerId, ownerId),
+        serviceId === undefined ? undefined : eq(services.id, serviceId),
       ),
     )
     .orderBy(asc(services.ownerId), asc(services.id));
@@ -86,7 +103,13 @@ export async function generateRecurringCharges(
       service as RecurringServiceInput,
       input.asOf,
       horizonMonths,
-    ).map((candidate) => ({
+    )
+      .filter(
+        (candidate) =>
+          afterDateExclusive === undefined ||
+          candidate.dueDate > afterDateExclusive,
+      )
+      .map((candidate) => ({
       amountMinor: candidate.amountMinor,
       amountPaidMinor: 0,
       clientId: service.clientId,
@@ -98,7 +121,7 @@ export async function generateRecurringCharges(
       periodKey: candidate.periodKey,
       serviceId: service.id,
       status: "pending" as const,
-    })),
+      })),
   );
 
   if (values.length === 0) {

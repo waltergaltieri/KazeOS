@@ -429,6 +429,65 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .client-error { display: grid; min-height: 360px; place-content: center; justify-items: start; }
 .client-error .primary-button { margin-top: 22px; }
 
+/* Services: recurring agreements presented as precise ledger folios. */
+.services-page, .service-editor-page { max-width: 1240px; margin: 0 auto; }
+.service-page-heading {
+  display: flex; align-items: end; justify-content: space-between; gap: 24px; margin: 26px 0 18px;
+}
+.service-page-heading h2 { margin: 0; font-size: 25px; letter-spacing: -.035em; line-height: 1.1; }
+.service-page-heading > div > p:last-child { margin: 7px 0 0; color: var(--ink-secondary); }
+.service-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.service-card {
+  position: relative; display: grid; overflow: hidden; gap: 20px; padding: 22px 22px 18px 26px;
+  border: 1px solid var(--ledger-rule); border-radius: 12px; background: var(--paper-sheet);
+  box-shadow: 0 6px 18px rgba(19,31,56,.035);
+}
+.service-card__rail { position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--action-violet); }
+.service-card > header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.service-card h2 { margin: 0; font-size: 18px; letter-spacing: -.025em; line-height: 1.25; }
+.service-card .eyebrow { margin-bottom: 5px; font-size: 9px; }
+.status-pill--cancelled { background: var(--overdue-red-soft); color: var(--overdue-red); }
+.service-amount { font-size: 27px; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
+.service-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.service-facts > div { display: grid; align-content: start; gap: 4px; padding-top: 11px; border-top: 1px solid var(--ledger-rule-soft); }
+.service-facts dt { color: var(--ink-muted); font-size: 9px; font-weight: 720; letter-spacing: .08em; text-transform: uppercase; }
+.service-facts dd { display: flex; align-items: center; gap: 5px; margin: 0; color: var(--ink-secondary); font-size: 11px; font-weight: 650; }
+.service-card > footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.service-pause-confirm {
+  display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px;
+  padding: 8px; border: 1px solid color-mix(in srgb, var(--overdue-red) 24%, transparent);
+  border-radius: 10px; background: var(--overdue-red-soft);
+}
+.service-pause-confirm > span { margin-right: auto; padding-left: 4px; color: var(--overdue-red); font-size: 11px; font-weight: 680; }
+.service-pause-confirm .field-error { flex-basis: 100%; text-align: right; }
+.service-empty {
+  display: grid; min-height: 260px; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 20px;
+  padding: 28px; border: 1px solid var(--ledger-rule); border-radius: 12px; background: var(--paper-sheet);
+}
+.service-empty > span { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 11px; background: var(--action-violet-soft); color: var(--action-violet); }
+.service-empty h2 { margin: 0; font-size: 23px; letter-spacing: -.03em; }
+.service-empty div > p:last-child { margin: 7px 0 0; color: var(--ink-secondary); }
+.service-form { display: grid; gap: 16px; }
+.service-form .field-stack { align-content: start; }
+.service-form .field-stack > :is(label, span:first-child) { color: var(--ink-secondary); font-size: 12px; font-weight: 680; }
+.service-description-field { grid-column: 1 / -1; }
+.field-note { color: var(--ink-tertiary); font-size: 11px; }
+.money-control { position: relative; display: block; }
+.money-control::before {
+  position: absolute; z-index: 1; top: 50%; left: 11px; color: var(--ink-tertiary); content: attr(data-prefix);
+  font-size: 11px; font-weight: 760; transform: translateY(-50%); pointer-events: none;
+}
+.money-control .form-control { padding-left: 45px; font-variant-numeric: tabular-nums; }
+.automation-switch {
+  display: flex; align-items: start; gap: 11px; padding: 14px; margin-top: 18px;
+  border: 1px solid var(--ledger-rule-soft); border-radius: 9px; background: var(--paper-inset); cursor: pointer;
+}
+.automation-switch input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--action-violet); }
+.automation-switch > span { display: grid; }
+.automation-switch strong { font-size: 12px; }
+.automation-switch small { margin-top: 2px; color: var(--ink-tertiary); font-size: 11px; }
+.automation-switch.is-disabled { cursor: not-allowed; opacity: .58; }
+
 .drawer-layer { position: fixed; z-index: 80; inset: 0; display: none; }
 .drawer-scrim { position: absolute; inset: 0; border: 0; background: rgba(10,14,24,.42); }
 .mobile-drawer {
@@ -519,4 +578,15 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   .summary-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .summary-grid article { min-height: 120px; padding: 15px; }
   .contact-ledger > div { grid-template-columns: 1fr; gap: 6px; }
+  .service-page-heading { flex-direction: column; align-items: stretch; }
+  .service-page-heading .primary-button { width: 100%; }
+  .service-card-grid { grid-template-columns: 1fr; }
+  .service-card { padding: 20px 16px 16px 20px; }
+  .service-facts { grid-template-columns: 1fr; gap: 8px; }
+  .service-card > footer > :is(.secondary-button, .quiet-button) { flex: 1 1 0; }
+  .service-pause-confirm { align-items: stretch; }
+  .service-pause-confirm > span, .service-pause-confirm .field-error { flex-basis: 100%; text-align: left; }
+  .service-pause-confirm > :is(.danger-button, .quiet-button) { flex: 1 1 0; }
+  .service-empty { grid-template-columns: 44px minmax(0, 1fr); padding: 24px 20px; }
+  .service-empty .primary-button { grid-column: 1 / -1; width: 100%; }
 }
