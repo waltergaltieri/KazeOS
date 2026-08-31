@@ -1,19 +1,90 @@
 "use client";
 
 import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
-import { useActionState, useId, useState } from "react";
+import { useRouter } from "next/navigation";
+import { type FormEvent, useId, useState } from "react";
 
-import { login } from "@/lib/auth/actions";
+import {
+  LOGIN_FAILURE_MESSAGE,
+  LOGIN_VALIDATION_MESSAGE,
+  type LoginError,
+} from "@/lib/auth/contracts";
+
+function safeLocalPath(value: unknown) {
+  return typeof value === "string" &&
+    value.startsWith("/") &&
+    !value.startsWith("//") &&
+    !value.includes("\\")
+    ? value
+    : "/dashboard";
+}
 
 export function LoginForm() {
-  const [state, formAction, pending] = useActionState(login, undefined);
+  const router = useRouter();
+  const [state, setState] = useState<LoginError>();
+  const [pending, setPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const emailErrorId = useId();
   const passwordErrorId = useId();
   const formErrorId = useId();
 
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setState(undefined);
+
+    try {
+      const response = await fetch("/auth/login", {
+        method: "POST",
+        body: new FormData(event.currentTarget),
+      });
+      const payload = (await response.json()) as unknown;
+
+      if (response.ok) {
+        const redirectTo =
+          typeof payload === "object" && payload !== null
+            ? (payload as { redirectTo?: unknown }).redirectTo
+            : undefined;
+        router.replace(safeLocalPath(redirectTo));
+        router.refresh();
+        return;
+      }
+
+      if (
+        response.status === 400 &&
+        typeof payload === "object" &&
+        payload !== null
+      ) {
+        const fieldErrors = (payload as { fieldErrors?: unknown }).fieldErrors;
+        const errors =
+          typeof fieldErrors === "object" && fieldErrors !== null
+            ? (fieldErrors as Record<string, unknown>)
+            : undefined;
+
+        setState({
+          status: "error",
+          message: LOGIN_VALIDATION_MESSAGE,
+          fieldErrors: {
+            email:
+              typeof errors?.email === "string" ? errors.email : undefined,
+            password:
+              typeof errors?.password === "string"
+                ? errors.password
+                : undefined,
+          },
+        });
+      } else {
+        setState({ status: "error", message: LOGIN_FAILURE_MESSAGE });
+      }
+    } catch {
+      setState({ status: "error", message: LOGIN_FAILURE_MESSAGE });
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
-    <form action={formAction} className="login-form" noValidate>
+    <form onSubmit={handleSubmit} className="login-form" noValidate>
       <div className="field-stack">
         <label htmlFor="email">Email</label>
         <div className="inset-control">

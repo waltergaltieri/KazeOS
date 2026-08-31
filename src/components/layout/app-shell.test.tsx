@@ -1,8 +1,34 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 const { useThemeMock } = vi.hoisted(() => ({ useThemeMock: vi.fn() }));
+
+function controllableMediaQuery(initialMatches = false) {
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const query = {
+    matches: initialMatches,
+    media: "(min-width: 980px)",
+    onchange: null,
+    addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) =>
+      listeners.add(listener),
+    removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) =>
+      listeners.delete(listener),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  };
+
+  return {
+    query: query as unknown as MediaQueryList,
+    setMatches(matches: boolean) {
+      query.matches = matches;
+      listeners.forEach((listener) =>
+        listener({ matches, media: query.media } as MediaQueryListEvent),
+      );
+    },
+  };
+}
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
 vi.mock("next-themes", () => ({ useTheme: useThemeMock }));
@@ -92,6 +118,34 @@ describe("AppShell", () => {
     });
     await user.click(clientsLink);
     expect(dialog).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("closes and unlocks the drawer when resize or orientation crosses desktop", async () => {
+    const user = userEvent.setup();
+    const media = controllableMediaQuery(false);
+    vi.stubGlobal("matchMedia", vi.fn(() => media.query));
+    useThemeMock.mockReturnValue({ theme: "system", setTheme: vi.fn() });
+    render(
+      <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
+        <button type="button">Acción de fondo</button>
+      </AppShell>,
+    );
+
+    const trigger = screen.getByRole("button", {
+      name: "Abrir menú principal",
+    });
+    await user.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Menú principal" })).toBeVisible();
+    expect(document.querySelector(".workspace")).toHaveAttribute("inert");
+
+    act(() => media.setMatches(true));
+
+    expect(
+      screen.queryByRole("dialog", { name: "Menú principal" }),
+    ).not.toBeInTheDocument();
+    expect(document.querySelector(".workspace")).not.toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("");
     expect(trigger).toHaveFocus();
   });
 

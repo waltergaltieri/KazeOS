@@ -136,6 +136,29 @@ describe("updateSession", () => {
     expect(createServerClientMock).not.toHaveBeenCalled();
   });
 
+  it("allows only the exact response-capable auth endpoints without a session", async () => {
+    for (const path of ["/auth/login", "/auth/logout"]) {
+      createServerClientMock.mockClear();
+      const response = await updateSession(
+        new NextRequest(`https://app.local${path}`, { method: "POST" }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+      expect(createServerClientMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it("keeps near-match auth endpoints protected", async () => {
+    mockClaims(null);
+
+    const response = await updateSession(
+      new NextRequest("https://app.local/auth/login/extra", { method: "POST" }),
+    );
+
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/login");
+  });
+
   it("keeps near-match cron and all other API routes protected", async () => {
     mockClaims(null);
 

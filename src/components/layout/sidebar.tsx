@@ -100,17 +100,24 @@ export function MobileDrawer({
       region.hasAttribute("inert"),
     );
     const returnFocusTarget = returnFocusRef.current;
+    const desktopQuery = window.matchMedia?.("(min-width: 980px)");
+    const closeAtDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) onClose();
+    };
     document.body.style.overflow = "hidden";
     backgroundRegions.forEach((region) => region.setAttribute("inert", ""));
+    desktopQuery?.addEventListener("change", closeAtDesktop);
     closeRef.current?.focus();
+    if (desktopQuery?.matches) onClose();
     return () => {
+      desktopQuery?.removeEventListener("change", closeAtDesktop);
       document.body.style.overflow = previousOverflow;
       backgroundRegions.forEach((region, index) => {
         if (!previouslyInert[index]) region.removeAttribute("inert");
       });
-      queueMicrotask(() => returnFocusTarget?.focus());
+      returnFocusTarget?.focus();
     };
-  }, [open, returnFocusRef]);
+  }, [onClose, open, returnFocusRef]);
 
   function onDrawerKeyDown(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {

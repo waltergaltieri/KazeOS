@@ -14,7 +14,6 @@ import { type RefObject, useMemo } from "react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAccessibleMenu } from "@/components/ui/use-accessible-menu";
-import { logout } from "@/lib/auth/actions";
 
 type TopbarProps = {
   user: { name: string; email: string };
@@ -154,7 +153,7 @@ export function Topbar({ user, onOpenNavigation, navigationTriggerRef }: TopbarP
                 <strong>{user.name}</strong>
                 <span>{user.email}</span>
               </div>
-              <form action={logout}>
+              <form action="/auth/logout" method="post">
                 <button
                   type="submit"
                   role="menuitem"

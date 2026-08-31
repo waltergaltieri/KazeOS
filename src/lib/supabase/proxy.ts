@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createResponseClient } from "./response";
 
 const CHARGE_GENERATION_CRON_PATH = "/api/cron/generate-charges";
+const RESPONSE_AUTH_PATHS = new Set(["/auth/login", "/auth/logout"]);
 
 export function getSafeNextPath(pathname: string, search: string) {
   const candidate = `${pathname}${search}`;
@@ -13,7 +14,10 @@ export function getSafeNextPath(pathname: string, search: string) {
 }
 
 export async function updateSession(request: NextRequest) {
-  if (request.nextUrl.pathname === CHARGE_GENERATION_CRON_PATH) {
+  if (
+    request.nextUrl.pathname === CHARGE_GENERATION_CRON_PATH ||
+    RESPONSE_AUTH_PATHS.has(request.nextUrl.pathname)
+  ) {
     return NextResponse.next({ request });
   }
 
