@@ -13,7 +13,7 @@ vi.mock("@supabase/ssr", () => ({
   createServerClient: createServerClientMock,
 }));
 
-import { createClient } from "./server";
+import { createActionClient, createClient } from "./server";
 
 describe("the Server Component Supabase client", () => {
   beforeEach(() => {
@@ -38,5 +38,40 @@ describe("the Server Component Supabase client", () => {
       { name: "sb-session", value: "existing" },
     ]);
     expect(options.cookies.setAll).toBeUndefined();
+  });
+
+  it("provides a cookie-writing client only for Server Actions", async () => {
+    const set = vi.fn();
+    cookiesMock.mockResolvedValue({
+      getAll: () => [{ name: "sb-session", value: "existing" }],
+      set,
+    });
+
+    await createActionClient();
+
+    const options = createServerClientMock.mock.calls[0]?.[2] as {
+      cookies: {
+        setAll: (
+          values: Array<{
+            name: string;
+            value: string;
+            options: { httpOnly?: boolean };
+          }>,
+        ) => void;
+      };
+    };
+    const values = [
+      {
+        name: "sb-session",
+        value: "refreshed",
+        options: { httpOnly: true },
+      },
+    ];
+
+    options.cookies.setAll(values);
+
+    expect(set).toHaveBeenCalledWith("sb-session", "refreshed", {
+      httpOnly: true,
+    });
   });
 });

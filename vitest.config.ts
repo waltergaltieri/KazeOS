@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const path = require("node:path");
-const { defineConfig } = require("vitest/config");
+const { configDefaults, defineConfig } = require("vitest/config");
 
 module.exports = defineConfig({
   resolve: {
@@ -10,6 +10,7 @@ module.exports = defineConfig({
   },
   test: {
     environment: "jsdom",
+    exclude: [...configDefaults.exclude, "tests/e2e/**"],
     fileParallelism: false,
     globals: true,
     maxWorkers: 1,

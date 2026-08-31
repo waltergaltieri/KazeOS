@@ -14,6 +14,8 @@ out/
 coverage/
 playwright-report/
 test-results/
+output/playwright/
+.playwright-cli/
 
 # Local tooling
 .turbo/
