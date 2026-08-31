@@ -1,0 +1,42 @@
+// @vitest-environment node
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { cookiesMock, createServerClientMock } = vi.hoisted(() => ({
+  cookiesMock: vi.fn(),
+  createServerClientMock: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({ cookies: cookiesMock }));
+vi.mock("@supabase/ssr", () => ({
+  createServerClient: createServerClientMock,
+}));
+
+import { createClient } from "./server";
+
+describe("the Server Component Supabase client", () => {
+  beforeEach(() => {
+    createServerClientMock.mockReset();
+    createServerClientMock.mockReturnValue({ auth: {} });
+    cookiesMock.mockResolvedValue({
+      getAll: () => [{ name: "sb-session", value: "existing" }],
+    });
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY =
+      "sb_publishable_example";
+  });
+
+  it("is explicitly read-only and never registers a cookie writer", async () => {
+    await createClient();
+
+    const options = createServerClientMock.mock.calls[0]?.[2] as {
+      cookies: { getAll: () => unknown; setAll?: unknown };
+    };
+
+    expect(options.cookies.getAll()).toEqual([
+      { name: "sb-session", value: "existing" },
+    ]);
+    expect(options.cookies.setAll).toBeUndefined();
+  });
+});

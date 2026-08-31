@@ -31,9 +31,39 @@ const postgresqlUrl = z
     }
   }, "must be a valid postgresql:// URL");
 
+function getLegacyJwtRole(value: string) {
+  const payload = value.split(".")[1];
+
+  if (!payload) {
+    return undefined;
+  }
+
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    const decoded = JSON.parse(atob(padded)) as { role?: unknown };
+
+    return typeof decoded.role === "string" ? decoded.role : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const publishableKey = z
+  .string()
+  .trim()
+  .min(1, "is required")
+  .refine(
+    (value) =>
+      /^sb_publishable_[A-Za-z0-9_-]+$/.test(value) ||
+      getLegacyJwtRole(value) === "anon",
+    "must be a Supabase publishable key or legacy anon key",
+  );
+
 const optionalString = z.preprocess(
-  (value) => (value === "" ? undefined : value),
-  z.string().min(1).optional(),
+  (value) =>
+    typeof value === "string" && value.trim() === "" ? undefined : value,
+  z.string().trim().min(1).optional(),
 );
 
 const optionalHttpsUrl = z.preprocess(
@@ -43,7 +73,7 @@ const optionalHttpsUrl = z.preprocess(
 
 export const publicEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: httpsUrl,
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1, "is required"),
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publishableKey,
 });
 
 export const serverEnvSchema = z.object({

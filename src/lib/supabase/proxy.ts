@@ -1,66 +1,40 @@
-import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
-function copySessionState(source: NextResponse, destination: NextResponse) {
-  source.cookies.getAll().forEach((cookie) => destination.cookies.set(cookie));
+import { createResponseClient } from "./response";
 
-  for (const headerName of ["cache-control", "expires", "pragma"]) {
-    const value = source.headers.get(headerName);
+const CHARGE_GENERATION_CRON_PATH = "/api/cron/generate-charges";
 
-    if (value) {
-      destination.headers.set(headerName, value);
-    }
-  }
+export function getSafeNextPath(pathname: string, search: string) {
+  const candidate = `${pathname}${search}`;
 
-  return destination;
+  return candidate.startsWith("/") && !candidate.startsWith("//")
+    ? candidate
+    : "/dashboard";
 }
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  if (request.nextUrl.pathname === CHARGE_GENERATION_CRON_PATH) {
+    return NextResponse.next({ request });
+  }
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet, headers) {
-          cookiesToSet.forEach(({ name, value }) => {
-            request.cookies.set(name, value);
-          });
+  const responseClient = createResponseClient(request);
 
-          supabaseResponse = NextResponse.next({ request });
-
-          cookiesToSet.forEach(({ name, value, options }) => {
-            supabaseResponse.cookies.set(name, value, options);
-          });
-
-          Object.entries(headers).forEach(([name, value]) => {
-            supabaseResponse.headers.set(name, value);
-          });
-        },
-      },
-    },
-  );
-
-  const { data } = await supabase.auth.getClaims();
-  const isAuthenticated = Boolean(data?.claims);
+  const { data, error } = await responseClient.client.auth.getClaims();
+  const isAuthenticated = !error && Boolean(data?.claims);
   const isLoginRoute = request.nextUrl.pathname === "/login";
 
   if (!isAuthenticated && !isLoginRoute) {
     const loginUrl = request.nextUrl.clone();
-    const nextPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+    const nextPath = getSafeNextPath(
+      request.nextUrl.pathname,
+      request.nextUrl.search,
+    );
 
     loginUrl.pathname = "/login";
     loginUrl.search = "";
     loginUrl.searchParams.set("next", nextPath);
 
-    return copySessionState(
-      supabaseResponse,
-      NextResponse.redirect(loginUrl),
-    );
+    return responseClient.applyTo(NextResponse.redirect(loginUrl));
   }
 
   if (isAuthenticated && isLoginRoute) {
@@ -69,11 +43,8 @@ export async function updateSession(request: NextRequest) {
     dashboardUrl.pathname = "/dashboard";
     dashboardUrl.search = "";
 
-    return copySessionState(
-      supabaseResponse,
-      NextResponse.redirect(dashboardUrl),
-    );
+    return responseClient.applyTo(NextResponse.redirect(dashboardUrl));
   }
 
-  return supabaseResponse;
+  return responseClient.getResponse();
 }

@@ -10,7 +10,9 @@ module.exports = defineConfig({
   },
   test: {
     environment: "jsdom",
+    fileParallelism: false,
     globals: true,
+    maxWorkers: 1,
     setupFiles: ["./src/test/setup.ts"],
   },
 });

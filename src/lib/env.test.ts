@@ -80,4 +80,39 @@ describe("parseEnv", () => {
       }),
     ).toThrowError(/SUPABASE_JWKS_URL/);
   });
+
+  it("rejects a Supabase secret key in the public key variable", () => {
+    expect(() =>
+      parseEnv({
+        ...validEnv,
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_secret_example",
+      }),
+    ).toThrowError(/NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+  });
+
+  it("rejects a legacy service-role JWT in the public key variable", () => {
+    const payload = Buffer.from(
+      JSON.stringify({ role: "service_role" }),
+    ).toString("base64url");
+
+    expect(() =>
+      parseEnv({
+        ...validEnv,
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: `header.${payload}.signature`,
+      }),
+    ).toThrowError(/NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+  });
+
+  it("trims optional secrets and treats whitespace as absent", () => {
+    expect(
+      parseEnv({
+        ...validEnv,
+        SUPABASE_SECRET_KEY: "   ",
+        CRON_SECRET: "  cron-value  ",
+      }),
+    ).toMatchObject({
+      SUPABASE_SECRET_KEY: undefined,
+      CRON_SECRET: "cron-value",
+    });
+  });
 });
