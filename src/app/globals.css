@@ -507,7 +507,7 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   .client-card__facts .currency-stack { text-align: right; }
   .client-card__open { display: flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--action-violet); font-size: 12px; font-weight: 700; }
   .client-empty { grid-template-columns: 48px minmax(0,1fr); padding: 24px 20px; }
-  .client-empty .primary-button { grid-column: 1 / -1; width: 100%; }
+  .client-empty > :is(.primary-button, .secondary-button) { grid-column: 1 / -1; justify-self: stretch; width: 100%; }
   .form-grid--three, .form-grid--two, .summary-grid, .dossier-grid { grid-template-columns: 1fr; }
   .form-sheet { padding: 20px 16px; }
   .client-form__actions { bottom: 8px; }

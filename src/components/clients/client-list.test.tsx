@@ -9,10 +9,9 @@ describe("ClientList", () => {
     expect(
       screen.getByRole("heading", { name: "Todavía no hay clientes" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Crear primer cliente" })).toHaveAttribute(
-      "href",
-      "/clients/new",
-    );
+    const createLink = screen.getByRole("link", { name: "Crear primer cliente" });
+    expect(createLink).toHaveAttribute("href", "/clients/new");
+    expect(createLink.getAttribute("class")).toBe("primary-button");
   });
 
   it("shows contextual no-results guidance when search or filters are active", () => {
@@ -21,9 +20,11 @@ describe("ClientList", () => {
     expect(
       screen.getByRole("heading", { name: "No encontramos clientes" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Limpiar búsqueda y filtros" }),
-    ).toHaveAttribute("href", "/clients");
+    const clearLink = screen.getByRole("link", {
+      name: "Limpiar búsqueda y filtros",
+    });
+    expect(clearLink).toHaveAttribute("href", "/clients");
+    expect(clearLink.getAttribute("class")).toBe("secondary-button");
     expect(
       screen.queryByRole("heading", { name: "Todavía no hay clientes" }),
     ).not.toBeInTheDocument();
