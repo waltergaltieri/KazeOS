@@ -19,6 +19,7 @@ test-results/
 .turbo/
 *.tsbuildinfo
 .worktrees/
+supabase/.temp/
 
 # OS and editor files
 .DS_Store
