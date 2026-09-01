@@ -21,6 +21,14 @@ const optionalEmail = z.preprocess(
   z.string().email("Ingresá un email válido.").max(254).optional(),
 );
 
+function hasHttpProtocol(value: string): boolean {
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
 const optionalWebsite = z.preprocess(
   (value) => {
     if (value === null) return undefined;
@@ -32,7 +40,7 @@ const optionalWebsite = z.preprocess(
     .string()
     .url("Ingresá una URL válida.")
     .max(2_048)
-    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), {
+    .refine(hasHttpProtocol, {
       message: "La URL debe comenzar con http:// o https://.",
     })
     .optional(),
@@ -70,7 +78,7 @@ const updateOptionalWebsite = z.preprocess(
     .string()
     .url("Ingresá una URL válida.")
     .max(2_048)
-    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), {
+    .refine(hasHttpProtocol, {
       message: "La URL debe comenzar con http:// o https://.",
     })
     .nullable()

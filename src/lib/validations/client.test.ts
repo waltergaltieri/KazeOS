@@ -57,6 +57,20 @@ describe("clientFormSchema", () => {
     ).toBe(false);
   });
 
+  it("returns a website field error for a malformed URL instead of throwing", () => {
+    const result = clientFormSchema.safeParse({
+      ...validClient,
+      website: "656.ar",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.website).toContain(
+        "Ingresá una URL válida.",
+      );
+    }
+  });
+
   it("constrains status and field sizes", () => {
     expect(
       clientFormSchema.safeParse({ ...validClient, status: "deleted" }).success,
@@ -93,6 +107,17 @@ describe("clientUpdateSchema", () => {
       address: null,
       notes: null,
     });
+  });
+
+  it("returns a website field error for a malformed update URL instead of throwing", () => {
+    const result = clientUpdateSchema.safeParse({ website: "656.ar" });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.website).toContain(
+        "Ingresá una URL válida.",
+      );
+    }
   });
 });
 

@@ -43,15 +43,13 @@ export function ClientForm({ action, defaults = {} }: { action: ClientFormAction
   return (
     <form action={formAction} className="client-form" noValidate>
       {defaults.id ? <input type="hidden" name="id" value={defaults.id} /> : null}
-      <section className="form-sheet" aria-labelledby="identity-heading">
+      <section className="form-sheet" aria-labelledby="client-heading">
         <header className="form-sheet__heading">
           <span>01</span>
-          <div><h2 id="identity-heading">Identidad</h2><p>Los datos mínimos para reconocer el legajo.</p></div>
+          <div><h2 id="client-heading">Datos del cliente</h2><p>Cargá la empresa; si es un particular, podés dejarla vacía.</p></div>
         </header>
-        <div className="form-grid form-grid--three">
-          <Field label="Nombre" name="firstName" required error={error("firstName")} defaultValue={defaults.firstName} />
-          <Field label="Apellido" name="lastName" error={error("lastName")} defaultValue={defaults.lastName} />
-          <Field label="Empresa" name="company" error={error("company")} defaultValue={defaults.company} />
+        <div className="form-grid form-grid--two">
+          <Field label="Empresa o nombre comercial" name="company" error={error("company")} defaultValue={defaults.company} />
           <label className="field-stack">
             <span>Estado</span>
             <select name="status" defaultValue={defaults.status ?? "active"} className="form-control">
@@ -66,12 +64,23 @@ export function ClientForm({ action, defaults = {} }: { action: ClientFormAction
       <section className="form-sheet" aria-labelledby="contact-heading">
         <header className="form-sheet__heading">
           <span>02</span>
-          <div><h2 id="contact-heading">Contacto</h2><p>Canales de trabajo y referencia fiscal.</p></div>
+          <div><h2 id="contact-heading">Persona de contacto</h2><p>La persona que te contrató o con quien hablás habitualmente.</p></div>
         </header>
         <div className="form-grid form-grid--two">
+          <Field label="Nombre de la persona de contacto" name="firstName" required error={error("firstName")} defaultValue={defaults.firstName} />
+          <Field label="Apellido de la persona de contacto" name="lastName" error={error("lastName")} defaultValue={defaults.lastName} />
           <Field label="Email" name="email" type="email" error={error("email")} defaultValue={defaults.email} />
           <Field label="Teléfono" name="phone" type="tel" error={error("phone")} defaultValue={defaults.phone} />
           <Field label="WhatsApp" name="whatsapp" type="tel" error={error("whatsapp")} defaultValue={defaults.whatsapp} />
+        </div>
+      </section>
+
+      <section className="form-sheet" aria-labelledby="commercial-heading">
+        <header className="form-sheet__heading">
+          <span>03</span>
+          <div><h2 id="commercial-heading">Datos comerciales</h2><p>Información fiscal, web y dirección del cliente.</p></div>
+        </header>
+        <div className="form-grid form-grid--two">
           <Field label="CUIT / identificación fiscal" name="taxId" error={error("taxId")} defaultValue={defaults.taxId} />
           <Field label="Sitio web" name="website" type="url" error={error("website")} defaultValue={defaults.website} />
           <Field label="Dirección" name="address" error={error("address")} defaultValue={defaults.address} />
@@ -80,8 +89,8 @@ export function ClientForm({ action, defaults = {} }: { action: ClientFormAction
 
       <section className="form-sheet" aria-labelledby="notes-heading">
         <header className="form-sheet__heading">
-          <span>03</span>
-          <div><h2 id="notes-heading">Notas del legajo</h2><p>Contexto breve para futuras conversaciones.</p></div>
+          <span>04</span>
+          <div><h2 id="notes-heading">Notas</h2><p>Contexto breve para futuras conversaciones.</p></div>
         </header>
         <label className="field-stack">
           <span>Notas</span>
