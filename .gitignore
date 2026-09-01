@@ -28,3 +28,4 @@ supabase/.temp/
 Thumbs.db
 .idea/
 .vscode/
+.vercel
