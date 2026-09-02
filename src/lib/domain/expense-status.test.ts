@@ -17,4 +17,16 @@ describe("getExpenseStatus", () => {
       ).toBe(expected);
     },
   );
+
+  it.each(["overdue", "unknown"])(
+    "rejects invalid persisted status %s at runtime",
+    (status) => {
+      expect(() =>
+        getExpenseStatus(
+          { status: status as never, dueDate: "2026-09-20" },
+          "2026-09-10",
+        ),
+      ).toThrow(RangeError);
+    },
+  );
 });

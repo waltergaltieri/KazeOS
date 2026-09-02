@@ -10,6 +10,19 @@ export type PersistedExpenseStatus =
   | "cancelled";
 export type ExpenseStatus = PersistedExpenseStatus | "overdue";
 
+const persistedExpenseStatuses: readonly PersistedExpenseStatus[] = [
+  "planned",
+  "pending",
+  "paid",
+  "cancelled",
+];
+
+function validatePersistedStatus(status: PersistedExpenseStatus): void {
+  if (!persistedExpenseStatuses.includes(status)) {
+    throw new RangeError("Invalid persisted expense status");
+  }
+}
+
 export function getExpenseStatus(
   expense: {
     dueDate: string;
@@ -17,6 +30,7 @@ export function getExpenseStatus(
   },
   today: string,
 ): ExpenseStatus {
+  validatePersistedStatus(expense.status);
   validateCommercialDate(expense.dueDate);
   validateCommercialDate(today);
 
