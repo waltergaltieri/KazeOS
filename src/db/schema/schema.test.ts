@@ -1,6 +1,12 @@
 import { getTableName, type SQL } from "drizzle-orm";
-import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
+import {
+  type AnyPgTable,
+  getTableConfig,
+  PgDialect,
+} from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
+
+import * as schema from "./index";
 
 import {
   billingFrequencyEnum,
@@ -23,6 +29,23 @@ import {
   tasks,
 } from "./index";
 
+type OptionalEnum = { enumValues: string[] } | undefined;
+type OptionalTable = AnyPgTable | undefined;
+
+const expenseScopeEnum = (schema as Record<string, unknown>)
+  .expenseScopeEnum as OptionalEnum;
+const expenseCostTypeEnum = (schema as Record<string, unknown>)
+  .expenseCostTypeEnum as OptionalEnum;
+const expenseStatusEnum = (schema as Record<string, unknown>)
+  .expenseStatusEnum as OptionalEnum;
+const recurringExpenseStatusEnum = (schema as Record<string, unknown>)
+  .recurringExpenseStatusEnum as OptionalEnum;
+const expenseCategories = (schema as Record<string, unknown>)
+  .expenseCategories as OptionalTable;
+const recurringExpenses = (schema as Record<string, unknown>)
+  .recurringExpenses as OptionalTable;
+const expenses = (schema as Record<string, unknown>).expenses as OptionalTable;
+
 const businessTables = [
   clients,
   services,
@@ -31,16 +54,30 @@ const businessTables = [
   tasks,
   clientNotes,
   settings,
+  ...(expenseCategories ? [expenseCategories] : []),
+  ...(recurringExpenses ? [recurringExpenses] : []),
+  ...(expenses ? [expenses] : []),
 ] as const;
 
 const allTables = [profiles, ...businessTables] as const;
 
-function configOf(table: (typeof allTables)[number]) {
+function configOf(table: AnyPgTable) {
   return getTableConfig(table);
 }
 
-function columnNames(table: (typeof allTables)[number]) {
+function columnNames(table: AnyPgTable) {
   return configOf(table).columns.map((column) => column.name);
+}
+
+function requireTable(table: OptionalTable) {
+  expect(table).toBeDefined();
+  return table as AnyPgTable;
+}
+
+function columnOf(table: AnyPgTable, name: string) {
+  const column = configOf(table).columns.find((candidate) => candidate.name === name);
+  expect(column, `Missing ${getTableName(table)}.${name}`).toBeDefined();
+  return column!;
 }
 
 const dialect = new PgDialect();
@@ -54,16 +91,13 @@ function renderSql(value: SQL | undefined) {
     .sqlToQuery(value)
     .sql.replaceAll('"', "")
     .replace(
-      /\b(?:profiles|clients|services|charges|payments|tasks|client_notes|settings)\./g,
+      /\b(?:profiles|clients|services|charges|payments|tasks|client_notes|settings|expense_categories|recurring_expenses|expenses)\./g,
       "",
     )
     .replace(/\s+/g, " ");
 }
 
-function foreignKeyContract(
-  table: (typeof allTables)[number],
-  name: string,
-) {
+function foreignKeyContract(table: AnyPgTable, name: string) {
   const foreignKey = configOf(table).foreignKeys.find(
     (candidate) => candidate.getName() === name,
   );
@@ -88,6 +122,9 @@ describe("database schema contract", () => {
       "tasks",
       "client_notes",
       "settings",
+      "expense_categories",
+      "recurring_expenses",
+      "expenses",
     ]);
   });
 
@@ -125,6 +162,28 @@ describe("database schema contract", () => {
       "stripe",
       "crypto",
       "other",
+      "debit_card",
+      "credit_card",
+    ]);
+    expect(expenseScopeEnum?.enumValues).toEqual([
+      "personal",
+      "business",
+      "family",
+      "friends",
+      "partner",
+      "other",
+    ]);
+    expect(expenseCostTypeEnum?.enumValues).toEqual(["fixed", "variable"]);
+    expect(expenseStatusEnum?.enumValues).toEqual([
+      "planned",
+      "pending",
+      "paid",
+      "cancelled",
+    ]);
+    expect(recurringExpenseStatusEnum?.enumValues).toEqual([
+      "active",
+      "paused",
+      "cancelled",
     ]);
     expect(taskPriorityEnum.enumValues).toEqual(["low", "medium", "high"]);
     expect(taskStatusEnum.enumValues).toEqual(["pending", "completed"]);
@@ -149,7 +208,7 @@ describe("database schema contract", () => {
       }
 
       expect(columnNames(table)).toContain("owner_id");
-      expect(table.ownerId.notNull).toBe(true);
+      expect(columnOf(table, "owner_id").notNull).toBe(true);
     }
   });
 
@@ -171,12 +230,110 @@ describe("database schema contract", () => {
       expect(columnNames(table)).toEqual(
         expect.arrayContaining(["created_at", "updated_at"]),
       );
-      expect(table.createdAt.columnType).toBe("PgTimestamp");
-      expect(table.updatedAt.columnType).toBe("PgTimestamp");
+      expect(columnOf(table, "created_at").columnType).toBe("PgTimestamp");
+      expect(columnOf(table, "updated_at").columnType).toBe("PgTimestamp");
     }
 
     expect(renderSql(clients.joinedAt.default as SQL)).toContain(
       "now() at time zone 'America/Argentina/Buenos_Aires'",
+    );
+  });
+
+  it("defines expense fields, defaults, nullability, and safe data modes", () => {
+    const categoriesTable = requireTable(expenseCategories);
+    const recurringTable = requireTable(recurringExpenses);
+    const expensesTable = requireTable(expenses);
+
+    expect(columnNames(categoriesTable)).toEqual([
+      "id",
+      "owner_id",
+      "name",
+      "icon",
+      "active",
+      "created_at",
+      "updated_at",
+    ]);
+    expect(columnOf(categoriesTable, "name").notNull).toBe(true);
+    expect(columnOf(categoriesTable, "icon").notNull).toBe(false);
+    expect(columnOf(categoriesTable, "active").default).toBe(true);
+
+    expect(columnNames(recurringTable)).toEqual([
+      "id",
+      "owner_id",
+      "title",
+      "description",
+      "amount_minor",
+      "currency",
+      "category_id",
+      "scope",
+      "cost_type",
+      "frequency",
+      "billing_day",
+      "start_date",
+      "end_date",
+      "status",
+      "payment_method",
+      "vendor",
+      "notes",
+      "automatic_generation",
+      "created_at",
+      "updated_at",
+    ]);
+    expect(columnOf(recurringTable, "amount_minor").columnType).toBe(
+      "PgBigInt53",
+    );
+    expect(columnOf(recurringTable, "start_date").columnType).toBe(
+      "PgDateString",
+    );
+    expect(columnOf(recurringTable, "end_date").columnType).toBe(
+      "PgDateString",
+    );
+    expect(columnOf(recurringTable, "category_id").notNull).toBe(true);
+    expect(columnOf(recurringTable, "status").default).toBe("active");
+    expect(columnOf(recurringTable, "payment_method").notNull).toBe(false);
+    expect(columnOf(recurringTable, "automatic_generation").default).toBe(
+      false,
+    );
+
+    expect(columnNames(expensesTable)).toEqual([
+      "id",
+      "owner_id",
+      "title",
+      "description",
+      "amount_minor",
+      "currency",
+      "category_id",
+      "scope",
+      "cost_type",
+      "recurring_expense_id",
+      "period_key",
+      "due_date",
+      "paid_date",
+      "status",
+      "payment_method",
+      "vendor",
+      "notes",
+      "generated_automatically",
+      "created_at",
+      "updated_at",
+    ]);
+    expect(columnOf(expensesTable, "amount_minor").columnType).toBe(
+      "PgBigInt53",
+    );
+    expect(columnOf(expensesTable, "due_date").columnType).toBe(
+      "PgDateString",
+    );
+    expect(columnOf(expensesTable, "paid_date").columnType).toBe(
+      "PgDateString",
+    );
+    expect(columnOf(expensesTable, "category_id").notNull).toBe(true);
+    expect(columnOf(expensesTable, "recurring_expense_id").notNull).toBe(
+      false,
+    );
+    expect(columnOf(expensesTable, "status").default).toBe("pending");
+    expect(columnOf(expensesTable, "payment_method").notNull).toBe(false);
+    expect(columnOf(expensesTable, "generated_automatically").default).toBe(
+      false,
     );
   });
 
@@ -259,6 +416,104 @@ describe("database schema contract", () => {
     ).toContain("recurrence_key is not null");
   });
 
+  it("enforces expense checks and query indexes", () => {
+    const categoriesTable = requireTable(expenseCategories);
+    const recurringTable = requireTable(recurringExpenses);
+    const expensesTable = requireTable(expenses);
+
+    expect(
+      configOf(categoriesTable).checks.map((constraint) => constraint.name),
+    ).toContain("expense_categories_name_not_blank");
+    expect(
+      configOf(recurringTable).checks.map((constraint) => constraint.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "recurring_expenses_title_not_blank",
+        "recurring_expenses_amount_minor_positive",
+        "recurring_expenses_amount_minor_js_safe",
+        "recurring_expenses_frequency_recurring",
+        "recurring_expenses_billing_day_range",
+        "recurring_expenses_end_date_valid",
+      ]),
+    );
+    expect(
+      configOf(expensesTable).checks.map((constraint) => constraint.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "expenses_title_not_blank",
+        "expenses_amount_minor_positive",
+        "expenses_amount_minor_js_safe",
+        "expenses_paid_date_status_consistency",
+        "expenses_recurrence_consistency",
+      ]),
+    );
+
+    const recurringFrequency = renderSql(
+      configOf(recurringTable).checks.find(
+        (constraint) =>
+          constraint.name === "recurring_expenses_frequency_recurring",
+      )?.value,
+    );
+    expect(recurringFrequency).toContain("frequency <> 'one_time'");
+    const paidDateStatus = renderSql(
+      configOf(expensesTable).checks.find(
+        (constraint) =>
+          constraint.name === "expenses_paid_date_status_consistency",
+      )?.value,
+    );
+    expect(paidDateStatus).toContain("status = 'paid' and paid_date is not null");
+    expect(paidDateStatus).toContain("status <> 'paid' and paid_date is null");
+    const recurrenceConsistency = renderSql(
+      configOf(expensesTable).checks.find(
+        (constraint) => constraint.name === "expenses_recurrence_consistency",
+      )?.value,
+    );
+    expect(recurrenceConsistency).toContain(
+      "recurring_expense_id is null and period_key is null and generated_automatically = false",
+    );
+    expect(recurrenceConsistency).toContain(
+      "recurring_expense_id is not null and period_key is not null",
+    );
+    expect(recurrenceConsistency).toContain("btrim(period_key) <> ''");
+
+    const categoryNameIndex = configOf(categoriesTable).indexes.find(
+      (entry) => entry.config.name === "expense_categories_owner_name_unique",
+    );
+    expect(categoryNameIndex?.config.unique).toBe(true);
+    expect(
+      renderSql(categoryNameIndex?.config.columns[1] as SQL | undefined),
+    ).toContain("lower(name)");
+
+    expect(
+      configOf(recurringTable).indexes.map((entry) => entry.config.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "recurring_expenses_owner_id_status_idx",
+        "recurring_expenses_owner_id_category_id_idx",
+      ]),
+    );
+    expect(
+      configOf(expensesTable).indexes.map((entry) => entry.config.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "expenses_owner_id_due_date_idx",
+        "expenses_owner_id_status_due_date_idx",
+        "expenses_owner_id_category_id_idx",
+        "expenses_owner_id_scope_idx",
+        "expenses_owner_id_currency_idx",
+        "expenses_recurring_expense_id_owner_id_idx",
+        "expenses_recurring_period_unique",
+      ]),
+    );
+    const recurringPeriodIndex = configOf(expensesTable).indexes.find(
+      (entry) => entry.config.name === "expenses_recurring_period_unique",
+    );
+    expect(recurringPeriodIndex?.config.unique).toBe(true);
+    expect(renderSql(recurringPeriodIndex?.config.where)).toContain(
+      "recurring_expense_id is not null and period_key is not null",
+    );
+  });
+
   it("keeps related rows in the same owner boundary", () => {
     for (const table of [clients, services, charges, tasks]) {
       expect(
@@ -308,6 +563,67 @@ describe("database schema contract", () => {
     expect(configOf(clientNotes).foreignKeys.map((key) => key.getName())).toContain(
       "client_notes_owner_id_client_id_clients_owner_id_id_fk",
     );
+
+    const categoriesTable = requireTable(expenseCategories);
+    const recurringTable = requireTable(recurringExpenses);
+    const expensesTable = requireTable(expenses);
+    for (const table of [categoriesTable, recurringTable, expensesTable]) {
+      expect(
+        configOf(table).uniqueConstraints.map((constraint) => constraint.name),
+      ).toContain(`${getTableName(table)}_owner_id_id_unique`);
+    }
+    expect(
+      foreignKeyContract(
+        recurringTable,
+        "recurring_expenses_owner_id_category_id_expense_categories_owner_id_id_fk",
+      ),
+    ).toEqual({
+      columns: ["owner_id", "category_id"],
+      foreignTable: "expense_categories",
+      foreignColumns: ["owner_id", "id"],
+      onDelete: "restrict",
+    });
+    expect(
+      foreignKeyContract(
+        expensesTable,
+        "expenses_owner_id_category_id_expense_categories_owner_id_id_fk",
+      ),
+    ).toEqual({
+      columns: ["owner_id", "category_id"],
+      foreignTable: "expense_categories",
+      foreignColumns: ["owner_id", "id"],
+      onDelete: "restrict",
+    });
+    expect(
+      foreignKeyContract(
+        expensesTable,
+        "expenses_recurring_expense_id_owner_id_recurring_expenses_id_owner_id_fk",
+      ),
+    ).toEqual({
+      columns: ["recurring_expense_id", "owner_id"],
+      foreignTable: "recurring_expenses",
+      foreignColumns: ["id", "owner_id"],
+      onDelete: "restrict",
+    });
+
+    const expenseIndexColumns = configOf(expensesTable).indexes
+      .filter((entry) =>
+        [
+          "expenses_owner_id_category_id_idx",
+          "expenses_recurring_expense_id_owner_id_idx",
+        ].includes(entry.config.name ?? ""),
+      )
+      .map((entry) =>
+        entry.config.columns.map((column) =>
+          "name" in column ? column.name : undefined,
+        ),
+      );
+    expect(expenseIndexColumns).toEqual(
+      expect.arrayContaining([
+        ["owner_id", "category_id"],
+        ["recurring_expense_id", "owner_id"],
+      ]),
+    );
   });
 
   it("enables command-specific authenticated policies with retained history", () => {
@@ -317,7 +633,7 @@ describe("database schema contract", () => {
 
       const commands = config.policies.map((policy) => policy.for).sort();
       const expectedCommands = ["insert", "select", "update"];
-      if (table === tasks || table === clientNotes) {
+      if (table === tasks || table === clientNotes || table === expenses) {
         expectedCommands.push("delete");
       }
 
@@ -336,12 +652,31 @@ describe("database schema contract", () => {
     }
   });
 
+  it("restricts expense deletion to eligible manual rows owned by the user", () => {
+    const expensesTable = requireTable(expenses);
+    const deletePolicies = configOf(expensesTable).policies.filter(
+      (policy) => policy.for === "delete",
+    );
+
+    expect(deletePolicies).toHaveLength(1);
+    expect((deletePolicies[0]?.to as { name: string }).name).toBe(
+      "authenticated",
+    );
+    const using = renderSql(deletePolicies[0]?.using);
+    expect(using).toContain("select auth.uid()");
+    expect(using).toContain("recurring_expense_id is null");
+    expect(using).toContain("generated_automatically = false");
+    expect(using).toContain("status in ('planned', 'pending')");
+  });
+
   it("keeps all JavaScript number-mode money inside the safe integer range", () => {
     const moneyChecks = [
       [services, "services_amount_minor_js_safe"],
       [charges, "charges_amount_minor_js_safe"],
       [charges, "charges_amount_paid_minor_valid"],
       [payments, "payments_amount_minor_js_safe"],
+      [requireTable(recurringExpenses), "recurring_expenses_amount_minor_js_safe"],
+      [requireTable(expenses), "expenses_amount_minor_js_safe"],
     ] as const;
 
     for (const [table, name] of moneyChecks) {
@@ -351,6 +686,12 @@ describe("database schema contract", () => {
       );
       expect(expression).toContain("9007199254740991");
     }
+  });
+
+  it("exports expense relation metadata", () => {
+    expect((schema as Record<string, unknown>).expenseCategoriesRelations).toBeDefined();
+    expect((schema as Record<string, unknown>).recurringExpensesRelations).toBeDefined();
+    expect((schema as Record<string, unknown>).expensesRelations).toBeDefined();
   });
 
   it("allows overpayment only when the persisted status agrees", () => {

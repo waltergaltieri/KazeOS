@@ -3,7 +3,10 @@ import { relations } from "drizzle-orm";
 import { charges } from "./charges";
 import { clientNotes } from "./client-notes";
 import { clients } from "./clients";
+import { expenseCategories } from "./expense-categories";
+import { expenses } from "./expenses";
 import { payments } from "./payments";
+import { recurringExpenses } from "./recurring-expenses";
 import { services } from "./services";
 import { tasks } from "./tasks";
 
@@ -63,5 +66,35 @@ export const clientNotesRelations = relations(clientNotes, ({ one }) => ({
   client: one(clients, {
     fields: [clientNotes.clientId],
     references: [clients.id],
+  }),
+}));
+
+export const expenseCategoriesRelations = relations(
+  expenseCategories,
+  ({ many }) => ({
+    expenses: many(expenses),
+    recurringExpenses: many(recurringExpenses),
+  }),
+);
+
+export const recurringExpensesRelations = relations(
+  recurringExpenses,
+  ({ one, many }) => ({
+    category: one(expenseCategories, {
+      fields: [recurringExpenses.ownerId, recurringExpenses.categoryId],
+      references: [expenseCategories.ownerId, expenseCategories.id],
+    }),
+    expenses: many(expenses),
+  }),
+);
+
+export const expensesRelations = relations(expenses, ({ one }) => ({
+  category: one(expenseCategories, {
+    fields: [expenses.ownerId, expenses.categoryId],
+    references: [expenseCategories.ownerId, expenseCategories.id],
+  }),
+  recurringExpense: one(recurringExpenses, {
+    fields: [expenses.recurringExpenseId, expenses.ownerId],
+    references: [recurringExpenses.id, recurringExpenses.ownerId],
   }),
 }));
