@@ -73,4 +73,15 @@ describe("calculateMonthlyCashFlow", () => {
       }),
     ).toThrow(RangeError);
   });
+
+  it("rejects negative zero instead of preserving a noncanonical aggregate", () => {
+    expect(() =>
+      calculateMonthlyCashFlow({
+        projectedIncome: { USD: "0", ARS: "0" },
+        actualIncome: { USD: "-0", ARS: "0" },
+        projectedExpenses: { USD: "0", ARS: "0" },
+        actualExpenses: { USD: "0", ARS: "0" },
+      }),
+    ).toThrow(RangeError);
+  });
 });

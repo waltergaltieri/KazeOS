@@ -7,10 +7,10 @@ export interface CurrencyAmount {
   currency: Currency;
 }
 
-const INTEGER_MINOR_UNITS = /^-?(0|[1-9]\d*)$/;
+const INTEGER_MINOR_UNITS = /^(?:0|[1-9]\d*|-[1-9]\d*)$/;
 
 function parseAggregate(value: AggregateMinorUnits): bigint {
-  if (!INTEGER_MINOR_UNITS.test(value)) {
+  if (typeof value !== "string" || !INTEGER_MINOR_UNITS.test(value)) {
     throw new RangeError("Aggregate amount must be integer minor units");
   }
 
@@ -31,6 +31,10 @@ export function aggregateByCurrency(
   };
 
   for (const amount of amounts) {
+    if (amount.currency !== "USD" && amount.currency !== "ARS") {
+      throw new RangeError("Unsupported currency");
+    }
+
     totals[amount.currency] += parseAggregate(amount.amountMinor);
   }
 
