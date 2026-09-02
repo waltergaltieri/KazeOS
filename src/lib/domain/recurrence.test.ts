@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildChargePeriods,
+  buildRecurringPeriods,
   nextDueDate,
   type RecurringServiceInput,
 } from "./recurrence";
@@ -151,5 +152,53 @@ describe("buildChargePeriods", () => {
         horizonMonths as number,
       ),
     ).toThrow();
+  });
+});
+
+describe("buildRecurringPeriods", () => {
+  it("builds a generic recurring schedule with stable commercial periods", () => {
+    expect(
+      buildRecurringPeriods(
+        {
+          amountMinor: 2_000,
+          billingDay: 31,
+          frequency: "monthly",
+          endDate: null,
+          label: "Vercel",
+          startDate: "2026-01-01",
+        },
+        "2026-02-01",
+        3,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        dueDate: "2026-02-28",
+        periodKey: "monthly:2026-02",
+      }),
+      expect.objectContaining({
+        dueDate: "2026-03-31",
+        periodKey: "monthly:2026-03",
+      }),
+      expect.objectContaining({
+        dueDate: "2026-04-30",
+        periodKey: "monthly:2026-04",
+      }),
+    ]);
+  });
+
+  it("rejects a non-recurring frequency at runtime", () => {
+    expect(() =>
+      buildRecurringPeriods(
+        {
+          amountMinor: 2_000,
+          billingDay: 31,
+          frequency: "one_time" as never,
+          endDate: null,
+          label: "Vercel",
+          startDate: "2026-01-01",
+        },
+        "2026-02-01",
+      ),
+    ).toThrow(RangeError);
   });
 });

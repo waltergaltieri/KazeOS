@@ -30,11 +30,32 @@ export interface ChargePeriodCandidate {
   periodKey: string;
 }
 
+export interface RecurringScheduleInput {
+  amountMinor: number;
+  billingDay: number;
+  endDate: string | null;
+  frequency: CommercialPeriod;
+  label: string;
+  startDate: string;
+}
+
+export interface RecurringPeriodCandidate {
+  amountMinor: number;
+  description: string;
+  dueDate: string;
+  periodKey: string;
+}
+
 const frequencies: readonly RecurrenceBillingFrequency[] = [
   "monthly",
   "quarterly",
   "yearly",
   "one_time",
+];
+const scheduleFrequencies: readonly CommercialPeriod[] = [
+  "monthly",
+  "quarterly",
+  "yearly",
 ];
 const billingTypes: readonly RecurrenceBillingType[] = ["recurring", "one_time"];
 const currencies: readonly Currency[] = ["USD", "ARS"];
@@ -155,12 +176,115 @@ function validateService(service: Readonly<RecurringServiceInput>): void {
   }
 }
 
+function validateSchedule(schedule: Readonly<RecurringScheduleInput>): void {
+  if (!Number.isSafeInteger(schedule.amountMinor) || schedule.amountMinor <= 0) {
+    throw new RangeError("Schedule amount must be a positive safe integer");
+  }
+
+  if (
+    !Number.isSafeInteger(schedule.billingDay) ||
+    schedule.billingDay < 1 ||
+    schedule.billingDay > 31
+  ) {
+    throw new RangeError("Schedule billing day must be between 1 and 31");
+  }
+
+  if (!scheduleFrequencies.includes(schedule.frequency)) {
+    throw new RangeError("Invalid schedule frequency");
+  }
+
+  if (typeof schedule.label !== "string" || schedule.label.trim().length === 0) {
+    throw new RangeError("Schedule label must not be blank");
+  }
+
+  validateCommercialDate(schedule.startDate);
+
+  if (schedule.endDate !== null) {
+    validateCommercialDate(schedule.endDate);
+
+    if (compareCommercialDates(schedule.endDate, schedule.startDate) < 0) {
+      throw new RangeError("Schedule end date cannot precede its start date");
+    }
+  }
+}
+
 export function nextDueDate(
   anchorDate: string,
   frequency: CommercialPeriod,
   count = 1,
 ): string {
   return addCommercialPeriod(anchorDate, frequency, count);
+}
+
+/**
+ * Builds recurring occurrences within [asOf, asOf + horizonMonths). The
+ * billing day remains the anchor across shorter commercial months. End dates
+ * are inclusive.
+ */
+export function buildRecurringPeriods(
+  schedule: Readonly<RecurringScheduleInput>,
+  asOf: string,
+  horizonMonths = 3,
+): RecurringPeriodCandidate[] {
+  validateSchedule(schedule);
+  validateCommercialDate(asOf);
+
+  if (!Number.isSafeInteger(horizonMonths) || horizonMonths < 1) {
+    throw new RangeError("Horizon must be a positive safe number of months");
+  }
+
+  const horizonEnd = addCommercialPeriod(asOf, "monthly", horizonMonths);
+  const monthsPerOccurrence =
+    schedule.frequency === "monthly"
+      ? 1
+      : schedule.frequency === "quarterly"
+        ? 3
+        : 12;
+  let firstDueMonth = monthIndexFromDate(schedule.startDate);
+
+  if (
+    compareCommercialDates(
+      dateInMonth(firstDueMonth, schedule.billingDay),
+      schedule.startDate,
+    ) < 0
+  ) {
+    firstDueMonth += 1;
+  }
+
+  const candidates: RecurringPeriodCandidate[] = [];
+
+  for (let occurrence = 0; ; occurrence += 1) {
+    const dueDate = dateInMonth(
+      firstDueMonth + occurrence * monthsPerOccurrence,
+      schedule.billingDay,
+    );
+
+    if (compareCommercialDates(dueDate, horizonEnd) >= 0) {
+      break;
+    }
+
+    if (
+      compareCommercialDates(dueDate, asOf) >= 0 &&
+      (schedule.endDate === null ||
+        compareCommercialDates(dueDate, schedule.endDate) <= 0)
+    ) {
+      candidates.push({
+        amountMinor: schedule.amountMinor,
+        description: schedule.label.trim(),
+        dueDate,
+        periodKey: buildPeriodKey(dueDate, schedule.frequency),
+      });
+    }
+
+    if (
+      schedule.endDate !== null &&
+      compareCommercialDates(dueDate, schedule.endDate) > 0
+    ) {
+      break;
+    }
+  }
+
+  return candidates;
 }
 
 /**
@@ -184,55 +308,16 @@ export function buildChargePeriods(
     return [];
   }
 
-  const frequency = service.billingFrequency as CommercialPeriod;
-  const billingDay = service.billingDay!;
-  const horizonEnd = addCommercialPeriod(asOf, "monthly", horizonMonths);
-  const monthsPerOccurrence =
-    frequency === "monthly" ? 1 : frequency === "quarterly" ? 3 : 12;
-  let firstDueMonth = monthIndexFromDate(service.startDate);
-
-  if (
-    compareCommercialDates(
-      dateInMonth(firstDueMonth, billingDay),
-      service.startDate,
-    ) < 0
-  ) {
-    firstDueMonth += 1;
-  }
-
-  const candidates: ChargePeriodCandidate[] = [];
-
-  for (let occurrence = 0; ; occurrence += 1) {
-    const dueDate = dateInMonth(
-      firstDueMonth + occurrence * monthsPerOccurrence,
-      billingDay,
-    );
-
-    if (compareCommercialDates(dueDate, horizonEnd) >= 0) {
-      break;
-    }
-
-    if (
-      compareCommercialDates(dueDate, asOf) >= 0 &&
-      (service.endDate === null ||
-        compareCommercialDates(dueDate, service.endDate) <= 0)
-    ) {
-      candidates.push({
-        amountMinor: service.amountMinor,
-        currency: service.currency,
-        description: service.name.trim(),
-        dueDate,
-        periodKey: buildPeriodKey(dueDate, frequency),
-      });
-    }
-
-    if (
-      service.endDate !== null &&
-      compareCommercialDates(dueDate, service.endDate) > 0
-    ) {
-      break;
-    }
-  }
-
-  return candidates;
+  return buildRecurringPeriods(
+    {
+      amountMinor: service.amountMinor,
+      billingDay: service.billingDay!,
+      endDate: service.endDate,
+      frequency: service.billingFrequency as CommercialPeriod,
+      label: service.name,
+      startDate: service.startDate,
+    },
+    asOf,
+    horizonMonths,
+  ).map((candidate) => ({ ...candidate, currency: service.currency }));
 }
