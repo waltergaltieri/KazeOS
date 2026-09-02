@@ -1,4 +1,4 @@
-import { ArrowRight, Building2, FolderOpen, UserPlus } from "lucide-react";
+import { ArrowRight, FolderOpen, UserPlus } from "lucide-react";
 import Link from "next/link";
 
 import { formatAggregateMoney } from "@/lib/domain/money";
@@ -10,8 +10,16 @@ const statusLabel = {
   archived: "Archivado",
 } as const;
 
-function displayName(client: ClientListItem) {
+function contactName(client: ClientListItem) {
   return [client.firstName, client.lastName].filter(Boolean).join(" ");
+}
+
+function primaryName(client: ClientListItem) {
+  return client.company || contactName(client);
+}
+
+function secondaryName(client: ClientListItem) {
+  return client.company ? contactName(client) : "Cliente particular";
 }
 
 function Balance({ client }: { client: ClientListItem }) {
@@ -91,11 +99,10 @@ export function ClientList({
               <tr key={client.id}>
                 <td>
                   <Link className="client-name-link" href={`/clients/${client.id}`}>
-                    {displayName(client)}
+                    {primaryName(client)}
                   </Link>
                   <span className="client-company">
-                    <Building2 size={13} aria-hidden="true" />
-                    {client.company || "Sin empresa"}
+                    {secondaryName(client)}
                   </span>
                 </td>
                 <td>
@@ -104,7 +111,7 @@ export function ClientList({
                 <td><span className={`status-pill status-pill--${client.status}`}>{statusLabel[client.status]}</span></td>
                 <td className="align-end"><Balance client={client} /></td>
                 <td className="client-open-cell">
-                  <Link href={`/clients/${client.id}`} aria-label={`Abrir legajo de ${displayName(client)}`}>
+                  <Link href={`/clients/${client.id}`} aria-label={`Abrir legajo de ${primaryName(client)}`}>
                     <ArrowRight size={17} aria-hidden="true" />
                   </Link>
                 </td>
@@ -121,9 +128,9 @@ export function ClientList({
             <div className="client-card__heading">
               <div>
                 <Link className="client-name-link" href={`/clients/${client.id}`}>
-                  {displayName(client)}
+                  {primaryName(client)}
                 </Link>
-                <span className="client-company">{client.company || "Sin empresa"}</span>
+                <span className="client-company">{secondaryName(client)}</span>
               </div>
               <span className={`status-pill status-pill--${client.status}`}>{statusLabel[client.status]}</span>
             </div>
@@ -131,7 +138,7 @@ export function ClientList({
               <span>{client.email || client.phone || "Sin contacto"}</span>
               <Balance client={client} />
             </div>
-            <Link className="client-card__open" href={`/clients/${client.id}`} aria-label={`Abrir legajo de ${displayName(client)}`}>
+            <Link className="client-card__open" href={`/clients/${client.id}`} aria-label={`Abrir legajo de ${primaryName(client)}`}>
               Abrir legajo <ArrowRight size={16} aria-hidden="true" />
             </Link>
           </article>

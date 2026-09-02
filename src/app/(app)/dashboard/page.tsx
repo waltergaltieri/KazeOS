@@ -12,7 +12,9 @@ import {
   getUpcomingMovements,
 } from "@/lib/queries/dashboard";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams = Promise.resolve({}) }: { searchParams?: Promise<{ currency?: string | string[] }> } = {}) {
+  const requestedCurrency = (await searchParams).currency;
+  const selectedCurrency = requestedCurrency === "ARS" ? "ARS" : "USD";
   const today = todayInBusinessZone(new Date());
   const [metrics, upcomingCharges, pendingTasks, upcomingMovements, monthlyRevenue] = await Promise.all([
     getDashboardMetrics(today),
@@ -30,7 +32,7 @@ export default async function DashboardPage() {
         <p>Lo que entró, lo que vence y lo que necesita tu atención.</p>
       </header>
 
-      <KpiStrip metrics={metrics} />
+      <KpiStrip metrics={metrics} selectedCurrency={selectedCurrency} />
       <div className="dashboard-operational-grid">
         <UpcomingCharges charges={upcomingCharges} today={today} />
         <PendingTasks tasks={pendingTasks} today={today} />

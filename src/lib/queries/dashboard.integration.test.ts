@@ -60,6 +60,7 @@ describeDatabase("real-data dashboard queries", () => {
         const dueTodayChargeId = randomUUID();
         const upcomingChargeId = randomUUID();
         const outsideWindowChargeId = randomUUID();
+        const nextMonthChargeId = randomUUID();
 
         await transaction.execute(
           sql`insert into auth.users (id) values (${ownerId}), (${otherOwnerId})`,
@@ -82,6 +83,7 @@ describeDatabase("real-data dashboard queries", () => {
           { id: dueTodayChargeId, ownerId, clientId: secondClientId, description: "Diseño de hoy", amountMinor: 20_000, currency: "ARS", dueDate: "2026-08-15" },
           { id: upcomingChargeId, ownerId, clientId: activeClientId, description: "Soporte próximo", amountMinor: 30_000, currency: "USD", dueDate: "2026-08-20" },
           { id: outsideWindowChargeId, ownerId, clientId: activeClientId, description: "Fuera de ventana", amountMinor: 40_000, currency: "USD", dueDate: "2026-08-30" },
+          { id: nextMonthChargeId, ownerId, clientId: activeClientId, description: "Mes siguiente", amountMinor: 50_000, currency: "USD", dueDate: "2026-09-01" },
           { ownerId, clientId: activeClientId, description: "Cancelado", amountMinor: 800_000, currency: "USD", dueDate: "2026-08-01", status: "cancelled" },
           { ownerId: otherOwnerId, clientId: otherClientId, description: "Ajeno vencido", amountMinor: 900_000, currency: "USD", dueDate: "2026-08-01" },
         ]);
@@ -109,7 +111,7 @@ describeDatabase("real-data dashboard queries", () => {
 
         await expect(getDashboardMetrics("2026-08-15")).resolves.toEqual({
           collectedThisMonth: { USD: "6000", ARS: "18014398509486982" },
-          pending: { USD: "70000", ARS: "20000" },
+          pending: { USD: "78000", ARS: "20000" },
           overdue: { USD: "8000", ARS: "0" },
           mrr: { USD: "22000", ARS: "10000" },
           activeClients: 2,
@@ -122,6 +124,7 @@ describeDatabase("real-data dashboard queries", () => {
           "Diseño de hoy",
           "Soporte próximo",
           "Fuera de ventana",
+          "Mes siguiente",
         ]);
         expect(upcoming[0]).toMatchObject({ status: "partial", isOverdue: true, outstandingMinor: "8000" });
 

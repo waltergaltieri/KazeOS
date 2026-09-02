@@ -49,10 +49,15 @@ describe("ClientList", () => {
       />,
     );
 
-    expect(screen.getAllByRole("link", { name: /Agustín Pérez/ })[0]).toHaveAttribute(
+    const businessLinks = screen.getAllByRole("link", {
+      name: "Estudio Norte",
+    });
+    expect(businessLinks).toHaveLength(2);
+    expect(businessLinks[0]).toHaveAttribute(
       "href",
       "/clients/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     );
+    expect(screen.getAllByText("Agustín Pérez")).toHaveLength(2);
     expect(screen.getAllByText(/USD\s*125,00/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/ARS\s*850\.000,00/).length).toBeGreaterThan(0);
   });
@@ -78,6 +83,8 @@ describe("ClientList", () => {
       />,
     );
 
+    expect(screen.getAllByRole("link", { name: "Total Exacto" })).toHaveLength(2);
+    expect(screen.getAllByText("Cliente particular")).toHaveLength(2);
     expect(screen.getAllByText(/USD\s*180\.143\.985\.094\.819,82/u)).toHaveLength(2);
   });
 });

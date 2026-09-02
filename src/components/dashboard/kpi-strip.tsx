@@ -5,12 +5,12 @@ import type { DashboardMetrics } from "@/lib/queries/dashboard";
 
 const financialCards = [
   { key: "collectedThisMonth", label: "Cobrado este mes", note: "Pagos registrados", icon: CircleDollarSign, tone: "collected" },
-  { key: "pending", label: "Pendiente", note: "Desde hoy en adelante", icon: Clock3, tone: "pending" },
+  { key: "pending", label: "Pendiente", note: "Este mes calendario", icon: Clock3, tone: "pending" },
   { key: "overdue", label: "Vencido", note: "Saldo fuera de término", icon: TriangleAlert, tone: "overdue" },
   { key: "mrr", label: "MRR", note: "Servicios activos normalizados", icon: ChartNoAxesCombined, tone: "mrr" },
 ] as const;
 
-export function KpiStrip({ metrics }: { metrics: DashboardMetrics }) {
+export function KpiStrip({ metrics, selectedCurrency = "USD" }: { metrics: DashboardMetrics; selectedCurrency?: "USD" | "ARS" }) {
   return (
     <section className="dashboard-kpis" aria-label="Indicadores del negocio">
       <div className="dashboard-financial-strip">
@@ -18,8 +18,7 @@ export function KpiStrip({ metrics }: { metrics: DashboardMetrics }) {
           <article className={`dashboard-kpi dashboard-kpi--${tone}`} key={key}>
             <header><span aria-hidden="true"><Icon size={17} /></span><h2>{label}</h2></header>
             <div className="dashboard-money-pair">
-              <strong>{formatAggregateMoney(metrics[key].USD, "USD")}</strong>
-              <span>{formatAggregateMoney(metrics[key].ARS, "ARS")}</span>
+              <strong>{formatAggregateMoney(metrics[key][selectedCurrency], selectedCurrency)}</strong>
             </div>
             <p>{note}</p>
           </article>

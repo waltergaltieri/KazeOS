@@ -66,7 +66,7 @@ export async function queryCharges(database: ChargeQueryDatabase, ownerId: strin
   const today = validateCommercialDate(asOfInput);
   return database.select({
     id: charges.id, clientId: charges.clientId,
-    clientName: sql<string>`trim(concat_ws(' ', ${clients.firstName}, ${clients.lastName}))`,
+      clientName: sql<string>`coalesce(nullif(btrim(${clients.company}), ''), trim(concat_ws(' ', ${clients.firstName}, ${clients.lastName})))`,
     serviceId: charges.serviceId, serviceName: services.name, description: charges.description,
     amountMinor: charges.amountMinor, amountPaidMinor: charges.amountPaidMinor, currency: charges.currency,
     dueDate: charges.dueDate, status: displayStatus(today), persistedStatus: charges.status, generatedAutomatically: charges.generatedAutomatically,

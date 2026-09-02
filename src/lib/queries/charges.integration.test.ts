@@ -48,7 +48,7 @@ describeDatabase("charge query matrix", () => {
           sql`insert into auth.users (id) values (${ownerId}), (${otherOwnerId})`,
         );
         await transaction.insert(clients).values([
-          { id: firstClientId, ownerId, firstName: "Estudio", lastName: "Norte" },
+          { id: firstClientId, ownerId, firstName: "Matias", lastName: "Parodi", company: "Estudio Norte" },
           { id: secondClientId, ownerId, firstName: "Cliente", lastName: "Global" },
           { id: otherClientId, ownerId: otherOwnerId, firstName: "Aislado" },
         ]);
@@ -76,6 +76,8 @@ describeDatabase("charge query matrix", () => {
 
         const all = await list({ status: "all" });
         expect(identifiers(all)).toEqual([ids.partial, ids.overdue, ids.cancelled, ids.dueToday, ids.upcoming, ids.paid]);
+        expect(all.find((row) => row.id === ids.overdue)?.clientName).toBe("Estudio Norte");
+        expect(all.find((row) => row.id === ids.upcoming)?.clientName).toBe("Cliente Global");
         expect(Object.fromEntries(all.map((row) => [row.id, row.status]))).toMatchObject({
           [ids.overdue]: "overdue", [ids.dueToday]: "due_today", [ids.upcoming]: "pending",
           [ids.partial]: "partial", [ids.paid]: "paid", [ids.cancelled]: "cancelled",

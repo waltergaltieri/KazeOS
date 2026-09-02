@@ -13,6 +13,7 @@ interface LedgerSelectProps {
   required?: boolean;
   disabled?: boolean;
   error?: string;
+  onValueChange?: (value: string) => void;
 }
 
 export function LedgerSelect({
@@ -23,6 +24,7 @@ export function LedgerSelect({
   required,
   disabled,
   error,
+  onValueChange,
 }: LedgerSelectProps) {
   const fallback = defaultValue ?? options[0]?.value ?? "";
   const [value, setValue] = useState(fallback);
@@ -59,6 +61,7 @@ export function LedgerSelect({
     const option = options[index];
     if (!option) return;
     setValue(option.value);
+    onValueChange?.(option.value);
     closeListbox(true);
   }
 

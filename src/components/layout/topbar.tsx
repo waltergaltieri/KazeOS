@@ -10,6 +10,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { type RefObject, useMemo } from "react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -28,6 +29,9 @@ const quickActions = [
 ] as const;
 
 export function Topbar({ user, onOpenNavigation, navigationTriggerRef }: TopbarProps) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const selectedCurrency = searchParams.get("currency") === "ARS" ? "ARS" : "USD";
   const {
     open: quickOpen,
     menuId: quickMenuId,
@@ -77,6 +81,20 @@ export function Topbar({ user, onOpenNavigation, navigationTriggerRef }: TopbarP
       </div>
 
       <div className="topbar-actions">
+        {pathname === "/dashboard" ? (
+          <nav className="dashboard-currency-selector" aria-label="Moneda del resumen" role="group">
+            {(["USD", "ARS"] as const).map((currency) => (
+              <Link
+                key={currency}
+                href={`/dashboard?currency=${currency}`}
+                className={selectedCurrency === currency ? "is-active" : undefined}
+                aria-current={selectedCurrency === currency ? "true" : undefined}
+              >
+                {currency}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
         <div className="menu-anchor">
           <button
             ref={quickTriggerRef}

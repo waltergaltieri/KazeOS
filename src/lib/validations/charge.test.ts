@@ -15,6 +15,10 @@ describe("charge validation", () => {
     expect(chargeFormSchema.safeParse({ clientId: "11111111-1111-4111-8111-111111111111", description: "Cargo", amount, currency: "ARS", dueDate: "2026-09-15", notes: "" }).success).toBe(false);
   });
 
+  it.each(["", "31/09/2026", "2026-02-30"])("rejects an invalid due date %j", (dueDate) => {
+    expect(chargeFormSchema.safeParse({ clientId: "11111111-1111-4111-8111-111111111111", description: "Cargo", amount: "1000", currency: "ARS", dueDate, notes: "" }).success).toBe(false);
+  });
+
   it("validates and normalizes the complete filter contract", () => {
     expect(chargeFiltersSchema.parse({ status: "overdue", clientId: "11111111-1111-4111-8111-111111111111", currency: "USD", serviceId: "", from: "2026-09-01", to: "2026-09-30", search: "  norte " })).toEqual({ status: "overdue", clientId: "11111111-1111-4111-8111-111111111111", currency: "USD", serviceId: undefined, from: "2026-09-01", to: "2026-09-30", search: "norte" });
   });

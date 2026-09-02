@@ -57,10 +57,16 @@ describe("clientFormSchema", () => {
     ).toBe(false);
   });
 
+  it("adds https:// when the website is entered without a protocol", () => {
+    expect(
+      clientFormSchema.parse({ ...validClient, website: "recorreitalia.com" }).website,
+    ).toBe("https://recorreitalia.com");
+  });
+
   it("returns a website field error for a malformed URL instead of throwing", () => {
     const result = clientFormSchema.safeParse({
       ...validClient,
-      website: "656.ar",
+      website: "no es una web",
     });
 
     expect(result.success).toBe(false);
@@ -109,8 +115,14 @@ describe("clientUpdateSchema", () => {
     });
   });
 
+  it("adds https:// when updating a website entered without a protocol", () => {
+    expect(clientUpdateSchema.parse({ website: "recorreitalia.com" })).toEqual({
+      website: "https://recorreitalia.com",
+    });
+  });
+
   it("returns a website field error for a malformed update URL instead of throwing", () => {
-    const result = clientUpdateSchema.safeParse({ website: "656.ar" });
+    const result = clientUpdateSchema.safeParse({ website: "no es una web" });
 
     expect(result.success).toBe(false);
     if (!result.success) {

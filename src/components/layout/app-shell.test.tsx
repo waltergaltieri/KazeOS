@@ -2,8 +2,9 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { usePathnameMock, useThemeMock } = vi.hoisted(() => ({
+const { usePathnameMock, useSearchParamsMock, useThemeMock } = vi.hoisted(() => ({
   usePathnameMock: vi.fn(),
+  useSearchParamsMock: vi.fn(),
   useThemeMock: vi.fn(),
 }));
 
@@ -33,7 +34,10 @@ function controllableMediaQuery(initialMatches = false) {
   };
 }
 
-vi.mock("next/navigation", () => ({ usePathname: usePathnameMock }));
+vi.mock("next/navigation", () => ({
+  usePathname: usePathnameMock,
+  useSearchParams: useSearchParamsMock,
+}));
 vi.mock("next-themes", () => ({ useTheme: useThemeMock }));
 vi.mock("@/lib/auth/actions", () => ({ logout: vi.fn() }));
 
@@ -42,6 +46,28 @@ import { AppShell } from "./app-shell";
 describe("AppShell", () => {
   beforeEach(() => {
     usePathnameMock.mockReturnValue("/dashboard");
+    useSearchParamsMock.mockReturnValue(new URLSearchParams("currency=USD"));
+  });
+
+  it("shows the dashboard currency selector only on the dashboard", () => {
+    useThemeMock.mockReturnValue({ theme: "system", setTheme: vi.fn() });
+    const { rerender } = render(
+      <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
+        Contenido
+      </AppShell>,
+    );
+
+    expect(screen.getByRole("group", { name: "Moneda del resumen" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "USD" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("link", { name: "ARS" })).toHaveAttribute("href", "/dashboard?currency=ARS");
+
+    usePathnameMock.mockReturnValue("/clients");
+    rerender(
+      <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
+        Contenido
+      </AppShell>,
+    );
+    expect(screen.queryByRole("group", { name: "Moneda del resumen" })).not.toBeInTheDocument();
   });
 
   it("grounds the page with ledger navigation and verified user context", () => {

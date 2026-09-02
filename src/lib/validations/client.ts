@@ -29,13 +29,19 @@ function hasHttpProtocol(value: string): boolean {
   }
 }
 
+function normalizeWebsite(value: unknown, emptyValue: null | undefined) {
+  if (value === null) return emptyValue;
+  if (typeof value !== "string") return value;
+
+  const normalized = value.trim();
+  if (normalized.length === 0) return emptyValue;
+
+  const hasProtocol = /^[a-z][a-z\d+.-]*:/i.test(normalized);
+  return hasProtocol ? normalized : `https://${normalized}`;
+}
+
 const optionalWebsite = z.preprocess(
-  (value) => {
-    if (value === null) return undefined;
-    if (typeof value !== "string") return value;
-    const normalized = value.trim();
-    return normalized.length === 0 ? undefined : normalized;
-  },
+  (value) => normalizeWebsite(value, undefined),
   z
     .string()
     .url("Ingresá una URL válida.")
@@ -68,12 +74,7 @@ const updateOptionalEmail = z.preprocess(
 );
 
 const updateOptionalWebsite = z.preprocess(
-  (value) => {
-    if (value === null) return null;
-    if (typeof value !== "string") return value;
-    const normalized = value.trim();
-    return normalized.length === 0 ? null : normalized;
-  },
+  (value) => normalizeWebsite(value, null),
   z
     .string()
     .url("Ingresá una URL válida.")

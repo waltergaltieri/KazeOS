@@ -24,11 +24,16 @@ const metrics = {
 
 describe("dashboard components", () => {
   it("renders exact currency-separated KPIs without coercing aggregate strings", () => {
-    render(<KpiStrip metrics={metrics} />);
+    const { rerender } = render(<KpiStrip metrics={metrics} selectedCurrency="USD" />);
 
     expect(screen.getByRole("heading", { name: "Cobrado este mes" })).toBeVisible();
-    expect(screen.getByText(/ARS\s+180\.143\.985\.094\.869,82/)).toBeVisible();
+    expect(screen.getByText("Este mes calendario")).toBeVisible();
     expect(screen.getByText(/USD\s+80,00/)).toBeVisible();
+    expect(screen.queryByText(/ARS\s+180\.143\.985\.094\.869,82/)).not.toBeInTheDocument();
+
+    rerender(<KpiStrip metrics={metrics} selectedCurrency="ARS" />);
+    expect(screen.getByText(/ARS\s+180\.143\.985\.094\.869,82/)).toBeVisible();
+    expect(screen.queryByText(/USD\s+80,00/)).not.toBeInTheDocument();
     expect(screen.getAllByText("2", { selector: ".dashboard-count-card strong" })).toHaveLength(2);
     expect(screen.getByText("Clientes activos")).toBeVisible();
     expect(screen.getByText("Próximos 7 días")).toBeVisible();
