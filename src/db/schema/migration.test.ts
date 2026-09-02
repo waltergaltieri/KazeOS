@@ -15,6 +15,9 @@ const settingsLocaleMigration = readdirSync(migrationDirectory).find((name) =>
 const expenseMigration = readdirSync(migrationDirectory).find((name) =>
   name.endsWith("_add_expenses.sql"),
 );
+const expenseHistoryProtectionMigration = readdirSync(migrationDirectory).find(
+  (name) => name.endsWith("_protect_expense_history.sql"),
+);
 
 describe("expense schema migration", () => {
   it("is a Drizzle-named forward-only migration", () => {
@@ -100,6 +103,50 @@ describe("expense schema migration", () => {
     );
     expect(normalizedSql).toContain(
       "grant select, insert, update, delete on table public.expenses to authenticated",
+    );
+  });
+});
+
+describe("expense history protection migration", () => {
+  it("is a separate forward-only migration", () => {
+    expect(expenseHistoryProtectionMigration).toMatch(
+      /^\d{14}_protect_expense_history\.sql$/,
+    );
+
+    const sql = readFileSync(
+      resolve(migrationDirectory, expenseHistoryProtectionMigration!),
+      "utf8",
+    ).toLowerCase();
+
+    expect(sql).toContain(
+      "create or replace function private.guard_expense_history()",
+    );
+    expect(sql).toContain("old.status = 'paid'");
+    expect(sql).toContain("new.status <> 'paid'");
+    expect(sql).toContain("old.status = 'cancelled'");
+    expect(sql).toContain("new.status <> 'cancelled'");
+    expect(sql).toContain(
+      "new.generated_automatically is distinct from old.generated_automatically",
+    );
+    expect(sql).toContain(
+      "new.recurring_expense_id is distinct from old.recurring_expense_id",
+    );
+    expect(sql).toContain("new.period_key is distinct from old.period_key");
+    expect(sql).toContain("before update on public.expenses");
+
+    for (const table of [
+      "expense_categories",
+      "recurring_expenses",
+      "expenses",
+    ]) {
+      expect(sql).toContain(`create trigger ${table}_set_updated_at`);
+      expect(sql).toContain(`before update on public.${table}`);
+      expect(sql).toContain("execute function private.set_updated_at()");
+    }
+
+    expect(sql).not.toMatch(/drop\s+(?:table|type)|truncate/);
+    expect(sql).not.toMatch(
+      /(?:alter|create|drop|truncate)\s+table\s+(?:"?auth"?\.)/,
     );
   });
 });

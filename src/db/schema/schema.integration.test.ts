@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import { randomUUID } from "node:crypto";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { config } from "dotenv";
 import postgres from "postgres";
@@ -18,6 +20,10 @@ const describeDatabase = databaseUrl ? describe : describe.skip;
 const sql = databaseUrl
   ? postgres(databaseUrl, { prepare: false, max: 1 })
   : undefined;
+const migrationDirectory = resolve(process.cwd(), "supabase/migrations");
+const expenseHistoryMigrationVersion = readdirSync(migrationDirectory)
+  .find((name) => name.endsWith("_protect_expense_history.sql"))
+  ?.split("_")[0];
 
 type Transaction = postgres.TransactionSql<Record<string, never>>;
 
@@ -87,6 +93,74 @@ async function createExpenseOwners(transaction: Transaction) {
   `;
 
   return { firstOwnerId, secondOwnerId };
+}
+
+async function createExpenseHistoryFixture(
+  transaction: Transaction,
+  options: {
+    generated?: boolean;
+    status?: "pending" | "paid" | "cancelled";
+  } = {},
+) {
+  const { firstOwnerId: ownerId } = await createExpenseOwners(transaction);
+  const categoryId = randomUUID();
+  const recurringExpenseId = randomUUID();
+  const alternateRecurringExpenseId = randomUUID();
+  const expenseId = randomUUID();
+  const generated = options.generated ?? false;
+  const status = options.status ?? "pending";
+
+  await transaction`
+    insert into public.expense_categories (id, owner_id, name)
+    values (${categoryId}, ${ownerId}, 'Expense history category')
+  `;
+  await transaction`
+    insert into public.recurring_expenses (
+      id, owner_id, title, amount_minor, currency, category_id, scope,
+      cost_type, frequency, billing_day, start_date
+    ) values
+      (${recurringExpenseId}, ${ownerId}, 'Primary recurrence', 1000, 'USD',
+       ${categoryId}, 'business', 'fixed', 'monthly', 1, '2026-09-01'),
+      (${alternateRecurringExpenseId}, ${ownerId}, 'Alternate recurrence',
+       1000, 'USD', ${categoryId}, 'business', 'fixed', 'monthly', 1,
+       '2026-09-01')
+  `;
+  await transaction`
+    insert into public.expenses (
+      id, owner_id, title, amount_minor, currency, category_id, scope,
+      cost_type, recurring_expense_id, period_key, due_date, paid_date,
+      status, generated_automatically
+    ) values (
+      ${expenseId}, ${ownerId}, 'Expense history fixture', 1000, 'USD',
+      ${categoryId}, 'business', 'fixed',
+      ${generated ? recurringExpenseId : null},
+      ${generated ? "2026-09" : null},
+      '2026-09-02', ${status === "paid" ? "2026-09-02" : null}, ${status},
+      ${generated}
+    )
+  `;
+
+  return {
+    alternateRecurringExpenseId,
+    categoryId,
+    expenseId,
+    ownerId,
+    recurringExpenseId,
+  };
+}
+
+async function authenticateTransaction(
+  transaction: Transaction,
+  ownerId: string,
+) {
+  await transaction`
+    select set_config(
+      'request.jwt.claims',
+      ${JSON.stringify({ sub: ownerId, role: "authenticated" })},
+      true
+    )
+  `;
+  await transaction.unsafe("set local role authenticated");
 }
 
 async function createService(
@@ -214,16 +288,25 @@ describeDatabase("remote database integrity", () => {
   });
 
   it("has one authoritative migration history and indexed foreign keys", async () => {
+    expect(expenseHistoryMigrationVersion).toMatch(/^\d{14}$/);
     const migrations = await sql!`
       select version
       from supabase_migrations.schema_migrations
-      where version in ('20260831031346', '20260831040110', '20260831191020')
+      where version = any(${[
+        "20260831031346",
+        "20260831040110",
+        "20260831191020",
+        "20260902210523",
+        expenseHistoryMigrationVersion!,
+      ]}::text[])
       order by version
     `;
     expect(migrations.map((migration) => migration.version)).toEqual([
       "20260831031346",
       "20260831040110",
       "20260831191020",
+      "20260902210523",
+      expenseHistoryMigrationVersion,
     ]);
 
     const missingIndexes = await sql!`
@@ -271,6 +354,7 @@ describeDatabase("remote database integrity", () => {
         on function_namespace.oid = procedure.pronamespace
       where function_namespace.nspname = 'private'
         and procedure.proname = any(${[
+          "guard_expense_history",
           "guard_charge_payment_totals",
           "recompute_charge_payment_totals",
           "sync_charge_from_payments",
@@ -278,7 +362,7 @@ describeDatabase("remote database integrity", () => {
         ]})
       order by procedure.proname
     `;
-    expect(functions).toHaveLength(4);
+    expect(functions).toHaveLength(5);
     expect(
       functions.every((procedure) =>
         procedure.proconfig?.some((entry: string) => entry.startsWith("search_path=")),
@@ -306,15 +390,27 @@ describeDatabase("remote database integrity", () => {
           trigger.tgname like '%_set_updated_at'
           or trigger.tgname in (
             'charges_guard_payment_totals',
+            'expenses_guard_history',
             'payments_sync_charge_totals'
           )
         )
       order by trigger.tgname
     `;
-    expect(triggers).toHaveLength(10);
+    expect(triggers).toHaveLength(14);
     expect(
       triggers.filter((trigger) => trigger.tgname.endsWith("_set_updated_at")),
-    ).toHaveLength(8);
+    ).toHaveLength(11);
+    expect(
+      triggers
+        .filter((trigger) => trigger.tgname.endsWith("_set_updated_at"))
+        .map((trigger) => trigger.relname),
+    ).toEqual(
+      expect.arrayContaining([
+        "expense_categories",
+        "expenses",
+        "recurring_expenses",
+      ]),
+    );
   });
 
   it("rejects a charge whose service belongs to another client", async () => {
@@ -533,6 +629,112 @@ describeDatabase("remote database integrity", () => {
   });
 
   it.each([
+    ["paid", "pending"],
+    ["cancelled", "planned"],
+  ] as const)(
+    "prevents authenticated downgrade and deletion of a %s expense",
+    async (status, downgradedStatus) => {
+      await expectDatabaseRejection("23514", async (transaction) => {
+        const { expenseId, ownerId } = await createExpenseHistoryFixture(
+          transaction,
+          { status },
+        );
+        await authenticateTransaction(transaction, ownerId);
+
+        await transaction`
+          update public.expenses
+          set status = ${downgradedStatus}, paid_date = null
+          where id = ${expenseId}
+        `;
+        await transaction`delete from public.expenses where id = ${expenseId}`;
+      });
+    },
+  );
+
+  it.each([
+    "generated_automatically",
+    "recurring_expense_id",
+    "period_key",
+  ] as const)(
+    "keeps generated expense identity field %s immutable",
+    async (field) => {
+      await expectDatabaseRejection("23514", async (transaction) => {
+        const fixture = await createExpenseHistoryFixture(transaction, {
+          generated: true,
+        });
+        await authenticateTransaction(transaction, fixture.ownerId);
+
+        if (field === "generated_automatically") {
+          await transaction`
+            update public.expenses
+            set generated_automatically = false
+            where id = ${fixture.expenseId}
+          `;
+        } else if (field === "recurring_expense_id") {
+          await transaction`
+            update public.expenses
+            set recurring_expense_id = ${fixture.alternateRecurringExpenseId}
+            where id = ${fixture.expenseId}
+          `;
+        } else {
+          await transaction`
+            update public.expenses
+            set period_key = '2026-10'
+            where id = ${fixture.expenseId}
+          `;
+        }
+      });
+    },
+  );
+
+  it("allows paid financial corrections while retaining paid status", async () => {
+    await withRollback(async (transaction) => {
+      const { expenseId, ownerId } = await createExpenseHistoryFixture(
+        transaction,
+        { status: "paid" },
+      );
+      await authenticateTransaction(transaction, ownerId);
+
+      const [expense] = await transaction`
+        update public.expenses
+        set amount_minor = 1250, notes = 'Corrected receipt'
+        where id = ${expenseId}
+        returning amount_minor, notes, status
+      `;
+
+      expect(Number(expense.amount_minor)).toBe(1250);
+      expect(expense.notes).toBe("Corrected receipt");
+      expect(expense.status).toBe("paid");
+    });
+  });
+
+  it("allows future generated expense updates without changing identity", async () => {
+    await withRollback(async (transaction) => {
+      const fixture = await createExpenseHistoryFixture(transaction, {
+        generated: true,
+      });
+      await authenticateTransaction(transaction, fixture.ownerId);
+
+      const [expense] = await transaction`
+        update public.expenses
+        set amount_minor = 1250, due_date = '2026-09-03'
+        where id = ${fixture.expenseId}
+        returning
+          amount_minor, due_date, generated_automatically,
+          recurring_expense_id, period_key
+      `;
+
+      expect(Number(expense.amount_minor)).toBe(1250);
+      expect(new Date(expense.due_date).toISOString().slice(0, 10)).toBe(
+        "2026-09-03",
+      );
+      expect(expense.generated_automatically).toBe(true);
+      expect(expense.recurring_expense_id).toBe(fixture.recurringExpenseId);
+      expect(expense.period_key).toBe("2026-09");
+    });
+  });
+
+  it.each([
     ["client", "USD"],
     ["currency", "ARS"],
   ] as const)(
@@ -692,6 +894,46 @@ describeDatabase("remote database integrity", () => {
       `;
 
       expect(new Date(client.updated_at).getUTCFullYear()).toBeGreaterThan(2000);
+    });
+  });
+
+  it("automatically advances updated_at on every expense-domain table", async () => {
+    await withRollback(async (transaction) => {
+      const fixture = await createExpenseHistoryFixture(transaction);
+
+      await transaction`
+        update public.expense_categories
+        set updated_at = '2000-01-01T00:00:00Z', name = 'Updated category'
+        where id = ${fixture.categoryId}
+      `;
+      await transaction`
+        update public.recurring_expenses
+        set updated_at = '2000-01-01T00:00:00Z', vendor = 'Updated vendor'
+        where id = ${fixture.recurringExpenseId}
+      `;
+      await transaction`
+        update public.expenses
+        set updated_at = '2000-01-01T00:00:00Z', notes = 'Updated expense'
+        where id = ${fixture.expenseId}
+      `;
+
+      const timestamps = await transaction`
+        select 'expense_categories' as table_name, updated_at
+        from public.expense_categories where id = ${fixture.categoryId}
+        union all
+        select 'recurring_expenses' as table_name, updated_at
+        from public.recurring_expenses where id = ${fixture.recurringExpenseId}
+        union all
+        select 'expenses' as table_name, updated_at
+        from public.expenses where id = ${fixture.expenseId}
+      `;
+
+      expect(timestamps).toHaveLength(3);
+      expect(
+        timestamps.every(
+          (row) => new Date(row.updated_at).getUTCFullYear() > 2000,
+        ),
+      ).toBe(true);
     });
   });
 
