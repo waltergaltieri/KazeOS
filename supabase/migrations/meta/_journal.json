@@ -22,6 +22,13 @@
       "when": 1788214220000,
       "tag": "20260831191020_add_settings_locale",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788383123617,
+      "tag": "20260902210523_add_expenses",
+      "breakpoints": true
     }
   ]
 }

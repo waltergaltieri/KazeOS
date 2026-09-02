@@ -12,6 +12,97 @@ const hardeningMigration = readdirSync(migrationDirectory).find((name) =>
 const settingsLocaleMigration = readdirSync(migrationDirectory).find((name) =>
   name.endsWith("_add_settings_locale.sql"),
 );
+const expenseMigration = readdirSync(migrationDirectory).find((name) =>
+  name.endsWith("_add_expenses.sql"),
+);
+
+describe("expense schema migration", () => {
+  it("is a Drizzle-named forward-only migration", () => {
+    expect(expenseMigration).toMatch(/^\d{14}_add_expenses\.sql$/);
+
+    const sql = readFileSync(
+      resolve(migrationDirectory, expenseMigration!),
+      "utf8",
+    ).toLowerCase();
+
+    expect(sql).toContain('create table "expense_categories"');
+    expect(sql).toContain('create table "recurring_expenses"');
+    expect(sql).toContain('create table "expenses"');
+    expect(sql).toContain("expenses_recurring_period_unique");
+    expect(sql).toContain("enable row level security");
+    expect(sql).toContain("debit_card");
+    expect(sql).toContain("credit_card");
+    expect(sql).not.toMatch(/drop\s+(?:table|type)|truncate/);
+    expect(sql).not.toMatch(
+      /(?:alter|create|drop|truncate)\s+table\s+(?:"?auth"?\.)/,
+    );
+  });
+
+  it("installs owner-scoped constraints and command-specific policies", () => {
+    expect(expenseMigration).toBeDefined();
+    const sql = readFileSync(
+      resolve(migrationDirectory, expenseMigration!),
+      "utf8",
+    ).toLowerCase();
+    const normalizedSql = sql.replaceAll('"', "").replace(/\s+/g, " ");
+
+    expect(normalizedSql).toContain(
+      "foreign key (owner_id,category_id) references public.expense_categories(owner_id,id)",
+    );
+    expect(normalizedSql).toContain(
+      "foreign key (recurring_expense_id,owner_id) references public.recurring_expenses(id,owner_id)",
+    );
+    expect(normalizedSql).not.toContain("for all to authenticated");
+
+    for (const table of [
+      "expense_categories",
+      "recurring_expenses",
+      "expenses",
+    ]) {
+      expect(normalizedSql).toContain(
+        `create policy ${table}_authenticated_select on ${table}`,
+      );
+      expect(normalizedSql).toContain(
+        `create policy ${table}_authenticated_insert on ${table}`,
+      );
+      expect(normalizedSql).toContain(
+        `create policy ${table}_authenticated_update on ${table}`,
+      );
+    }
+
+    expect(normalizedSql).not.toContain(
+      "create policy expense_categories_authenticated_delete",
+    );
+    expect(normalizedSql).not.toContain(
+      "create policy recurring_expenses_authenticated_delete",
+    );
+    expect(normalizedSql).toContain(
+      "create policy expenses_authenticated_delete",
+    );
+    expect(normalizedSql).toContain("recurring_expense_id is null");
+    expect(normalizedSql).toContain("generated_automatically = false");
+    expect(normalizedSql).toContain("status in ('planned', 'pending')");
+  });
+
+  it("revokes defaults and grants only the required authenticated operations", () => {
+    expect(expenseMigration).toBeDefined();
+    const sql = readFileSync(
+      resolve(migrationDirectory, expenseMigration!),
+      "utf8",
+    ).toLowerCase();
+    const normalizedSql = sql.replaceAll('"', "").replace(/\s+/g, " ");
+
+    expect(normalizedSql).toContain(
+      "revoke all on table public.expense_categories, public.recurring_expenses, public.expenses from public, anon, authenticated",
+    );
+    expect(normalizedSql).toContain(
+      "grant select, insert, update on table public.expense_categories, public.recurring_expenses to authenticated",
+    );
+    expect(normalizedSql).toContain(
+      "grant select, insert, update, delete on table public.expenses to authenticated",
+    );
+  });
+});
 
 describe("schema hardening migration", () => {
   it("adds locale in a separate CLI-named forward-only migration", () => {

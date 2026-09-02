@@ -77,6 +77,18 @@ async function createOwnerAndClients(transaction: Transaction) {
   return { ownerId, firstClientId, secondClientId };
 }
 
+async function createExpenseOwners(transaction: Transaction) {
+  const firstOwnerId = randomUUID();
+  const secondOwnerId = randomUUID();
+
+  await transaction`
+    insert into auth.users (id)
+    values (${firstOwnerId}), (${secondOwnerId})
+  `;
+
+  return { firstOwnerId, secondOwnerId };
+}
+
 async function createService(
   transaction: Transaction,
   ownerId: string,
@@ -155,6 +167,9 @@ describeDatabase("remote database integrity", () => {
       "tasks",
       "client_notes",
       "settings",
+      "expense_categories",
+      "recurring_expenses",
+      "expenses",
     ];
     const policies = await sql!`
       select tablename, cmd, roles, qual, with_check
@@ -164,7 +179,7 @@ describeDatabase("remote database integrity", () => {
       order by tablename, cmd
     `;
 
-    expect(policies).toHaveLength(26);
+    expect(policies).toHaveLength(36);
     expect(policies.every((policy) => policy.roles.includes("authenticated"))).toBe(
       true,
     );
@@ -174,7 +189,7 @@ describeDatabase("remote database integrity", () => {
         .filter((policy) => policy.cmd === "DELETE")
         .map((policy) => policy.tablename)
         .sort(),
-    ).toEqual(["client_notes", "tasks"]);
+    ).toEqual(["client_notes", "expenses", "tasks"]);
     expect(
       policies.every((policy) =>
         `${policy.qual ?? ""} ${policy.with_check ?? ""}`.includes("auth.uid()"),
@@ -195,7 +210,7 @@ describeDatabase("remote database integrity", () => {
       privileges
         .filter((privilege) => privilege.authenticated_delete)
         .map((privilege) => privilege.table_name),
-    ).toEqual(["client_notes", "tasks"]);
+    ).toEqual(["client_notes", "expenses", "tasks"]);
   });
 
   it("has one authoritative migration history and indexed foreign keys", async () => {
@@ -229,6 +244,9 @@ describeDatabase("remote database integrity", () => {
           "tasks",
           "client_notes",
           "settings",
+          "expense_categories",
+          "recurring_expenses",
+          "expenses",
         ]})
         and not exists (
           select 1
@@ -314,6 +332,203 @@ describeDatabase("remote database integrity", () => {
           'USD', '2026-09-01'
         )
       `;
+    });
+  });
+
+  it("rejects an expense whose category belongs to another owner", async () => {
+    await expectDatabaseRejection("23503", async (transaction) => {
+      const { firstOwnerId, secondOwnerId } =
+        await createExpenseOwners(transaction);
+      const categoryId = randomUUID();
+
+      await transaction`
+        insert into public.expense_categories (id, owner_id, name)
+        values (${categoryId}, ${firstOwnerId}, 'Owner A category')
+      `;
+      await transaction`
+        insert into public.expenses (
+          owner_id, title, amount_minor, currency, category_id, scope,
+          cost_type, due_date
+        ) values (
+          ${secondOwnerId}, 'Cross-owner expense', 1000, 'USD', ${categoryId},
+          'business', 'fixed', '2026-09-02'
+        )
+      `;
+    });
+  });
+
+  it("rejects an expense whose recurrence belongs to another owner", async () => {
+    await expectDatabaseRejection("23503", async (transaction) => {
+      const { firstOwnerId, secondOwnerId } =
+        await createExpenseOwners(transaction);
+      const firstCategoryId = randomUUID();
+      const secondCategoryId = randomUUID();
+      const recurringExpenseId = randomUUID();
+
+      await transaction`
+        insert into public.expense_categories (id, owner_id, name)
+        values
+          (${firstCategoryId}, ${firstOwnerId}, 'Owner A category'),
+          (${secondCategoryId}, ${secondOwnerId}, 'Owner B category')
+      `;
+      await transaction`
+        insert into public.recurring_expenses (
+          id, owner_id, title, amount_minor, currency, category_id, scope,
+          cost_type, frequency, billing_day, start_date
+        ) values (
+          ${recurringExpenseId}, ${firstOwnerId}, 'Owner A recurrence', 1000,
+          'USD', ${firstCategoryId}, 'business', 'fixed', 'monthly', 1,
+          '2026-09-01'
+        )
+      `;
+      await transaction`
+        insert into public.expenses (
+          owner_id, title, amount_minor, currency, category_id, scope,
+          cost_type, recurring_expense_id, period_key, due_date,
+          generated_automatically
+        ) values (
+          ${secondOwnerId}, 'Cross-owner recurrence', 1000, 'USD',
+          ${secondCategoryId}, 'business', 'fixed', ${recurringExpenseId},
+          '2026-09', '2026-09-02', true
+        )
+      `;
+    });
+  });
+
+  it("hides every expense-domain row from another authenticated owner", async () => {
+    await withRollback(async (transaction) => {
+      const { firstOwnerId, secondOwnerId } =
+        await createExpenseOwners(transaction);
+      const firstCategoryId = randomUUID();
+      const secondCategoryId = randomUUID();
+      const firstRecurringId = randomUUID();
+      const secondRecurringId = randomUUID();
+      const firstExpenseId = randomUUID();
+      const secondExpenseId = randomUUID();
+
+      await transaction`
+        insert into public.expense_categories (id, owner_id, name)
+        values
+          (${firstCategoryId}, ${firstOwnerId}, 'Owner A category'),
+          (${secondCategoryId}, ${secondOwnerId}, 'Owner B category')
+      `;
+      await transaction`
+        insert into public.recurring_expenses (
+          id, owner_id, title, amount_minor, currency, category_id, scope,
+          cost_type, frequency, billing_day, start_date
+        ) values
+          (${firstRecurringId}, ${firstOwnerId}, 'Owner A recurrence', 1000,
+           'USD', ${firstCategoryId}, 'business', 'fixed', 'monthly', 1,
+           '2026-09-01'),
+          (${secondRecurringId}, ${secondOwnerId}, 'Owner B recurrence', 1000,
+           'USD', ${secondCategoryId}, 'business', 'fixed', 'monthly', 1,
+           '2026-09-01')
+      `;
+      await transaction`
+        insert into public.expenses (
+          id, owner_id, title, amount_minor, currency, category_id, scope,
+          cost_type, due_date
+        ) values
+          (${firstExpenseId}, ${firstOwnerId}, 'Owner A expense', 1000, 'USD',
+           ${firstCategoryId}, 'business', 'fixed', '2026-09-02'),
+          (${secondExpenseId}, ${secondOwnerId}, 'Owner B expense', 1000, 'USD',
+           ${secondCategoryId}, 'business', 'fixed', '2026-09-02')
+      `;
+
+      await transaction`
+        select set_config(
+          'request.jwt.claims',
+          ${JSON.stringify({ sub: secondOwnerId, role: "authenticated" })},
+          true
+        )
+      `;
+      await transaction.unsafe("set local role authenticated");
+
+      const categories = await transaction`
+        select id from public.expense_categories order by id
+      `;
+      const recurring = await transaction`
+        select id from public.recurring_expenses order by id
+      `;
+      const expenses = await transaction`
+        select id from public.expenses order by id
+      `;
+
+      expect(categories.map((row) => row.id)).toEqual([secondCategoryId]);
+      expect(recurring.map((row) => row.id)).toEqual([secondRecurringId]);
+      expect(expenses.map((row) => row.id)).toEqual([secondExpenseId]);
+    });
+  });
+
+  it("deletes only manual unpaid expenses and retains financial history", async () => {
+    await withRollback(async (transaction) => {
+      const { firstOwnerId } = await createExpenseOwners(transaction);
+      const categoryId = randomUUID();
+      const recurringExpenseId = randomUUID();
+      const manualPendingId = randomUUID();
+      const paidExpenseId = randomUUID();
+      const generatedExpenseId = randomUUID();
+
+      await transaction`
+        insert into public.expense_categories (id, owner_id, name)
+        values (${categoryId}, ${firstOwnerId}, 'Retained history category')
+      `;
+      await transaction`
+        insert into public.recurring_expenses (
+          id, owner_id, title, amount_minor, currency, category_id, scope,
+          cost_type, frequency, billing_day, start_date
+        ) values (
+          ${recurringExpenseId}, ${firstOwnerId}, 'Retained recurrence', 1000,
+          'USD', ${categoryId}, 'business', 'fixed', 'monthly', 1,
+          '2026-09-01'
+        )
+      `;
+      await transaction`
+        insert into public.expenses (
+          id, owner_id, title, amount_minor, currency, category_id, scope,
+          cost_type, recurring_expense_id, period_key, due_date, paid_date,
+          status, generated_automatically
+        ) values
+          (${manualPendingId}, ${firstOwnerId}, 'Manual pending', 1000, 'USD',
+           ${categoryId}, 'business', 'fixed', null, null, '2026-09-02', null,
+           'pending', false),
+          (${paidExpenseId}, ${firstOwnerId}, 'Paid history', 1000, 'USD',
+           ${categoryId}, 'business', 'fixed', null, null, '2026-09-01',
+           '2026-09-01', 'paid', false),
+          (${generatedExpenseId}, ${firstOwnerId}, 'Generated history', 1000,
+           'USD', ${categoryId}, 'business', 'fixed', ${recurringExpenseId},
+           '2026-09', '2026-09-02', null, 'pending', true)
+      `;
+
+      await transaction`
+        select set_config(
+          'request.jwt.claims',
+          ${JSON.stringify({ sub: firstOwnerId, role: "authenticated" })},
+          true
+        )
+      `;
+      await transaction.unsafe("set local role authenticated");
+
+      const deleted = await transaction`
+        delete from public.expenses
+        where id = any(${[
+          manualPendingId,
+          paidExpenseId,
+          generatedExpenseId,
+        ]}::uuid[])
+        returning id
+      `;
+      const retained = await transaction`
+        select id
+        from public.expenses
+        where id = any(${[paidExpenseId, generatedExpenseId]}::uuid[])
+        order by id
+      `;
+
+      expect(deleted.map((row) => row.id)).toEqual([manualPendingId]);
+      expect(retained.map((row) => row.id).sort()).toEqual(
+        [paidExpenseId, generatedExpenseId].sort(),
+      );
     });
   });
 
