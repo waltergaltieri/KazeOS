@@ -924,6 +924,8 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .expenses-page {
   --expense-scope-blue: #2563eb;
   --expense-scope-blue-soft: color-mix(in srgb, var(--expense-scope-blue) 10%, transparent);
+  --expense-small-muted: var(--ink-tertiary);
+  --expense-small-semantic: var(--ink-secondary);
   display: grid; max-width: 1240px; gap: 14px; margin: 0 auto;
 }
 .expense-toolbar { display: grid; gap: 10px; }
@@ -1001,6 +1003,8 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .recurring-expense-meta { grid-template-columns: auto auto 34px; align-items: center; justify-items: end; gap: 9px; }.recurring-expense-meta .icon-button { width: 34px; height: 34px; }
 .recurring-expense-status--active { background: var(--collection-green-soft); color: var(--collection-green); }.recurring-expense-status--paused { background: var(--reminder-amber-soft); color: var(--reminder-amber); }.recurring-expense-status--cancelled { background: var(--paper-inset); color: var(--ink-muted); }
 .recurring-expense-empty { display: flex; align-items: center; gap: 10px; padding-top: 16px; color: var(--ink-tertiary); }.recurring-expense-empty p { flex: 1; margin: 0; }
+.expenses-page :is(.client-result-count, .expense-table th, .expense-table td:first-child small, .expense-category > span, .expense-pagination > span[aria-disabled="true"], .recurring-expense-copy span, .recurring-expense-copy small, .expense-card__amount > span, .expense-card dt) { color: var(--expense-small-muted); }
+.expenses-page :is(.expense-status--pending, .expense-status--paid, .recurring-expense-status--active, .recurring-expense-status--paused) { color: var(--expense-small-semantic); }
 
 @media (max-width: 720px) {
   .expenses-page .page-heading--actions { flex-direction: column; align-items: stretch; }
@@ -1015,10 +1019,10 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   .expense-card__amount { display: grid; justify-items: end; margin-top: 14px; }.expense-card__amount > span { color: var(--ink-muted); font-size: 9px; font-weight: 720; letter-spacing: .08em; text-transform: uppercase; }.expense-card__amount > strong { font-size: 21px; }
   .expense-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 0; margin: 12px 0 0; border-top: 1px solid var(--ledger-rule-soft); }.expense-card dt { color: var(--ink-muted); font-size: 9px; font-weight: 720; letter-spacing: .07em; text-transform: uppercase; }.expense-card dd { margin: 2px 0 0; color: var(--ink-secondary); font-size: 12px; font-weight: 650; }
   .expense-classification { display: flex; flex-wrap: wrap; gap: 5px; }
-  .expense-card footer { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--ledger-rule-soft); }.expense-card footer > :is(.primary-button,.secondary-button) { width: 100%; min-height: 44px; }.expense-card footer > .primary-button { grid-column: 1 / -1; width: 100%; min-height: 44px; }.expense-card footer .expense-command-actions { grid-column: 1 / -1; }.expense-card footer .expense-command-actions > button { min-height: 42px; flex: 1 1 0; }.expense-card footer .expense-command-confirm { grid-column: 1 / -1; }
+  .expense-card footer { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--ledger-rule-soft); }.expense-card footer > :is(.primary-button,.secondary-button) { width: 100%; min-height: 44px; }.expense-card footer > .primary-button { grid-column: 1 / -1; width: 100%; min-height: 44px; }.expense-card footer .expense-command-actions { grid-column: 1 / -1; }.expense-card footer .expense-command-actions > button { min-height: 44px; flex: 1 1 0; }.expense-card footer .expense-command-confirm { grid-column: 1 / -1; }
   .expense-empty { grid-template-columns: 44px minmax(0,1fr); padding: 22px 18px; }.expense-empty .primary-button { grid-column: 1 / -1; width: 100%; }
   .expense-payment-dialog { width: calc(100vw - 16px); max-height: calc(100svh - 16px); }.expense-payment-dialog > header, .expense-payment-form { padding: 16px; }.expense-payment-form .form-grid--two { grid-template-columns: 1fr; }.expense-payment-form footer > * { flex: 1 1 0; }
-  .recurring-expense-sheet { padding: 16px 13px; }.recurring-expense-sheet > header { align-items: start; }.recurring-expense-sheet > header > .secondary-button { display: none; }.recurring-expense-list li { grid-template-columns: 32px minmax(0,1fr); }.recurring-expense-meta { grid-column: 2; grid-template-columns: auto 1fr 40px; justify-items: start; }.recurring-expense-meta .icon-button { width: 40px; height: 40px; justify-self: end; }
+  .recurring-expense-sheet { padding: 16px 13px; }.recurring-expense-sheet > header { flex-wrap: wrap; align-items: start; }.recurring-expense-sheet > header > .secondary-button { width: 100%; min-height: 44px; }.recurring-expense-list li { grid-template-columns: 32px minmax(0,1fr); }.recurring-expense-meta { grid-column: 2; grid-template-columns: auto 1fr 44px; justify-items: start; }.recurring-expense-meta .icon-button { width: 44px; height: 44px; justify-self: end; }
   .recurring-expense-empty { display: grid; grid-template-columns: 30px 1fr; }.recurring-expense-empty .secondary-button { grid-column: 1 / -1; width: 100%; }
 }
 

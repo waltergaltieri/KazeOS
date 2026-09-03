@@ -86,6 +86,14 @@ describe("ExpenseFilters", () => {
     expect(screen.getByLabelText("Hasta")).toBeRequired();
   });
 
+  it("uses native month and date validation for temporal filters", () => {
+    render(<ExpenseFilters params={{ period: "custom" }} categories={[]} />);
+
+    expect(screen.getByLabelText("Mes de referencia")).toHaveAttribute("type", "month");
+    expect(screen.getByLabelText("Desde")).toHaveAttribute("type", "date");
+    expect(screen.getByLabelText("Hasta")).toHaveAttribute("type", "date");
+  });
+
   it("synchronizes every control when URL params change in place", () => {
     const { rerender } = render(
       <ExpenseFilters

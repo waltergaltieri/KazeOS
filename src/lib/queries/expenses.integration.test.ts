@@ -338,8 +338,8 @@ describeDatabase("expense query matrix", () => {
         .toEqual([ids.recurring]);
       expect(await identifiers({ period: "all", recurrence: "one_off" }))
         .toEqual([
-          ids.paidOutsideDuePeriod,
           ids.overdue,
+          ids.paidOutsideDuePeriod,
           ids.cancelled,
           ids.paid,
           ids.pending,
@@ -472,6 +472,51 @@ describeDatabase("expense query matrix", () => {
       await expect(runAsOwner(ownerId, (ownerDb) =>
         queryRecurringExpenseById(ownerDb, otherOwnerId, otherRecurringExpenseId),
       )).resolves.toBeNull();
+    });
+  }, 60_000);
+
+  it("puts overdue expenses on page one before applying the page limit", async () => {
+    await withRollback(async (transaction) => {
+      const ownerId = randomUUID();
+      const categoryId = randomUUID();
+      const overdueIds = [randomUUID(), randomUUID()].sort();
+
+      await transaction.execute(sql`insert into auth.users (id) values (${ownerId})`);
+      await transaction.insert(expenseCategories).values({ id: categoryId, ownerId, name: `Priority ${categoryId}` });
+      await transaction.insert(expenses).values([
+        ...Array.from({ length: 26 }, (_, index) => ({
+          amountMinor: 1_000 + index,
+          categoryId,
+          costType: "fixed" as const,
+          currency: "USD" as const,
+          dueDate: `2026-08-${String(index + 1).padStart(2, "0")}`,
+          id: randomUUID(),
+          ownerId,
+          paidDate: "2026-08-31",
+          paymentMethod: "cash" as const,
+          scope: "business" as const,
+          status: "paid" as const,
+          title: `Historical ${index}`,
+        })),
+        ...overdueIds.map((id) => ({
+          amountMinor: 5_000,
+          categoryId,
+          costType: "fixed" as const,
+          currency: "USD" as const,
+          dueDate: "2026-09-09",
+          id,
+          ownerId,
+          scope: "business" as const,
+          status: "pending" as const,
+          title: `Overdue ${id}`,
+        })),
+      ]);
+
+      const firstPage = await queryExpenses(transaction, ownerId, { page: 1, pageSize: 25, period: "all" }, "2026-09-10");
+
+      expect(firstPage.pagination.total).toBe(28);
+      expect(firstPage.items.slice(0, 2).map(({ id }) => id)).toEqual(overdueIds);
+      expect(firstPage.items.slice(0, 2).every(({ status }) => status === "overdue")).toBe(true);
     });
   }, 60_000);
 });

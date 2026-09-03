@@ -119,14 +119,14 @@ function ExpenseFilterControls({
           <input type="hidden" name="q" value={params.q ?? ""} />
           <input type="hidden" name="status" value={status} />
           <label><span>Período</span><LedgerSelect name="period" label="Período" defaultValue={period} options={periodOptions.map((item) => ({ value: item.value, label: item.label }))} onValueChange={setSelectedPeriod} /></label>
-          <label><span>Mes de referencia</span><input className="form-control" name="month" inputMode="numeric" placeholder="AAAA-MM" defaultValue={params.month ?? ""} /></label>
+          <label><span>Mes de referencia</span><input className="form-control" name="month" type="month" defaultValue={params.month ?? ""} /></label>
           <label><span>Categoría</span><LedgerSelect name="categoryId" label="Categoría" defaultValue={params.categoryId ?? ""} options={[{ value: "", label: "Todas" }, ...categories.map((item) => ({ value: item.id, label: item.label }))]} /></label>
           <label><span>Ámbito</span><LedgerSelect name="scope" label="Ámbito" defaultValue={params.scope ?? ""} options={[{ value: "", label: "Todos" }, { value: "business", label: "Negocio" }, { value: "personal", label: "Personal" }, { value: "family", label: "Familia" }, { value: "friends", label: "Amigos" }, { value: "partner", label: "Pareja" }, { value: "other", label: "Otro" }]} /></label>
           <label><span>Tipo</span><LedgerSelect name="costType" label="Tipo" defaultValue={params.costType ?? ""} options={[{ value: "", label: "Todos" }, { value: "fixed", label: "Fijo" }, { value: "variable", label: "Variable" }]} /></label>
           <label><span>Recurrencia</span><LedgerSelect name="recurrence" label="Recurrencia" defaultValue={params.recurrence ?? "all"} options={[{ value: "all", label: "Todos" }, { value: "one_off", label: "Únicos" }, { value: "recurring", label: "Recurrentes" }]} /></label>
           <label><span>Moneda</span><LedgerSelect name="currency" label="Moneda" defaultValue={params.currency ?? ""} options={[{ value: "", label: "Todas" }, { value: "USD", label: "USD" }, { value: "ARS", label: "ARS" }]} /></label>
-          <label><span>Desde</span><input className="form-control" name="from" inputMode="numeric" placeholder="AAAA-MM-DD" defaultValue={params.from ?? ""} required={selectedPeriod === "custom"} /></label>
-          <label><span>Hasta</span><input className="form-control" name="to" inputMode="numeric" placeholder="AAAA-MM-DD" defaultValue={params.to ?? ""} required={selectedPeriod === "custom"} /></label>
+          <label><span>Desde</span><input className="form-control" name="from" type="date" defaultValue={params.from ?? ""} required={selectedPeriod === "custom"} /></label>
+          <label><span>Hasta</span><input className="form-control" name="to" type="date" defaultValue={params.to ?? ""} required={selectedPeriod === "custom"} /></label>
           <div className="expense-filter-actions">
             <Link className="quiet-button" href="/expenses">Limpiar filtros</Link>
             <button className="secondary-button">Aplicar filtros</button>

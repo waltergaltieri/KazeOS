@@ -385,7 +385,7 @@ export async function queryExpenses(
     ), expense_page as (
       select *
       from filtered_expenses
-      order by due_date, id
+      order by case when display_status = 'overdue' then 0 else 1 end, due_date, id
       limit ${pageSize}
       offset ${offset}
     ), expense_total as (
@@ -395,7 +395,9 @@ export async function queryExpenses(
     select expense_page.*, expense_total.total_count
     from expense_total
     left join expense_page on true
-    order by expense_page.due_date, expense_page.id
+    order by case when expense_page.display_status = 'overdue' then 0 else 1 end,
+      expense_page.due_date,
+      expense_page.id
   `);
 
   const total = rows[0]?.total_count ?? 0;

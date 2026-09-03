@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ getExpenses: vi.fn(), getOptions: vi.fn(), getRecurring: vi.fn() }));
 vi.mock("@/lib/queries/expenses", () => ({
@@ -13,6 +13,8 @@ vi.mock("@/lib/actions/expenses", () => ({ cancelExpenseAction: vi.fn(), correct
 import ExpensesPage from "./page";
 
 describe("ExpensesPage", () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it("loads the URL-backed ledger, options and recurring commitments", async () => {
     mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } });
     mocks.getOptions.mockResolvedValue({ categories: [{ id: "11111111-1111-4111-8111-111111111111", name: "Software", icon: null, active: true }], recurringExpenses: [] });
@@ -39,5 +41,41 @@ describe("ExpensesPage", () => {
     expect(screen.getByText("Página 2 de 3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Página anterior" })).toHaveAttribute("href", "/expenses?q=nube&status=pending&page=1");
     expect(screen.getByRole("link", { name: "Página siguiente" })).toHaveAttribute("href", "/expenses?q=nube&status=pending&page=3");
+  });
+
+  it("recovers from duplicate, malformed and out-of-range URL parameters", async () => {
+    mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } });
+    mocks.getOptions.mockResolvedValue({ categories: [], recurringExpenses: [] });
+    mocks.getRecurring.mockResolvedValue([]);
+
+    render(await ExpensesPage({ searchParams: Promise.resolve<Record<string, string | string[] | undefined>>({
+      q: ["nube", "duplicado"],
+      status: ["overdue", "paid"],
+      period: "custom",
+      month: "2026-99",
+      from: "no-es-fecha",
+      to: "2026-09-31",
+      categoryId: "11111111-1111-1111-1111-111111111111",
+      scope: "global",
+      costType: "semi-fixed",
+      recurrence: "sometimes",
+      currency: "EUR",
+      page: "10001",
+    }) }));
+
+    expect(screen.getByRole("heading", { name: "Gastos" })).toBeInTheDocument();
+    expect(mocks.getExpenses).toHaveBeenCalledWith({
+      search: undefined,
+      status: "all",
+      period: "current_month",
+      month: undefined,
+      from: undefined,
+      to: undefined,
+      categoryId: undefined,
+      scope: undefined,
+      costType: undefined,
+      recurrence: "all",
+      currency: undefined,
+    }, "2026-09-03");
   });
 });
