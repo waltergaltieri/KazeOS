@@ -340,7 +340,13 @@ describeDatabase("recurring expense manager", () => {
         status: "paid",
         title: "Original title",
       });
-      expect(rows.find(({ id }) => id === future!.id)).toBeUndefined();
+      expect(rows.find(({ id }) => id === future!.id)).toMatchObject({
+        amountMinor: 20_000,
+        categoryId,
+        dueDate: "2026-11-10",
+        status: "cancelled",
+        title: "Original title",
+      });
       expect(rows.find(({ id }) => id === manualLinkedId)).toMatchObject({
         amountMinor: 25_000,
         categoryId,
@@ -467,24 +473,62 @@ describeDatabase("recurring expense manager", () => {
     });
   }, 30_000);
 
-  it("keeps existing projections unchanged when editing a paused template", async () => {
-    await withFixture(async ({ categoryId, ownerId, transaction }) => {
+  it("reconciles future automatic unpaid projections while a template stays paused", async () => {
+    await withFixture(async ({ categoryId, nextCategoryId, ownerId, transaction }) => {
       const created = await createRecurringExpenseWithOccurrences(transaction, {
         asOf: "2026-09-01",
         ownerId,
         values: initialValues(categoryId),
       });
+      const before = await transaction
+        .select({ dueDate: expenses.dueDate, id: expenses.id })
+        .from(expenses)
+        .where(eq(expenses.recurringExpenseId, created.id))
+        .orderBy(asc(expenses.dueDate));
+      await transaction
+        .update(expenses)
+        .set({ paidDate: "2026-09-10", status: "paid" })
+        .where(eq(expenses.id, before[0]!.id));
+      await cancelExpense(transaction, {
+        expenseId: before[1]!.id,
+        ownerId,
+      });
+      const manualLinkedId = randomUUID();
+      await transaction.insert(expenses).values({
+        amountMinor: 25_000,
+        categoryId,
+        costType: "fixed",
+        currency: "USD",
+        dueDate: "2026-11-25",
+        generatedAutomatically: false,
+        id: manualLinkedId,
+        ownerId,
+        periodKey: "manual:paused:2026-11",
+        recurringExpenseId: created.id,
+        scope: "business",
+        status: "pending",
+        title: "Manual linked adjustment",
+      });
       await pauseRecurringExpense(transaction, {
-        asOf: "2026-09-01",
+        asOf: "2026-10-01",
         ownerId,
         recurringExpenseId: created.id,
       });
 
       const updated = await updateRecurringExpenseWithOccurrences(transaction, {
-        asOf: "2026-09-01",
+        asOf: "2026-10-01",
         ownerId,
         recurringExpenseId: created.id,
-        values: { ...initialValues(categoryId), amountMinor: 99_000 },
+        values: {
+          ...initialValues(nextCategoryId),
+          amountMinor: 99_000,
+          description: "Paused update",
+          notes: "Updated while paused",
+          paymentMethod: "credit_card",
+          scope: "personal",
+          title: "Paused template updated",
+          vendor: "Paused vendor",
+        },
       });
 
       expect(updated.generated).toEqual({
@@ -494,16 +538,47 @@ describeDatabase("recurring expense manager", () => {
         skipped: 0,
       });
       const rows = await transaction
-        .select({ amountMinor: expenses.amountMinor, status: expenses.status })
+        .select({
+          amountMinor: expenses.amountMinor,
+          categoryId: expenses.categoryId,
+          dueDate: expenses.dueDate,
+          id: expenses.id,
+          status: expenses.status,
+          title: expenses.title,
+        })
         .from(expenses)
-        .where(eq(expenses.recurringExpenseId, created.id));
-      expect(rows).toHaveLength(3);
-      expect(rows.every((row) => row.amountMinor === 20_000)).toBe(true);
-      expect(rows.every((row) => row.status === "pending")).toBe(true);
+        .where(eq(expenses.recurringExpenseId, created.id))
+        .orderBy(asc(expenses.dueDate), asc(expenses.id));
+      expect(rows).toHaveLength(4);
+      expect(rows.find(({ id }) => id === before[0]!.id)).toMatchObject({
+        amountMinor: 20_000,
+        categoryId,
+        status: "paid",
+        title: "Original title",
+      });
+      expect(rows.find(({ id }) => id === before[1]!.id)).toMatchObject({
+        amountMinor: 20_000,
+        categoryId,
+        status: "cancelled",
+        title: "Original title",
+      });
+      expect(rows.find(({ id }) => id === before[2]!.id)).toMatchObject({
+        amountMinor: 99_000,
+        categoryId: nextCategoryId,
+        dueDate: "2026-11-10",
+        status: "pending",
+        title: "Paused template updated",
+      });
+      expect(rows.find(({ id }) => id === manualLinkedId)).toMatchObject({
+        amountMinor: 25_000,
+        categoryId,
+        status: "pending",
+        title: "Manual linked adjustment",
+      });
     });
   }, 30_000);
 
-  it("regenerates projections after automatic generation is disabled and enabled", async () => {
+  it("retains cancelled projections after automatic generation is disabled and enabled", async () => {
     await withFixture(async ({ categoryId, ownerId, transaction }) => {
       const created = await createRecurringExpenseWithOccurrences(transaction, {
         asOf: "2026-09-01",
@@ -525,10 +600,14 @@ describeDatabase("recurring expense manager", () => {
       );
       expect(
         await transaction
-          .select({ id: expenses.id })
+          .select({ status: expenses.status })
           .from(expenses)
           .where(eq(expenses.recurringExpenseId, created.id)),
-      ).toHaveLength(0);
+      ).toEqual([
+        { status: "cancelled" },
+        { status: "cancelled" },
+        { status: "cancelled" },
+      ]);
 
       const enabled = await runAsOwner(ownerId, (scopedDatabase) =>
         updateRecurringExpenseWithOccurrences(scopedDatabase, {
@@ -538,21 +617,21 @@ describeDatabase("recurring expense manager", () => {
           values: initialValues(categoryId),
         }),
       );
-      expect(enabled.generated).toMatchObject({ inserted: 3, skipped: 0 });
+      expect(enabled.generated).toMatchObject({ inserted: 0, skipped: 3 });
       const rows = await transaction
         .select({ dueDate: expenses.dueDate, status: expenses.status })
         .from(expenses)
         .where(eq(expenses.recurringExpenseId, created.id))
         .orderBy(asc(expenses.dueDate));
       expect(rows).toEqual([
-        { dueDate: "2026-09-10", status: "pending" },
-        { dueDate: "2026-10-10", status: "pending" },
-        { dueDate: "2026-11-10", status: "pending" },
+        { dueDate: "2026-09-10", status: "cancelled" },
+        { dueDate: "2026-10-10", status: "cancelled" },
+        { dueDate: "2026-11-10", status: "cancelled" },
       ]);
     });
   }, 30_000);
 
-  it("restores projections after an end date is shortened and extended", async () => {
+  it("retains obsolete cancelled projections after an end date is shortened and extended", async () => {
     await withFixture(async ({ categoryId, ownerId, transaction }) => {
       const created = await createRecurringExpenseWithOccurrences(transaction, {
         asOf: "2026-09-01",
@@ -573,10 +652,15 @@ describeDatabase("recurring expense manager", () => {
         }),
       );
       const shortened = await transaction
-        .select({ dueDate: expenses.dueDate })
+        .select({ dueDate: expenses.dueDate, status: expenses.status })
         .from(expenses)
-        .where(eq(expenses.recurringExpenseId, created.id));
-      expect(shortened).toEqual([{ dueDate: "2026-09-10" }]);
+        .where(eq(expenses.recurringExpenseId, created.id))
+        .orderBy(asc(expenses.dueDate));
+      expect(shortened).toEqual([
+        { dueDate: "2026-09-10", status: "pending" },
+        { dueDate: "2026-10-10", status: "cancelled" },
+        { dueDate: "2026-11-10", status: "cancelled" },
+      ]);
 
       const extended = await runAsOwner(ownerId, (scopedDatabase) =>
         updateRecurringExpenseWithOccurrences(scopedDatabase, {
@@ -589,7 +673,7 @@ describeDatabase("recurring expense manager", () => {
           },
         }),
       );
-      expect(extended.generated).toMatchObject({ inserted: 2, skipped: 1 });
+      expect(extended.generated).toMatchObject({ inserted: 0, skipped: 3 });
       const restored = await transaction
         .select({ dueDate: expenses.dueDate, status: expenses.status })
         .from(expenses)
@@ -597,13 +681,13 @@ describeDatabase("recurring expense manager", () => {
         .orderBy(asc(expenses.dueDate));
       expect(restored).toEqual([
         { dueDate: "2026-09-10", status: "pending" },
-        { dueDate: "2026-10-10", status: "pending" },
-        { dueDate: "2026-11-10", status: "pending" },
+        { dueDate: "2026-10-10", status: "cancelled" },
+        { dueDate: "2026-11-10", status: "cancelled" },
       ]);
     });
   }, 30_000);
 
-  it("restores a reverted schedule without reviving a user cancellation", async () => {
+  it("keeps all cancelled projections when a schedule is reverted", async () => {
     await withFixture(async ({ categoryId, ownerId, transaction }) => {
       const created = await createRecurringExpenseWithOccurrences(transaction, {
         asOf: "2026-09-01",
@@ -652,9 +736,10 @@ describeDatabase("recurring expense manager", () => {
         .where(eq(expenses.recurringExpenseId, created.id))
         .orderBy(asc(expenses.dueDate));
       expect(rows).toEqual([
-        expect.objectContaining({ dueDate: "2026-09-10", status: "pending" }),
+        expect.objectContaining({ dueDate: "2026-09-10", status: "cancelled" }),
+        expect.objectContaining({ dueDate: "2026-09-20", status: "cancelled" }),
         { dueDate: "2026-10-10", id: cancelled!.id, status: "cancelled" },
-        expect.objectContaining({ dueDate: "2026-11-10", status: "pending" }),
+        expect.objectContaining({ dueDate: "2026-11-10", status: "cancelled" }),
       ]);
     });
   }, 30_000);

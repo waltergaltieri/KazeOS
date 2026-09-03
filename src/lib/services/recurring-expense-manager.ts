@@ -205,13 +205,6 @@ export async function updateRecurringExpenseWithOccurrences(
     .set({ ...values, updatedAt: new Date() })
     .where(templateWhere(input));
 
-  if (current.status === "paused") {
-    return {
-      generated: emptyGenerationResult(),
-      id: input.recurringExpenseId,
-    };
-  }
-
   const existing = await database
     .select({
       dueDate: expenses.dueDate,
@@ -225,8 +218,9 @@ export async function updateRecurringExpenseWithOccurrences(
     .orderBy(asc(expenses.dueDate), asc(expenses.id))
     .for("update");
 
-  const canGenerate = current.status === "active" && values.automaticGeneration;
-  const candidates = canGenerate
+  const canProject = values.automaticGeneration;
+  const canGenerate = current.status === "active" && canProject;
+  const candidates = canProject
     ? buildRecurringPeriods(
         {
           amountMinor: values.amountMinor,
@@ -292,7 +286,8 @@ export async function updateRecurringExpenseWithOccurrences(
 
   if (obsoleteIds.length > 0) {
     await database
-      .delete(expenses)
+      .update(expenses)
+      .set({ status: "cancelled", updatedAt: new Date() })
       .where(
         and(
           inArray(expenses.id, obsoleteIds),
