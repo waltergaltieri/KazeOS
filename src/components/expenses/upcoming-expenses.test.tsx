@@ -49,4 +49,13 @@ describe("UpcomingExpenses", () => {
     expect(screen.getByText("No hay próximos gastos en USD.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Registrar gasto" })).toHaveAttribute("href", "/expenses/new");
   });
+
+  it("does not claim the agenda is empty when upcoming data is unavailable", () => {
+    render(<UpcomingExpenses currency="USD" today="2026-09-10" unavailable />);
+
+    expect(screen.getByText("No disponible")).toBeInTheDocument();
+    expect(screen.getByText("No pudimos cargar los próximos gastos.")).toBeInTheDocument();
+    expect(screen.queryByText("Agenda despejada")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Registrar gasto" })).not.toBeInTheDocument();
+  });
 });

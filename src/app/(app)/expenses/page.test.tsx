@@ -26,13 +26,15 @@ function pageData(overrides: Record<string, unknown> = {}) {
     page: { items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } },
     options: { categories: [], recurringExpenses: [] },
     recurringExpenses: [],
-    summary,
-    cashFlow,
-    byCategory: [],
-    byScope: [],
-    byCostType: [],
-    upcomingExpenses: [],
-    insightUnavailable: [],
+    insights: {
+      status: "available",
+      summary,
+      cashFlow,
+      byCategory: [],
+      byScope: [],
+      byCostType: [],
+      upcomingExpenses: [],
+    },
     ...overrides,
   };
 }
@@ -121,7 +123,7 @@ describe("ExpensesPage", () => {
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
-  it("keeps the operational ledger visible and announces partial insight failures", async () => {
+  it("keeps the operational ledger visible when the analytics transaction fails", async () => {
     mocks.getPageData.mockResolvedValue(pageData({
       page: {
         items: [{
@@ -130,13 +132,17 @@ describe("ExpensesPage", () => {
         }],
         pagination: { page: 1, pageSize: 25, total: 1, totalPages: 1 },
       },
-      insightUnavailable: ["category", "upcoming"],
+      insights: { status: "unavailable" },
     }));
 
     render(await ExpensesPage({ searchParams: Promise.resolve({ currency: "USD" }) }));
 
     expect(screen.getAllByText("Servidor productivo")).toHaveLength(2);
-    expect(screen.getByRole("status")).toHaveTextContent("Parte del análisis no está disponible");
+    expect(screen.getByRole("status")).toHaveTextContent("El análisis no está disponible");
+    expect(screen.getAllByText("No disponible")).toHaveLength(5);
+    expect(screen.queryByText("Agenda despejada")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sin gastos proyectados en este período.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/USD\s+0,00/)).not.toBeInTheDocument();
     expect(screen.getByText("1 gasto")).toBeInTheDocument();
   });
 });

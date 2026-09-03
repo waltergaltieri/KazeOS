@@ -67,7 +67,7 @@ describe("getExpensePageData", () => {
     mocks.queryUpcomingExpenses.mockResolvedValue([]);
   });
 
-  it("authenticates once, opens one owner scope and starts all raw projections together", async () => {
+  it("authenticates once and separates required ledger data from atomic analytics", async () => {
     const pageGate = deferred<typeof page>();
     const optionsGate = deferred<typeof options>();
     const recurringGate = deferred<[]>();
@@ -92,38 +92,59 @@ describe("getExpensePageData", () => {
     await Promise.resolve();
 
     expect(mocks.requireUser).toHaveBeenCalledOnce();
-    expect(mocks.withAuthenticatedDb).toHaveBeenCalledOnce();
-    for (const query of [mocks.queryExpenses, mocks.queryExpenseFormOptions, mocks.queryRecurringExpenses, mocks.queryExpenseSummary, mocks.queryMonthlyCashFlow, mocks.queryExpensesByCategory, mocks.queryExpensesByScope, mocks.queryFixedVariableBreakdown, mocks.queryUpcomingExpenses]) {
+    expect(mocks.withAuthenticatedDb).toHaveBeenCalledTimes(1);
+    for (const query of [mocks.queryExpenses, mocks.queryExpenseFormOptions, mocks.queryRecurringExpenses]) {
+      expect(query).toHaveBeenCalledOnce();
+      expect(query.mock.calls[0][0]).toBe(database);
+      expect(query.mock.calls[0][1]).toBe(ownerId);
+    }
+
+    pageGate.resolve(page);
+    optionsGate.resolve(options);
+    recurringGate.resolve([]);
+
+    await vi.waitFor(() => expect(mocks.withAuthenticatedDb).toHaveBeenCalledTimes(2));
+    for (const query of [mocks.queryExpenseSummary, mocks.queryMonthlyCashFlow, mocks.queryExpensesByCategory, mocks.queryExpensesByScope, mocks.queryFixedVariableBreakdown, mocks.queryUpcomingExpenses]) {
       expect(query).toHaveBeenCalledOnce();
       expect(query.mock.calls[0][0]).toBe(database);
       expect(query.mock.calls[0][1]).toBe(ownerId);
     }
     expect(mocks.queryUpcomingExpenses).toHaveBeenCalledWith(database, ownerId, "2026-09-10", "USD", 8);
 
-    pageGate.resolve(page);
-    optionsGate.resolve(options);
-    recurringGate.resolve([]);
     summaryGate.resolve(summary);
     cashFlowGate.resolve(cashFlow);
     categoryGate.resolve([]);
     scopeGate.resolve([]);
     typeGate.resolve([]);
     upcomingGate.resolve([]);
-    await expect(result).resolves.toMatchObject({ page, options, insightUnavailable: [] });
+    await expect(result).resolves.toMatchObject({
+      page,
+      options,
+      insights: { status: "available", summary, cashFlow },
+    });
   });
 
-  it("keeps required ledger data and safe fallbacks when optional insights fail", async () => {
+  it("marks every insight unavailable when one query aborts the analytics transaction", async () => {
     mocks.queryExpensesByCategory.mockRejectedValue(new Error("category unavailable"));
-    mocks.queryUpcomingExpenses.mockRejectedValue(new Error("upcoming unavailable"));
 
     await expect(getExpensePageData({ currency: "ARS", expenseQuery: { currency: "ARS" }, period, today: "2026-09-10" })).resolves.toMatchObject({
       page,
       options,
-      byCategory: [],
-      upcomingExpenses: [],
-      insightUnavailable: ["category", "upcoming"],
+      recurringExpenses: [],
+      insights: { status: "unavailable" },
     });
     expect(mocks.requireUser).toHaveBeenCalledOnce();
+    expect(mocks.withAuthenticatedDb).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates a required ledger failure without starting analytics", async () => {
+    mocks.queryExpenses.mockRejectedValue(new Error("ledger unavailable"));
+
+    await expect(getExpensePageData({ currency: "USD", expenseQuery: { currency: "USD" }, period, today: "2026-09-10" }))
+      .rejects.toThrow("ledger unavailable");
+
+    expect(mocks.requireUser).toHaveBeenCalledOnce();
     expect(mocks.withAuthenticatedDb).toHaveBeenCalledOnce();
+    expect(mocks.queryExpenseSummary).not.toHaveBeenCalled();
   });
 });

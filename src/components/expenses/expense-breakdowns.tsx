@@ -1,3 +1,4 @@
+import { TriangleAlert } from "lucide-react";
 import type { CSSProperties } from "react";
 
 import { formatAggregateMoney, type AggregateMinorUnits, type Currency } from "@/lib/domain/money";
@@ -37,12 +38,14 @@ function RankedBreakdown({
   eyebrow,
   items,
   title,
+  unavailable = false,
 }: {
   ariaLabel: string;
   currency: Currency;
   eyebrow: string;
   items: RankedItem[];
   title: string;
+  unavailable?: boolean;
 }) {
   const ranked = [...items]
     .filter((item) => BigInt(item.value) !== BigInt(0))
@@ -55,7 +58,12 @@ function RankedBreakdown({
   return (
     <section className="expense-breakdown-sheet" aria-label={ariaLabel}>
       <header><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div><span>{currency}</span></header>
-      {ranked.length ? (
+      {unavailable ? (
+        <div className="expense-insight-unavailable expense-insight-unavailable--compact">
+          <TriangleAlert aria-hidden="true" size={17} />
+          <div><strong>No disponible</strong><p>No pudimos cargar este desglose.</p></div>
+        </div>
+      ) : ranked.length ? (
         <ol className="expense-breakdown-list">
           {ranked.map((item) => {
             const share = percentage(BigInt(item.value), total);
@@ -78,17 +86,25 @@ function RankedBreakdown({
   );
 }
 
-export function ExpenseBreakdowns({
-  byCategory,
-  byCostType,
-  byScope,
-  currency,
-}: {
+type ExpenseBreakdownProps = {
+  currency: Currency;
+} & ({
+  unavailable: true;
+  byCategory?: never;
+  byCostType?: never;
+  byScope?: never;
+} | {
+  unavailable?: false;
   byCategory: ExpenseCategoryBreakdown[];
   byCostType: Array<ExpenseDimensionBreakdown<ExpenseCostType>>;
   byScope: Array<ExpenseDimensionBreakdown<ExpenseScope>>;
-  currency: Currency;
-}) {
+});
+
+export function ExpenseBreakdowns(props: ExpenseBreakdownProps) {
+  const { currency } = props;
+  const byCategory = props.unavailable ? [] : props.byCategory;
+  const byScope = props.unavailable ? [] : props.byScope;
+  const byCostType = props.unavailable ? [] : props.byCostType;
   return (
     <div className="expense-breakdown-grid">
       <RankedBreakdown
@@ -97,6 +113,7 @@ export function ExpenseBreakdowns({
         eyebrow="Destino"
         items={byCategory.map((item) => ({ id: item.categoryId, icon: item.icon, label: item.label, value: item.amounts[currency] }))}
         title="Por categoría"
+        unavailable={props.unavailable}
       />
       <RankedBreakdown
         ariaLabel="Gastos por ámbito"
@@ -104,6 +121,7 @@ export function ExpenseBreakdowns({
         eyebrow="Contexto"
         items={byScope.map((item) => ({ id: item.key, label: scopeLabels[item.key], value: item.amounts[currency] }))}
         title="Por ámbito"
+        unavailable={props.unavailable}
       />
       <RankedBreakdown
         ariaLabel="Gastos fijos y variables"
@@ -111,6 +129,7 @@ export function ExpenseBreakdowns({
         eyebrow="Estructura"
         items={byCostType.map((item) => ({ id: item.key, label: costTypeLabels[item.key], value: item.amounts[currency] }))}
         title="Fijo frente a variable"
+        unavailable={props.unavailable}
       />
     </div>
   );

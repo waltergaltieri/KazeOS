@@ -50,4 +50,12 @@ describe("ExpenseBreakdowns", () => {
     expect(screen.getAllByText("Sin gastos proyectados en este período.")).toHaveLength(3);
     expect(screen.queryByText("NaN%")).not.toBeInTheDocument();
   });
+
+  it("labels every unavailable breakdown without claiming the period is empty", () => {
+    render(<ExpenseBreakdowns currency="USD" unavailable />);
+
+    expect(screen.getAllByText("No disponible")).toHaveLength(3);
+    expect(screen.getAllByText("No pudimos cargar este desglose.")).toHaveLength(3);
+    expect(screen.queryByText("Sin gastos proyectados en este período.")).not.toBeInTheDocument();
+  });
 });

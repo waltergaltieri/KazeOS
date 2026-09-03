@@ -159,13 +159,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     page,
     options,
     recurringExpenses,
-    summary,
-    cashFlow,
-    byCategory,
-    byScope,
-    byCostType,
-    upcomingExpenses,
-    insightUnavailable,
+    insights,
   } = await getExpensePageData({
     currency: selectedCurrency,
     expenseQuery,
@@ -178,8 +172,8 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
 
   return <main className="expenses-page">
     <header className="page-heading page-heading--actions"><div><p className="eyebrow">Libro de obligaciones</p><h1>Gastos</h1><p>Detectá qué vence y resolvelo sin perder contexto.</p></div><div className="expense-heading-actions"><nav className="expense-currency-switch" aria-label="Moneda de lectura">{(["USD", "ARS"] as const).map((currency) => <Link key={currency} href={currencyHref(params, currency)} aria-current={selectedCurrency === currency ? "page" : undefined}>{currency}</Link>)}</nav><Link className="primary-button" href="/expenses/new"><Plus size={17} /> Nuevo gasto</Link></div></header>
-    {insightUnavailable.length > 0 ? <div className="expense-insight-warning" role="status" aria-live="polite"><TriangleAlert aria-hidden="true" size={18} /><p><strong>Parte del análisis no está disponible.</strong> El libro y sus acciones siguen operativos.</p></div> : null}
-    <ExpenseSummary summary={summary} cashFlow={cashFlow} currency={selectedCurrency} />
+    {insights.status === "unavailable" ? <div className="expense-insight-warning" role="status" aria-live="polite"><TriangleAlert aria-hidden="true" size={18} /><p><strong>El análisis no está disponible.</strong> El libro y sus acciones siguen operativos.</p></div> : null}
+    {insights.status === "available" ? <ExpenseSummary summary={insights.summary} cashFlow={insights.cashFlow} currency={selectedCurrency} /> : <ExpenseSummary currency={selectedCurrency} unavailable />}
     <ExpenseFilters params={filters} categories={options.categories.map((category) => ({ id: category.id, label: category.name }))} />
     <div className="client-result-count" aria-live="polite">{page.pagination.total} {page.pagination.total === 1 ? "gasto" : "gastos"}</div>
     <ExpenseTable expenses={page.items} today={today} />
@@ -189,8 +183,8 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       {page.pagination.page < page.pagination.totalPages ? <Link className="quiet-button" href={paginationHref(params, page.pagination.page + 1)} aria-label="Página siguiente">Siguiente</Link> : <span aria-disabled="true">Siguiente</span>}
     </nav> : null}
     <div className="expense-insight-grid">
-      <ExpenseBreakdowns byCategory={byCategory} byScope={byScope} byCostType={byCostType} currency={selectedCurrency} />
-      <UpcomingExpenses expenses={upcomingExpenses} today={today} currency={selectedCurrency} />
+      {insights.status === "available" ? <ExpenseBreakdowns byCategory={insights.byCategory} byScope={insights.byScope} byCostType={insights.byCostType} currency={selectedCurrency} /> : <ExpenseBreakdowns currency={selectedCurrency} unavailable />}
+      {insights.status === "available" ? <UpcomingExpenses expenses={insights.upcomingExpenses} today={today} currency={selectedCurrency} /> : <UpcomingExpenses today={today} currency={selectedCurrency} unavailable />}
     </div>
     <section className="recurring-expense-sheet" aria-labelledby="recurring-expenses-title">
       <header><div><span><CalendarClock size={17} /></span><div><h2 id="recurring-expenses-title">Compromisos recurrentes</h2><p>Cadencia, próxima fecha y estado de las obligaciones que se repiten.</p></div></div><Link className="secondary-button" href="/expenses/recurring">Administrar</Link></header>

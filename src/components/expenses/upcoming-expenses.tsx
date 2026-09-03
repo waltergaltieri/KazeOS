@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronRight } from "lucide-react";
+import { CalendarClock, ChevronRight, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 
 import { formatMoney, type Currency } from "@/lib/domain/money";
@@ -9,15 +9,20 @@ function shortDate(value: string) {
   return value.split("-").reverse().join("/");
 }
 
-export function UpcomingExpenses({
-  currency,
-  expenses,
-  today,
-}: {
+type UpcomingExpensesProps = {
   currency: Currency;
-  expenses: ExpenseListItem[];
   today: string;
-}) {
+} & ({
+  unavailable: true;
+  expenses?: never;
+} | {
+  unavailable?: false;
+  expenses: ExpenseListItem[];
+});
+
+export function UpcomingExpenses(props: UpcomingExpensesProps) {
+  const { currency, today } = props;
+  const expenses = props.unavailable ? [] : props.expenses;
   const ordered = expenses
     .filter((expense) => expense.currency === currency)
     .sort((left, right) => {
@@ -34,7 +39,12 @@ export function UpcomingExpenses({
         <div><p className="eyebrow">Agenda de obligaciones</p><h2 id="upcoming-expenses-title">Próximos gastos</h2></div>
         <Link href={`/expenses?currency=${currency}&status=pending`}>Ver pendientes <ChevronRight size={14} aria-hidden="true" /></Link>
       </header>
-      {ordered.length ? (
+      {props.unavailable ? (
+        <div className="expense-insight-unavailable expense-insight-unavailable--compact">
+          <TriangleAlert aria-hidden="true" size={17} />
+          <div><strong>No disponible</strong><p>No pudimos cargar los próximos gastos.</p></div>
+        </div>
+      ) : ordered.length ? (
         <ol className="upcoming-expense-list">
           {ordered.map((expense) => {
             const overdue = expense.status === "overdue" || expense.dueDate < today;

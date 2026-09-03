@@ -1,3 +1,5 @@
+import { TriangleAlert } from "lucide-react";
+
 import type { MonthlyCashFlow } from "@/lib/domain/cash-flow";
 import { formatAggregateMoney, type AggregateMinorUnits, type Currency } from "@/lib/domain/money";
 import type { ExpenseSummary as ExpenseSummaryData } from "@/lib/queries/expenses";
@@ -50,15 +52,32 @@ function ResultColumn({
   );
 }
 
-export function ExpenseSummary({
-  cashFlow,
-  currency,
-  summary,
-}: {
-  cashFlow: MonthlyCashFlow;
+type ExpenseSummaryProps = {
   currency: Currency;
+} & ({
+  unavailable: true;
+  cashFlow?: never;
+  summary?: never;
+} | {
+  unavailable?: false;
+  cashFlow: MonthlyCashFlow;
   summary: ExpenseSummaryData;
-}) {
+});
+
+export function ExpenseSummary(props: ExpenseSummaryProps) {
+  const { currency } = props;
+  if (props.unavailable) {
+    return (
+      <section className="expense-insight-summary" aria-label={`Resumen de gastos ${currency}`}>
+        <div className="expense-insight-unavailable">
+          <TriangleAlert aria-hidden="true" size={19} />
+          <div><strong>No disponible</strong><p>No pudimos cargar el resumen de gastos y caja.</p></div>
+        </div>
+      </section>
+    );
+  }
+
+  const { cashFlow, summary } = props;
   const activeSummary = summary[currency];
   const activeCashFlow = cashFlow[currency];
 

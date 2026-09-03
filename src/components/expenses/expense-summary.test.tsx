@@ -97,4 +97,14 @@ describe("ExpenseSummary", () => {
     expect(screen.getAllByText("Equilibrio")).toHaveLength(2);
     expect(screen.queryByText("Superávit")).not.toBeInTheDocument();
   });
+
+  it("distinguishes unavailable analytics from a real zero balance", () => {
+    render(<ExpenseSummary currency="USD" unavailable />);
+
+    expect(screen.getByText("No disponible")).toBeInTheDocument();
+    expect(screen.getByText("No pudimos cargar el resumen de gastos y caja.")).toBeInTheDocument();
+    expect(screen.queryByText("Gastado")).not.toBeInTheDocument();
+    expect(screen.queryByText(/USD\s+0,00/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Equilibrio")).not.toBeInTheDocument();
+  });
 });
