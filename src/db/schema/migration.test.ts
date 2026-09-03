@@ -28,6 +28,30 @@ const expenseBackendMigration = readdirSync(migrationDirectory).find(
 const paidExpenseIndexMigration = readdirSync(migrationDirectory).find(
   (name) => name.endsWith("_index_paid_expenses.sql"),
 );
+const expenseProjectionTombstoneMigration = readdirSync(migrationDirectory).find(
+  (name) => name.endsWith("_allow_expense_projection_tombstones.sql"),
+);
+
+describe("expense projection tombstone migration", () => {
+  it("allows only the guarded canonical-to-tombstone identity transition", () => {
+    expect(expenseProjectionTombstoneMigration).toMatch(
+      /^\d{14}_allow_expense_projection_tombstones\.sql$/,
+    );
+    const sql = readFileSync(
+      resolve(migrationDirectory, expenseProjectionTombstoneMigration!),
+      "utf8",
+    ).toLowerCase().replaceAll('"', "").replace(/\s+/g, " ");
+
+    expect(sql).toContain("create or replace function private.guard_expense_history()");
+    expect(sql).toContain("old.generated_automatically = true");
+    expect(sql).toContain("old.recurring_expense_id is not null");
+    expect(sql).toContain("old.status in ('planned', 'pending')");
+    expect(sql).toContain("new.status = 'cancelled'");
+    expect(sql).toContain("coalesce(old.period_key, 'period') || ':superseded:' || old.id::text");
+    expect(sql).toContain("new.period_key is distinct from old.period_key");
+    expect(sql).not.toMatch(/drop\s+(?:table|type)|truncate/);
+  });
+});
 
 describe("paid expense date index migration", () => {
   it("adds the owner-scoped partial index in a generated forward-only migration", () => {
@@ -51,7 +75,9 @@ describe("paid expense date index migration", () => {
     const journal = JSON.parse(
       readFileSync(resolve(migrationMetaDirectory, "_journal.json"), "utf8"),
     ) as { entries: Array<{ idx: number; tag: string }> };
-    const entry = journal.entries.at(-1);
+    const entry = journal.entries.find(
+      ({ tag }) => tag === paidExpenseIndexMigration!.replace(/\.sql$/, ""),
+    );
     expect(entry).toEqual({
       idx: 7,
       version: "7",

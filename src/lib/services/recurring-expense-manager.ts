@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
 
 import { expenses, recurringExpenses } from "@/db/schema";
 import {
@@ -287,7 +287,11 @@ export async function updateRecurringExpenseWithOccurrences(
   if (obsoleteIds.length > 0) {
     await database
       .update(expenses)
-      .set({ status: "cancelled", updatedAt: new Date() })
+      .set({
+        periodKey: sql<string>`coalesce(${expenses.periodKey}, 'period') || ':superseded:' || ${expenses.id}::text`,
+        status: "cancelled",
+        updatedAt: new Date(),
+      })
       .where(
         and(
           inArray(expenses.id, obsoleteIds),
