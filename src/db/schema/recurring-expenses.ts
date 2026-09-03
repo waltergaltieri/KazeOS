@@ -27,6 +27,7 @@ import {
   authenticatedOwnerPolicies,
   ownerIdColumn,
 } from "./shared";
+import { kazeosBackendRole } from "./roles";
 
 export const recurringExpenses = pgTable(
   "recurring_expenses",
@@ -101,6 +102,9 @@ export const recurringExpenses = pgTable(
       table.ownerId,
       table.categoryId,
     ),
-    ...authenticatedOwnerPolicies("recurring_expenses", table.ownerId),
+    ...authenticatedOwnerPolicies("recurring_expenses", table.ownerId, {
+      writePolicyAudience: "backend",
+      writeRole: kazeosBackendRole,
+    }),
   ],
 ).enableRLS();

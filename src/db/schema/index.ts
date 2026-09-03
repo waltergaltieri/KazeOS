@@ -8,6 +8,7 @@ export * from "./payments";
 export * from "./profiles";
 export * from "./recurring-expenses";
 export * from "./relations";
+export * from "./roles";
 export * from "./services";
 export * from "./settings";
 export * from "./tasks";

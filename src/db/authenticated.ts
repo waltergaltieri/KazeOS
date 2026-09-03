@@ -35,7 +35,7 @@ export function createAuthenticatedDatabaseRunner<TDatabase>(
       const claims = JSON.stringify({ sub: userId, role: "authenticated" });
 
       await transaction`select set_config('request.jwt.claims', ${claims}, true)`;
-      await transaction.unsafe("set local role authenticated");
+      await transaction.unsafe("set local role kazeos_backend");
 
       return operation(createDatabase(transaction));
     });
@@ -59,7 +59,7 @@ export function createAuthenticatedDrizzleRunner(
       await transaction.execute(
         sql`select set_config('request.jwt.claims', ${claims}, true)`,
       );
-      await transaction.execute(sql.raw("set local role authenticated"));
+      await transaction.execute(sql.raw("set local role kazeos_backend"));
 
       return operation(transaction);
     });

@@ -14,6 +14,7 @@ import {
   authenticatedOwnerPolicies,
   ownerIdColumn,
 } from "./shared";
+import { kazeosBackendRole } from "./roles";
 
 export const expenseCategories = pgTable(
   "expense_categories",
@@ -38,6 +39,9 @@ export const expenseCategories = pgTable(
       table.ownerId,
       sql`lower(${table.name})`,
     ),
-    ...authenticatedOwnerPolicies("expense_categories", table.ownerId),
+    ...authenticatedOwnerPolicies("expense_categories", table.ownerId, {
+      writePolicyAudience: "backend",
+      writeRole: kazeosBackendRole,
+    }),
   ],
 ).enableRLS();

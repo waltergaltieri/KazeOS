@@ -1,5 +1,7 @@
 // @vitest-environment node
 
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -10,7 +12,7 @@ import {
 } from "./authenticated";
 
 describe("createAuthenticatedDatabaseRunner", () => {
-  it("sets transaction-local verified claims and the authenticated role", async () => {
+  it("sets verified claims and the private backend role in one transaction", async () => {
     const taggedCalls: Array<{ sql: string; values: unknown[] }> = [];
     const unsafe = vi.fn(async () => []);
     const transaction = Object.assign(
@@ -48,7 +50,7 @@ describe("createAuthenticatedDatabaseRunner", () => {
         ],
       },
     ]);
-    expect(unsafe).toHaveBeenCalledWith("set local role authenticated");
+    expect(unsafe).toHaveBeenCalledWith("set local role kazeos_backend");
     expect(operation).toHaveBeenCalledWith({ scoped: true });
   });
 
@@ -64,8 +66,14 @@ describe("createAuthenticatedDatabaseRunner", () => {
 });
 
 describe("createAuthenticatedDrizzleRunner", () => {
-  it("runs verified claims and application work in one Drizzle transaction", async () => {
-    const transaction = { execute: vi.fn(async () => []) };
+  it("runs verified claims and the private backend role in one Drizzle transaction", async () => {
+    const executedStatements: SQL[] = [];
+    const transaction = {
+      execute: vi.fn(async (statement: SQL) => {
+        executedStatements.push(statement);
+        return [];
+      }),
+    };
     const database = {
       transaction: vi.fn(
         async (operation: (database: typeof transaction) => unknown) =>
@@ -81,6 +89,9 @@ describe("createAuthenticatedDrizzleRunner", () => {
 
     expect(database.transaction).toHaveBeenCalledOnce();
     expect(transaction.execute).toHaveBeenCalledTimes(2);
+    expect(new PgDialect().sqlToQuery(executedStatements[1]!).sql).toBe(
+      "set local role kazeos_backend",
+    );
     expect(operation).toHaveBeenCalledWith(transaction);
   });
 

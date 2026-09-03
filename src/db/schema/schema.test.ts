@@ -45,6 +45,8 @@ const expenseCategories = (schema as Record<string, unknown>)
 const recurringExpenses = (schema as Record<string, unknown>)
   .recurringExpenses as OptionalTable;
 const expenses = (schema as Record<string, unknown>).expenses as OptionalTable;
+const kazeosBackendRole = (schema as Record<string, unknown>)
+  .kazeosBackendRole as { name: string } | undefined;
 
 const businessTables = [
   clients,
@@ -444,6 +446,7 @@ describe("database schema contract", () => {
         "expenses_amount_minor_positive",
         "expenses_amount_minor_js_safe",
         "expenses_paid_date_status_consistency",
+        "expenses_paid_payment_method_consistency",
         "expenses_recurrence_consistency",
       ]),
     );
@@ -463,6 +466,15 @@ describe("database schema contract", () => {
     );
     expect(paidDateStatus).toContain("status = 'paid' and paid_date is not null");
     expect(paidDateStatus).toContain("status <> 'paid' and paid_date is null");
+    const paidPaymentMethod = renderSql(
+      configOf(expensesTable).checks.find(
+        (constraint) =>
+          constraint.name === "expenses_paid_payment_method_consistency",
+      )?.value,
+    );
+    expect(paidPaymentMethod).toContain(
+      "status <> 'paid' or payment_method is not null",
+    );
     const recurrenceConsistency = renderSql(
       configOf(expensesTable).checks.find(
         (constraint) => constraint.name === "expenses_recurrence_consistency",
@@ -626,7 +638,14 @@ describe("database schema contract", () => {
     );
   });
 
-  it("enables command-specific authenticated policies with retained history", () => {
+  it("keeps direct authenticated access read-only for the expense domain", () => {
+    expect(kazeosBackendRole?.name).toBe("kazeos_backend");
+    const expenseDomainTables = new Set([
+      requireTable(expenseCategories),
+      requireTable(recurringExpenses),
+      requireTable(expenses),
+    ]);
+
     for (const table of allTables) {
       const config = configOf(table);
       expect(config.enableRLS).toBe(true);
@@ -639,7 +658,10 @@ describe("database schema contract", () => {
 
       expect(commands).toEqual(expectedCommands.sort());
       for (const policy of config.policies) {
-        expect((policy.to as { name: string }).name).toBe("authenticated");
+        const expectedRole = expenseDomainTables.has(table) && policy.for !== "select"
+          ? "kazeos_backend"
+          : "authenticated";
+        expect((policy.to as { name: string }).name).toBe(expectedRole);
         expect(policy.for).not.toBe("all");
 
         if (policy.for !== "insert") {
@@ -660,7 +682,7 @@ describe("database schema contract", () => {
 
     expect(deletePolicies).toHaveLength(1);
     expect((deletePolicies[0]?.to as { name: string }).name).toBe(
-      "authenticated",
+      "kazeos_backend",
     );
     const using = renderSql(deletePolicies[0]?.using);
     expect(using).toContain("select auth.uid()");

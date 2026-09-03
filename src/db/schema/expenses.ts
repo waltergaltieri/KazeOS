@@ -13,7 +13,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { authenticatedRole, authUid } from "drizzle-orm/supabase";
+import { authUid } from "drizzle-orm/supabase";
 
 import {
   currencyEnum,
@@ -29,6 +29,7 @@ import {
   authenticatedOwnerPolicies,
   ownerIdColumn,
 } from "./shared";
+import { kazeosBackendRole } from "./roles";
 
 export const expenses = pgTable(
   "expenses",
@@ -69,6 +70,10 @@ export const expenses = pgTable(
         or
         (${table.status} <> 'paid' and ${table.paidDate} is null)
       )`,
+    ),
+    check(
+      "expenses_paid_payment_method_consistency",
+      sql`${table.status} <> 'paid' or ${table.paymentMethod} is not null`,
     ),
     check(
       "expenses_recurrence_consistency",
@@ -114,11 +119,14 @@ export const expenses = pgTable(
       .where(
         sql`${table.recurringExpenseId} is not null and ${table.periodKey} is not null`,
       ),
-    ...authenticatedOwnerPolicies("expenses", table.ownerId),
-    pgPolicy("expenses_authenticated_delete", {
+    ...authenticatedOwnerPolicies("expenses", table.ownerId, {
+      writePolicyAudience: "backend",
+      writeRole: kazeosBackendRole,
+    }),
+    pgPolicy("expenses_backend_delete", {
       as: "permissive",
       for: "delete",
-      to: authenticatedRole,
+      to: kazeosBackendRole,
       using: sql`${authUid} = ${table.ownerId}
         and ${table.recurringExpenseId} is null
         and ${table.generatedAutomatically} = false

@@ -13,7 +13,7 @@ import type { DatabaseClient } from "../client";
 
 vi.mock("server-only", () => ({}));
 
-config({ path: ".env.local", quiet: true });
+config({ path: resolve(process.cwd(), "../..", ".env.local"), quiet: true });
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -23,6 +23,9 @@ const sql = databaseUrl
 const migrationDirectory = resolve(process.cwd(), "supabase/migrations");
 const expenseHistoryMigrationVersion = readdirSync(migrationDirectory)
   .find((name) => name.endsWith("_protect_expense_history.sql"))
+  ?.split("_")[0];
+const expenseBackendMigrationVersion = readdirSync(migrationDirectory)
+  .find((name) => name.endsWith("_restrict_expense_writes_to_backend.sql"))
   ?.split("_")[0];
 
 type Transaction = postgres.TransactionSql<Record<string, never>>;
@@ -129,13 +132,14 @@ async function createExpenseHistoryFixture(
     insert into public.expenses (
       id, owner_id, title, amount_minor, currency, category_id, scope,
       cost_type, recurring_expense_id, period_key, due_date, paid_date,
-      status, generated_automatically
+      status, payment_method, generated_automatically
     ) values (
       ${expenseId}, ${ownerId}, 'Expense history fixture', 1000, 'USD',
       ${categoryId}, 'business', 'fixed',
       ${generated ? recurringExpenseId : null},
       ${generated ? "2026-09" : null},
       '2026-09-02', ${status === "paid" ? "2026-09-02" : null}, ${status},
+      ${status === "paid" ? "cash" : null},
       ${generated}
     )
   `;
@@ -149,7 +153,7 @@ async function createExpenseHistoryFixture(
   };
 }
 
-async function authenticateTransaction(
+async function authenticateExpenseBackendTransaction(
   transaction: Transaction,
   ownerId: string,
 ) {
@@ -160,7 +164,7 @@ async function authenticateTransaction(
       true
     )
   `;
-  await transaction.unsafe("set local role authenticated");
+  await transaction.unsafe("set local role kazeos_backend");
 }
 
 async function createService(
@@ -224,7 +228,7 @@ describeDatabase("remote database integrity", () => {
       `;
 
       expect(context).toMatchObject({
-        current_user: "authenticated",
+        current_user: "kazeos_backend",
         user_id: userId,
         rls_active: true,
       });
@@ -254,9 +258,20 @@ describeDatabase("remote database integrity", () => {
     `;
 
     expect(policies).toHaveLength(36);
-    expect(policies.every((policy) => policy.roles.includes("authenticated"))).toBe(
-      true,
-    );
+    const expenseTables = new Set([
+      "expense_categories",
+      "recurring_expenses",
+      "expenses",
+    ]);
+    expect(
+      policies.every((policy) => {
+        const expectedRole =
+          expenseTables.has(policy.tablename) && policy.cmd !== "SELECT"
+            ? "kazeos_backend"
+            : "authenticated";
+        return policy.roles.includes(expectedRole);
+      }),
+    ).toBe(true);
     expect(policies.some((policy) => policy.cmd === "ALL")).toBe(false);
     expect(
       policies
@@ -284,11 +299,12 @@ describeDatabase("remote database integrity", () => {
       privileges
         .filter((privilege) => privilege.authenticated_delete)
         .map((privilege) => privilege.table_name),
-    ).toEqual(["client_notes", "expenses", "tasks"]);
+    ).toEqual(["client_notes", "tasks"]);
   });
 
   it("has one authoritative migration history and indexed foreign keys", async () => {
     expect(expenseHistoryMigrationVersion).toMatch(/^\d{14}$/);
+    expect(expenseBackendMigrationVersion).toMatch(/^\d{14}$/);
     const migrations = await sql!`
       select version
       from supabase_migrations.schema_migrations
@@ -298,6 +314,7 @@ describeDatabase("remote database integrity", () => {
         "20260831191020",
         "20260902210523",
         expenseHistoryMigrationVersion!,
+        expenseBackendMigrationVersion!,
       ]}::text[])
       order by version
     `;
@@ -307,6 +324,7 @@ describeDatabase("remote database integrity", () => {
       "20260831191020",
       "20260902210523",
       expenseHistoryMigrationVersion,
+      expenseBackendMigrationVersion,
     ]);
 
     const missingIndexes = await sql!`
@@ -583,17 +601,17 @@ describeDatabase("remote database integrity", () => {
         insert into public.expenses (
           id, owner_id, title, amount_minor, currency, category_id, scope,
           cost_type, recurring_expense_id, period_key, due_date, paid_date,
-          status, generated_automatically
+          status, payment_method, generated_automatically
         ) values
           (${manualPendingId}, ${firstOwnerId}, 'Manual pending', 1000, 'USD',
            ${categoryId}, 'business', 'fixed', null, null, '2026-09-02', null,
-           'pending', false),
+           'pending', null, false),
           (${paidExpenseId}, ${firstOwnerId}, 'Paid history', 1000, 'USD',
            ${categoryId}, 'business', 'fixed', null, null, '2026-09-01',
-           '2026-09-01', 'paid', false),
+           '2026-09-01', 'paid', 'cash', false),
           (${generatedExpenseId}, ${firstOwnerId}, 'Generated history', 1000,
            'USD', ${categoryId}, 'business', 'fixed', ${recurringExpenseId},
-           '2026-09', '2026-09-02', null, 'pending', true)
+           '2026-09', '2026-09-02', null, 'pending', null, true)
       `;
 
       await transaction`
@@ -603,7 +621,7 @@ describeDatabase("remote database integrity", () => {
           true
         )
       `;
-      await transaction.unsafe("set local role authenticated");
+      await transaction.unsafe("set local role kazeos_backend");
 
       const deleted = await transaction`
         delete from public.expenses
@@ -639,7 +657,7 @@ describeDatabase("remote database integrity", () => {
           transaction,
           { status },
         );
-        await authenticateTransaction(transaction, ownerId);
+        await authenticateExpenseBackendTransaction(transaction, ownerId);
 
         await transaction`
           update public.expenses
@@ -662,7 +680,7 @@ describeDatabase("remote database integrity", () => {
         const fixture = await createExpenseHistoryFixture(transaction, {
           generated: true,
         });
-        await authenticateTransaction(transaction, fixture.ownerId);
+        await authenticateExpenseBackendTransaction(transaction, fixture.ownerId);
 
         if (field === "generated_automatically") {
           await transaction`
@@ -693,7 +711,7 @@ describeDatabase("remote database integrity", () => {
         transaction,
         { status: "paid" },
       );
-      await authenticateTransaction(transaction, ownerId);
+      await authenticateExpenseBackendTransaction(transaction, ownerId);
 
       const [expense] = await transaction`
         update public.expenses
@@ -713,7 +731,7 @@ describeDatabase("remote database integrity", () => {
       const fixture = await createExpenseHistoryFixture(transaction, {
         generated: true,
       });
-      await authenticateTransaction(transaction, fixture.ownerId);
+      await authenticateExpenseBackendTransaction(transaction, fixture.ownerId);
 
       const [expense] = await transaction`
         update public.expenses

@@ -18,6 +18,61 @@ const expenseMigration = readdirSync(migrationDirectory).find((name) =>
 const expenseHistoryProtectionMigration = readdirSync(migrationDirectory).find(
   (name) => name.endsWith("_protect_expense_history.sql"),
 );
+const recurringExpenseProjectionMigration = readdirSync(migrationDirectory).find(
+  (name) => name.endsWith("_allow_backend_projection_cleanup.sql"),
+);
+const expenseBackendMigration = readdirSync(migrationDirectory).find(
+  (name) => name.endsWith("_restrict_expense_writes_to_backend.sql"),
+);
+
+describe("expense backend authorization migration", () => {
+  it("creates a forward-only private role and removes direct authenticated writes", () => {
+    expect(expenseBackendMigration).toMatch(
+      /^\d{14}_restrict_expense_writes_to_backend\.sql$/,
+    );
+    const sql = readFileSync(
+      resolve(migrationDirectory, expenseBackendMigration!),
+      "utf8",
+    ).toLowerCase();
+    const normalizedSql = sql.replaceAll('"', "").replace(/\s+/g, " ");
+
+    expect(normalizedSql).toMatch(
+      /create role kazeos_backend[^;]*nologin[^;]*nobypassrls/,
+    );
+    expect(normalizedSql).toContain(
+      "grant authenticated to kazeos_backend",
+    );
+    expect(normalizedSql).toContain("grant kazeos_backend to postgres");
+    expect(normalizedSql).toContain(
+      "revoke insert, update, delete on table public.expense_categories, public.recurring_expenses, public.expenses from authenticated",
+    );
+    expect(normalizedSql).toContain(
+      "grant select on table public.expense_categories, public.recurring_expenses, public.expenses to authenticated",
+    );
+    expect(normalizedSql).toContain(
+      "grant insert, update on table public.expense_categories, public.recurring_expenses to kazeos_backend",
+    );
+    expect(normalizedSql).toContain(
+      "grant insert, update, delete on table public.expenses to kazeos_backend",
+    );
+    expect(normalizedSql).toContain("to kazeos_backend");
+    expect(normalizedSql).not.toMatch(/drop\s+(?:table|type)|truncate/);
+  });
+
+  it("backfills and enforces payment methods for paid expenses", () => {
+    expect(expenseBackendMigration).toBeDefined();
+    const sql = readFileSync(
+      resolve(migrationDirectory, expenseBackendMigration!),
+      "utf8",
+    ).toLowerCase().replaceAll('"', "").replace(/\s+/g, " ");
+
+    expect(sql).toContain(
+      "update public.expenses set payment_method = 'other' where status = 'paid' and payment_method is null",
+    );
+    expect(sql).toContain("expenses_paid_payment_method_consistency");
+    expect(sql).toContain("status <> 'paid' or payment_method is not null");
+  });
+});
 
 describe("expense schema migration", () => {
   it("is a Drizzle-named forward-only migration", () => {
@@ -144,6 +199,35 @@ describe("expense history protection migration", () => {
       expect(sql).toContain("execute function private.set_updated_at()");
     }
 
+    expect(sql).not.toMatch(/drop\s+(?:table|type)|truncate/);
+    expect(sql).not.toMatch(
+      /(?:alter|create|drop|truncate)\s+table\s+(?:"?auth"?\.)/,
+    );
+  });
+});
+
+describe("recurring expense projection restoration migration", () => {
+  it("allows only the backend to delete mutable generated projections", () => {
+    expect(recurringExpenseProjectionMigration).toMatch(
+      /^\d{14}_allow_backend_projection_cleanup\.sql$/,
+    );
+    const sql = readFileSync(
+      resolve(migrationDirectory, recurringExpenseProjectionMigration!),
+      "utf8",
+    ).toLowerCase();
+    const normalizedSql = sql.replace(/\s+/g, " ");
+
+    expect(normalizedSql).toContain(
+      "alter policy expenses_backend_delete on public.expenses",
+    );
+    expect(normalizedSql).toContain("auth.uid()");
+    expect(normalizedSql).toContain("recurring_expense_id is null");
+    expect(normalizedSql).toContain("recurring_expense_id is not null");
+    expect(normalizedSql).toContain("generated_automatically = false");
+    expect(normalizedSql).toContain("generated_automatically = true");
+    expect(normalizedSql).toContain("status in ('planned', 'pending')");
+    expect(normalizedSql).not.toMatch(/grant[\s\S]*authenticated/);
+    expect(normalizedSql).not.toContain("security definer");
     expect(sql).not.toMatch(/drop\s+(?:table|type)|truncate/);
     expect(sql).not.toMatch(
       /(?:alter|create|drop|truncate)\s+table\s+(?:"?auth"?\.)/,

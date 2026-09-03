@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  type PgRole,
   pgPolicy,
   timestamp,
   uuid,
@@ -36,9 +37,16 @@ export function auditColumns() {
 export function authenticatedOwnerPolicies(
   tableName: string,
   ownerColumn: AnyPgColumn,
-  options: { allowDelete?: boolean } = {},
+  options: {
+    allowDelete?: boolean;
+    writePolicyAudience?: string;
+    writeRole?: PgRole;
+  } = {},
 ) {
   const ownsRow = sql`${authUid} = ${ownerColumn}`;
+  const writePolicyAudience =
+    options.writePolicyAudience ?? "authenticated";
+  const writeRole = options.writeRole ?? authenticatedRole;
   const policies = [
     pgPolicy(`${tableName}_authenticated_select`, {
       as: "permissive",
@@ -46,16 +54,16 @@ export function authenticatedOwnerPolicies(
       to: authenticatedRole,
       using: ownsRow,
     }),
-    pgPolicy(`${tableName}_authenticated_insert`, {
+    pgPolicy(`${tableName}_${writePolicyAudience}_insert`, {
       as: "permissive",
       for: "insert",
-      to: authenticatedRole,
+      to: writeRole,
       withCheck: ownsRow,
     }),
-    pgPolicy(`${tableName}_authenticated_update`, {
+    pgPolicy(`${tableName}_${writePolicyAudience}_update`, {
       as: "permissive",
       for: "update",
-      to: authenticatedRole,
+      to: writeRole,
       using: ownsRow,
       withCheck: ownsRow,
     }),
@@ -63,10 +71,10 @@ export function authenticatedOwnerPolicies(
 
   if (options.allowDelete) {
     policies.push(
-      pgPolicy(`${tableName}_authenticated_delete`, {
+      pgPolicy(`${tableName}_${writePolicyAudience}_delete`, {
         as: "permissive",
         for: "delete",
-        to: authenticatedRole,
+        to: writeRole,
         using: ownsRow,
       }),
     );
