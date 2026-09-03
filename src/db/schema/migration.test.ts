@@ -215,7 +215,7 @@ describe("recurring expense projection restoration migration", () => {
       resolve(migrationDirectory, recurringExpenseProjectionMigration!),
       "utf8",
     ).toLowerCase();
-    const normalizedSql = sql.replace(/\s+/g, " ");
+    const normalizedSql = sql.replaceAll('"', "").replace(/\s+/g, " ");
 
     expect(normalizedSql).toContain(
       "alter policy expenses_backend_delete on public.expenses",

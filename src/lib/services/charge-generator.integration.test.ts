@@ -260,23 +260,25 @@ describeDatabase("generateRecurringCharges", () => {
           generateRecurringCharges(transaction, {
             asOf: input.asOf,
             horizonMonths: input.horizonMonths,
+            ownerId: otherOwnerId,
           }),
         ).resolves.toEqual({
-          candidates: 6,
-          eligibleServices: 2,
+          candidates: 3,
+          eligibleServices: 1,
           inserted: 3,
-          skipped: 3,
+          skipped: 0,
         });
         await expect(
           generateRecurringCharges(transaction, {
             asOf: input.asOf,
             horizonMonths: input.horizonMonths,
+            ownerId: otherOwnerId,
           }),
         ).resolves.toEqual({
-          candidates: 6,
-          eligibleServices: 2,
+          candidates: 3,
+          eligibleServices: 1,
           inserted: 0,
-          skipped: 6,
+          skipped: 3,
         });
 
         const rows = await transaction

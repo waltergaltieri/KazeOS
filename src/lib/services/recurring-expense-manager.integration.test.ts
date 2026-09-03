@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 
 import { config } from "dotenv";
-import { asc, eq, sql as drizzleSql } from "drizzle-orm";
+import { and, asc, eq, sql as drizzleSql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -16,6 +16,7 @@ import {
   expenses,
   recurringExpenses,
 } from "@/db/schema";
+import { createAuthenticatedDrizzleRunner } from "@/db/authenticated";
 
 import {
   cancelRecurringExpense,
@@ -27,6 +28,7 @@ import {
   ExpenseCategoryInactiveError,
   ExpenseCategoryNotFoundError,
 } from "./expense-category-manager";
+import { cancelExpense } from "./expense-manager";
 
 config({ path: ".env.local", quiet: true });
 
@@ -182,31 +184,50 @@ describeDatabase("recurring expense manager", () => {
         .orderBy(asc(expenses.dueDate));
       const [past, paid, future] = before;
       expect(before).toHaveLength(3);
+      const manualLinkedId = randomUUID();
+      await transaction.insert(expenses).values({
+        amountMinor: 25_000,
+        categoryId,
+        costType: "fixed",
+        currency: "USD",
+        dueDate: "2026-11-25",
+        generatedAutomatically: false,
+        id: manualLinkedId,
+        ownerId,
+        periodKey: "manual:2026-11",
+        recurringExpenseId: created.id,
+        scope: "business",
+        status: "pending",
+        title: "Manual linked adjustment",
+      });
 
       await transaction
         .update(expenses)
         .set({ paidDate: "2026-10-05", status: "paid" })
         .where(eq(expenses.id, paid!.id));
 
-      const result = await updateRecurringExpenseWithOccurrences(transaction, {
-        asOf: "2026-10-15",
-        ownerId,
-        recurringExpenseId: created.id,
-        values: {
-          ...initialValues(nextCategoryId),
-          amountMinor: 35_000,
-          billingDay: 20,
-          costType: "variable",
-          currency: "ARS",
-          description: "Updated description",
-          frequency: "quarterly",
-          notes: "Updated notes",
-          paymentMethod: "credit_card",
-          scope: "personal",
-          title: "Updated title",
-          vendor: "Updated vendor",
-        },
-      });
+      const runAsOwner = createAuthenticatedDrizzleRunner(transaction);
+      const result = await runAsOwner(ownerId, (scopedDatabase) =>
+        updateRecurringExpenseWithOccurrences(scopedDatabase, {
+          asOf: "2026-10-15",
+          ownerId,
+          recurringExpenseId: created.id,
+          values: {
+            ...initialValues(nextCategoryId),
+            amountMinor: 35_000,
+            billingDay: 20,
+            costType: "variable",
+            currency: "ARS",
+            description: "Updated description",
+            frequency: "quarterly",
+            notes: "Updated notes",
+            paymentMethod: "credit_card",
+            scope: "personal",
+            title: "Updated title",
+            vendor: "Updated vendor",
+          },
+        }),
+      );
 
       expect(result.generated).toEqual({
         candidates: 1,
@@ -248,12 +269,13 @@ describeDatabase("recurring expense manager", () => {
         status: "paid",
         title: "Original title",
       });
-      expect(rows.find(({ id }) => id === future!.id)).toMatchObject({
-        amountMinor: 20_000,
+      expect(rows.find(({ id }) => id === future!.id)).toBeUndefined();
+      expect(rows.find(({ id }) => id === manualLinkedId)).toMatchObject({
+        amountMinor: 25_000,
         categoryId,
-        dueDate: "2026-11-10",
-        status: "cancelled",
-        title: "Original title",
+        dueDate: "2026-11-25",
+        status: "pending",
+        title: "Manual linked adjustment",
       });
       expect(rows).toEqual(
         expect.arrayContaining([
@@ -407,6 +429,191 @@ describeDatabase("recurring expense manager", () => {
       expect(rows).toHaveLength(3);
       expect(rows.every((row) => row.amountMinor === 20_000)).toBe(true);
       expect(rows.every((row) => row.status === "pending")).toBe(true);
+    });
+  }, 30_000);
+
+  it("regenerates projections after automatic generation is disabled and enabled", async () => {
+    await withFixture(async ({ categoryId, ownerId, transaction }) => {
+      const created = await createRecurringExpenseWithOccurrences(transaction, {
+        asOf: "2026-09-01",
+        ownerId,
+        values: initialValues(categoryId),
+      });
+      const runAsOwner = createAuthenticatedDrizzleRunner(transaction);
+
+      await runAsOwner(ownerId, (scopedDatabase) =>
+        updateRecurringExpenseWithOccurrences(scopedDatabase, {
+          asOf: "2026-09-01",
+          ownerId,
+          recurringExpenseId: created.id,
+          values: {
+            ...initialValues(categoryId),
+            automaticGeneration: false,
+          },
+        }),
+      );
+      expect(
+        await transaction
+          .select({ id: expenses.id })
+          .from(expenses)
+          .where(eq(expenses.recurringExpenseId, created.id)),
+      ).toHaveLength(0);
+
+      const enabled = await runAsOwner(ownerId, (scopedDatabase) =>
+        updateRecurringExpenseWithOccurrences(scopedDatabase, {
+          asOf: "2026-09-01",
+          ownerId,
+          recurringExpenseId: created.id,
+          values: initialValues(categoryId),
+        }),
+      );
+      expect(enabled.generated).toMatchObject({ inserted: 3, skipped: 0 });
+      const rows = await transaction
+        .select({ dueDate: expenses.dueDate, status: expenses.status })
+        .from(expenses)
+        .where(eq(expenses.recurringExpenseId, created.id))
+        .orderBy(asc(expenses.dueDate));
+      expect(rows).toEqual([
+        { dueDate: "2026-09-10", status: "pending" },
+        { dueDate: "2026-10-10", status: "pending" },
+        { dueDate: "2026-11-10", status: "pending" },
+      ]);
+    });
+  }, 30_000);
+
+  it("restores projections after an end date is shortened and extended", async () => {
+    await withFixture(async ({ categoryId, ownerId, transaction }) => {
+      const created = await createRecurringExpenseWithOccurrences(transaction, {
+        asOf: "2026-09-01",
+        ownerId,
+        values: initialValues(categoryId),
+      });
+      const runAsOwner = createAuthenticatedDrizzleRunner(transaction);
+
+      await runAsOwner(ownerId, (scopedDatabase) =>
+        updateRecurringExpenseWithOccurrences(scopedDatabase, {
+          asOf: "2026-09-01",
+          ownerId,
+          recurringExpenseId: created.id,
+          values: {
+            ...initialValues(categoryId),
+            endDate: "2026-09-30",
+          },
+        }),
+      );
+      const shortened = await transaction
+        .select({ dueDate: expenses.dueDate })
+        .from(expenses)
+        .where(eq(expenses.recurringExpenseId, created.id));
+      expect(shortened).toEqual([{ dueDate: "2026-09-10" }]);
+
+      const extended = await runAsOwner(ownerId, (scopedDatabase) =>
+        updateRecurringExpenseWithOccurrences(scopedDatabase, {
+          asOf: "2026-09-01",
+          ownerId,
+          recurringExpenseId: created.id,
+          values: {
+            ...initialValues(categoryId),
+            endDate: "2026-11-30",
+          },
+        }),
+      );
+      expect(extended.generated).toMatchObject({ inserted: 2, skipped: 1 });
+      const restored = await transaction
+        .select({ dueDate: expenses.dueDate, status: expenses.status })
+        .from(expenses)
+        .where(eq(expenses.recurringExpenseId, created.id))
+        .orderBy(asc(expenses.dueDate));
+      expect(restored).toEqual([
+        { dueDate: "2026-09-10", status: "pending" },
+        { dueDate: "2026-10-10", status: "pending" },
+        { dueDate: "2026-11-10", status: "pending" },
+      ]);
+    });
+  }, 30_000);
+
+  it("restores a reverted schedule without reviving a user cancellation", async () => {
+    await withFixture(async ({ categoryId, ownerId, transaction }) => {
+      const created = await createRecurringExpenseWithOccurrences(transaction, {
+        asOf: "2026-09-01",
+        ownerId,
+        values: initialValues(categoryId),
+      });
+      const [cancelled] = await transaction
+        .select({ id: expenses.id })
+        .from(expenses)
+        .where(
+          and(
+            eq(expenses.recurringExpenseId, created.id),
+            eq(expenses.dueDate, "2026-10-10"),
+          ),
+        );
+      await cancelExpense(transaction, {
+        expenseId: cancelled!.id,
+        ownerId,
+      });
+      const runAsOwner = createAuthenticatedDrizzleRunner(transaction);
+
+      await runAsOwner(ownerId, (scopedDatabase) =>
+        updateRecurringExpenseWithOccurrences(scopedDatabase, {
+          asOf: "2026-09-01",
+          ownerId,
+          recurringExpenseId: created.id,
+          values: {
+            ...initialValues(categoryId),
+            billingDay: 20,
+            frequency: "quarterly",
+          },
+        }),
+      );
+      await runAsOwner(ownerId, (scopedDatabase) =>
+        updateRecurringExpenseWithOccurrences(scopedDatabase, {
+          asOf: "2026-09-01",
+          ownerId,
+          recurringExpenseId: created.id,
+          values: initialValues(categoryId),
+        }),
+      );
+
+      const rows = await transaction
+        .select({ dueDate: expenses.dueDate, id: expenses.id, status: expenses.status })
+        .from(expenses)
+        .where(eq(expenses.recurringExpenseId, created.id))
+        .orderBy(asc(expenses.dueDate));
+      expect(rows).toEqual([
+        expect.objectContaining({ dueDate: "2026-09-10", status: "pending" }),
+        { dueDate: "2026-10-10", id: cancelled!.id, status: "cancelled" },
+        expect.objectContaining({ dueDate: "2026-11-10", status: "pending" }),
+      ]);
+    });
+  }, 30_000);
+
+  it("does not let the direct authenticated role delete a generated projection", async () => {
+    await withFixture(async ({ categoryId, ownerId, transaction }) => {
+      const created = await createRecurringExpenseWithOccurrences(transaction, {
+        asOf: "2026-09-01",
+        ownerId,
+        values: initialValues(categoryId),
+      });
+      const [generated] = await transaction
+        .select({ id: expenses.id })
+        .from(expenses)
+        .where(eq(expenses.recurringExpenseId, created.id));
+
+      await expect(
+        transaction.transaction(async (nestedTransaction) => {
+          const claims = JSON.stringify({ sub: ownerId, role: "authenticated" });
+          await nestedTransaction.execute(
+            drizzleSql`select set_config('request.jwt.claims', ${claims}, true)`,
+          );
+          await nestedTransaction.execute(
+            drizzleSql.raw("set local role authenticated"),
+          );
+          await nestedTransaction
+            .delete(expenses)
+            .where(eq(expenses.id, generated!.id));
+        }),
+      ).rejects.toMatchObject({ cause: { code: "42501" } });
     });
   }, 30_000);
 });

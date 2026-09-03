@@ -193,7 +193,8 @@ export async function updateRecurringExpenseWithOccurrences(
     })
     .from(expenses)
     .where(futureExpenseWhere(input))
-    .orderBy(asc(expenses.dueDate), asc(expenses.id));
+    .orderBy(asc(expenses.dueDate), asc(expenses.id))
+    .for("update");
 
   const canGenerate =
     current.status === "active" && input.values.automaticGeneration;
@@ -263,15 +264,15 @@ export async function updateRecurringExpenseWithOccurrences(
 
   if (obsoleteIds.length > 0) {
     await database
-      .update(expenses)
-      .set({ status: "cancelled", updatedAt: new Date() })
+      .delete(expenses)
       .where(
         and(
           inArray(expenses.id, obsoleteIds),
           eq(expenses.ownerId, input.ownerId),
+          eq(expenses.recurringExpenseId, input.recurringExpenseId),
+          gte(expenses.dueDate, input.asOf),
           eq(expenses.generatedAutomatically, true),
           inArray(expenses.status, ["planned", "pending"]),
-          gte(expenses.dueDate, input.asOf),
         ),
       );
   }

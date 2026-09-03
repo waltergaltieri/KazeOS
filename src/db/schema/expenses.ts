@@ -128,9 +128,12 @@ export const expenses = pgTable(
       for: "delete",
       to: kazeosBackendRole,
       using: sql`${authUid} = ${table.ownerId}
-        and ${table.recurringExpenseId} is null
-        and ${table.generatedAutomatically} = false
-        and ${table.status} in ('planned', 'pending')`,
+        and ${table.status} in ('planned', 'pending')
+        and (
+          (${table.recurringExpenseId} is null and ${table.generatedAutomatically} = false)
+          or
+          (${table.recurringExpenseId} is not null and ${table.generatedAutomatically} = true)
+        )`,
     }),
   ],
 ).enableRLS();
