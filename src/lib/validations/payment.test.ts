@@ -14,4 +14,26 @@ describe("payment validation", () => {
     expect(paymentFormSchema.safeParse({ ...base, paymentDate: "2026-02-30" }).success).toBe(false);
     expect(paymentFormSchema.safeParse({ ...base, paymentMethod: "card" }).success).toBe(false);
   });
+
+  it.each(["debit_card", "credit_card"])(
+    "accepts the added %s method without dropping existing methods",
+    (paymentMethod) => {
+      expect(paymentFormSchema.parse({ ...base, paymentMethod }).paymentMethod)
+        .toBe(paymentMethod);
+    },
+  );
+
+  it.each([
+    "bank_transfer",
+    "cash",
+    "mercadopago",
+    "paypal",
+    "payoneer",
+    "stripe",
+    "crypto",
+    "other",
+  ])("continues to accept %s", (paymentMethod) => {
+    expect(paymentFormSchema.safeParse({ ...base, paymentMethod }).success)
+      .toBe(true);
+  });
 });

@@ -15,7 +15,7 @@ const positiveMoney = z.string().trim().superRefine((value, context) => {
 const checkbox = z.preprocess((value) => value === true || value === "true" || value === "on", z.boolean());
 
 export const paymentIdSchema = z.string().uuid("El pago no es válido.");
-export const paymentMethodSchema = z.enum(["bank_transfer", "cash", "mercadopago", "paypal", "payoneer", "stripe", "crypto", "other"]);
+export const paymentMethodSchema = z.enum(["bank_transfer", "cash", "mercadopago", "paypal", "payoneer", "stripe", "crypto", "other", "debit_card", "credit_card"]);
 export const paymentFormSchema = z.object({
   chargeId: chargeIdSchema,
   clientId: z.string().uuid("El cliente no es válido."),
