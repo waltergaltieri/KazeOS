@@ -358,7 +358,9 @@ export function ExpenseForm({
               options={[
                 { value: "pending", label: "Pendiente" },
                 { value: "planned", label: "Planificado" },
-                ...(recurring ? [] : [{ value: "paid", label: "Pagado" }]),
+                ...(!recurring && mode === "create"
+                  ? [{ value: "paid", label: "Pagado" }]
+                  : []),
               ]}
             />
           </div>

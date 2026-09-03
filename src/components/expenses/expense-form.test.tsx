@@ -219,6 +219,51 @@ describe("ExpenseForm", () => {
     expect(document.querySelector('input[name="categoryId"]')).toHaveValue(inactiveCategory.id);
   });
 
+  it("does not offer paid state in manual edit mode", async () => {
+    const user = userEvent.setup();
+    render(
+      <ExpenseForm
+        oneOffAction={vi.fn()}
+        categories={[activeCategory]}
+        mode="edit"
+        defaults={{ ...defaults, categoryId: activeCategory.id }}
+      />,
+    );
+
+    await user.click(screen.getByText("Información adicional"));
+    await user.click(screen.getByRole("combobox", { name: "Estado" }));
+    expect(screen.getByRole("option", { name: "Pendiente" })).toBeVisible();
+    expect(screen.getByRole("option", { name: "Planificado" })).toBeVisible();
+    expect(screen.queryByRole("option", { name: "Pagado" })).not.toBeInTheDocument();
+  });
+
+  it("submits only an allowed unpaid status from manual edit mode", async () => {
+    const user = userEvent.setup();
+    const action = vi.fn().mockResolvedValue({ status: "error", message: "Control" });
+    render(
+      <ExpenseForm
+        oneOffAction={action}
+        categories={[activeCategory]}
+        mode="edit"
+        defaults={{ ...defaults, categoryId: activeCategory.id }}
+      />,
+    );
+
+    await user.click(screen.getByText("Información adicional"));
+    await user.click(screen.getByRole("combobox", { name: "Estado" }));
+    await user.click(screen.getByRole("option", { name: "Planificado" }));
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await screen.findByRole("alert");
+
+    const formData = action.mock.calls[0]![1] as FormData;
+    expect(Object.fromEntries(formData)).toMatchObject({
+      expenseId: defaults.id,
+      paidDate: "",
+      recurring: "false",
+      status: "planned",
+    });
+  });
+
   it("redirects both one-off and recurring successes to the expense ledger", async () => {
     const user = userEvent.setup();
     const oneOffAction = vi.fn().mockResolvedValue({ status: "success", expenseId: defaults.id });
