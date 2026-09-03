@@ -2,14 +2,30 @@ import { CalendarClock, Plus } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { ExpenseBreakdowns } from "@/components/expenses/expense-breakdowns";
 import { ExpenseFilters, type ExpenseFilterParams } from "@/components/expenses/expense-filters";
+import { ExpenseSummary } from "@/components/expenses/expense-summary";
 import { ExpenseTable } from "@/components/expenses/expense-table";
 import { RecurringExpenseList } from "@/components/expenses/recurring-expense-list";
-import { todayInBusinessZone, validateCommercialDate } from "@/lib/domain/commercial-date";
-import { getExpenseFormOptions, getExpenses, getRecurringExpenses } from "@/lib/queries/expenses";
+import { UpcomingExpenses } from "@/components/expenses/upcoming-expenses";
+import { addCommercialPeriod, todayInBusinessZone, validateCommercialDate } from "@/lib/domain/commercial-date";
+import type { Currency } from "@/lib/domain/money";
+import { getMonthlyCashFlow } from "@/lib/queries/cash-flow";
+import {
+  getExpenseFormOptions,
+  getExpenses,
+  getExpensesByCategory,
+  getExpensesByScope,
+  getExpenseSummary,
+  getFixedVariableBreakdown,
+  getRecurringExpenses,
+  getUpcomingExpenses,
+  type ExpensePeriod,
+} from "@/lib/queries/expenses";
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
 interface SanitizedSearchParams extends ExpenseFilterParams {
+  currency?: Currency;
   page?: string;
   [key: string]: string | undefined;
 }
@@ -85,9 +101,38 @@ function paginationHref(params: Record<string, string | undefined>, page: number
   return `/expenses?${query}`;
 }
 
+function nextCommercialDate(value: string) {
+  const [year, month, day] = validateCommercialDate(value).split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  return next.toISOString().slice(0, 10);
+}
+
+function insightPeriod(params: SanitizedSearchParams, today: string): ExpensePeriod {
+  if (params.period === "custom" && params.from && params.to) {
+    return { start: params.from, end: nextCommercialDate(params.to) };
+  }
+  if (params.period === "all") {
+    return { start: "0001-01-01", end: "9999-12-31" };
+  }
+  const base = `${params.month ?? today.slice(0, 7)}-01`;
+  const start = params.period === "next_month" ? addCommercialPeriod(base, "monthly") : base;
+  return { start, end: addCommercialPeriod(start, "monthly") };
+}
+
+function currencyHref(params: SanitizedSearchParams, currency: Currency) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key !== "page" && key !== "currency" && value) query.set(key, value);
+  }
+  query.set("currency", currency);
+  return `/expenses?${query}`;
+}
+
 export default async function ExpensesPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const params = sanitizeSearchParams(await searchParams);
   const today = todayInBusinessZone(new Date());
+  const selectedCurrency: Currency = params.currency ?? "USD";
+  const period = insightPeriod(params, today);
   const filters: ExpenseFilterParams = {
     q: params.q,
     status: params.status ?? "all",
@@ -101,7 +146,17 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     recurrence: params.recurrence ?? "all",
     currency: params.currency,
   };
-  const [page, options, recurringExpenses] = await Promise.all([
+  const [
+    page,
+    options,
+    recurringExpenses,
+    summary,
+    cashFlow,
+    byCategory,
+    byScope,
+    byCostType,
+    upcomingExpenses,
+  ] = await Promise.all([
     getExpenses({
       search: filters.q,
       status: filters.status,
@@ -118,13 +173,20 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     }, today),
     getExpenseFormOptions({ includeInactive: true }),
     getRecurringExpenses(),
+    getExpenseSummary(period, today),
+    getMonthlyCashFlow(period.start, period.end),
+    getExpensesByCategory(period),
+    getExpensesByScope(period),
+    getFixedVariableBreakdown(period),
+    getUpcomingExpenses(today, 8),
   ]);
   if (params.page && page.pagination.totalPages > 0 && page.pagination.page > page.pagination.totalPages) {
     redirect(paginationHref(params, page.pagination.totalPages));
   }
 
   return <main className="expenses-page">
-    <header className="page-heading page-heading--actions"><div><p className="eyebrow">Libro de obligaciones</p><h1>Gastos</h1><p>Detectá qué vence y resolvelo sin perder contexto.</p></div><Link className="primary-button" href="/expenses/new"><Plus size={17} /> Nuevo gasto</Link></header>
+    <header className="page-heading page-heading--actions"><div><p className="eyebrow">Libro de obligaciones</p><h1>Gastos</h1><p>Detectá qué vence y resolvelo sin perder contexto.</p></div><div className="expense-heading-actions"><nav className="expense-currency-switch" aria-label="Moneda de lectura">{(["USD", "ARS"] as const).map((currency) => <Link key={currency} href={currencyHref(params, currency)} aria-current={selectedCurrency === currency ? "page" : undefined}>{currency}</Link>)}</nav><Link className="primary-button" href="/expenses/new"><Plus size={17} /> Nuevo gasto</Link></div></header>
+    <ExpenseSummary summary={summary} cashFlow={cashFlow} currency={selectedCurrency} />
     <ExpenseFilters params={filters} categories={options.categories.map((category) => ({ id: category.id, label: category.name }))} />
     <div className="client-result-count" aria-live="polite">{page.pagination.total} {page.pagination.total === 1 ? "gasto" : "gastos"}</div>
     <ExpenseTable expenses={page.items} today={today} />
@@ -133,6 +195,10 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       <span>Página {page.pagination.page} de {page.pagination.totalPages}</span>
       {page.pagination.page < page.pagination.totalPages ? <Link className="quiet-button" href={paginationHref(params, page.pagination.page + 1)} aria-label="Página siguiente">Siguiente</Link> : <span aria-disabled="true">Siguiente</span>}
     </nav> : null}
+    <div className="expense-insight-grid">
+      <ExpenseBreakdowns byCategory={byCategory} byScope={byScope} byCostType={byCostType} currency={selectedCurrency} />
+      <UpcomingExpenses expenses={upcomingExpenses} today={today} currency={selectedCurrency} />
+    </div>
     <section className="recurring-expense-sheet" aria-labelledby="recurring-expenses-title">
       <header><div><span><CalendarClock size={17} /></span><div><h2 id="recurring-expenses-title">Compromisos recurrentes</h2><p>Cadencia, próxima fecha y estado de las obligaciones que se repiten.</p></div></div><Link className="secondary-button" href="/expenses/recurring">Administrar</Link></header>
       <RecurringExpenseList recurringExpenses={recurringExpenses} today={today} />
