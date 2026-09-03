@@ -36,8 +36,13 @@ const {
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
+const observedQueries: string[] = [];
 const databaseClient = databaseUrl
-  ? postgres(databaseUrl, { prepare: false, max: 1 })
+  ? postgres(databaseUrl, {
+      prepare: false,
+      max: 1,
+      debug: (_connection, query) => observedQueries.push(query),
+    })
   : undefined;
 const database = databaseClient
   ? drizzle({ client: databaseClient, schema })
@@ -132,7 +137,7 @@ describeDatabase("expense query matrix", () => {
           ownerId,
           scope: "business",
           status: "planned",
-          title: "Laptop reserve",
+          title: "Laptop 100% reserve",
         },
         {
           amountMinor: 20_000,
@@ -146,7 +151,7 @@ describeDatabase("expense query matrix", () => {
           scope: "personal",
           status: "pending",
           title: "Conference",
-          vendor: "Acme Travel",
+          vendor: "Acme_Travel",
         },
         {
           amountMinor: 30_000,
@@ -156,6 +161,7 @@ describeDatabase("expense query matrix", () => {
           dueDate: "2026-09-10",
           id: ids.paid,
           ownerId,
+          notes: "Path C:\\Billing",
           paidDate: "2026-09-15",
           paymentMethod: "credit_card",
           scope: "business",
@@ -249,9 +255,15 @@ describeDatabase("expense query matrix", () => {
       expect(await identifiers({ period: "all", search: "Acme" })).toEqual([ids.pending]);
       expect(await identifiers({ period: "all", search: "migration" })).toEqual([ids.pending]);
       expect(await identifiers({ period: "all", search: "receipt alpha" })).toEqual([ids.overdue]);
+      expect(await identifiers({ period: "all", search: "%" })).toEqual([ids.overdue]);
+      expect(await identifiers({ period: "all", search: "_" })).toEqual([ids.pending]);
+      expect(await identifiers({ period: "all", search: "\\" })).toEqual([ids.paid]);
       expect(await identifiers({ period: "all", status: "overdue" })).toEqual([ids.overdue]);
       expect(await identifiers({ period: "all", status: "planned" })).toEqual([ids.futurePlanned]);
       expect(await identifiers({ period: "current_month" })).toHaveLength(5);
+      expect(await identifiers({ month: "2026-10", period: "current_month" }))
+        .toEqual([ids.futurePlanned]);
+      expect(await identifiers({ period: "next_month" })).toEqual([ids.futurePlanned]);
       expect(await identifiers({
         from: "2026-09-10",
         period: "custom",
@@ -265,6 +277,15 @@ describeDatabase("expense query matrix", () => {
         .toEqual([ids.paidOutsideDuePeriod, ids.cancelled, ids.pending]);
       expect(await identifiers({ period: "all", recurrence: "recurring" }))
         .toEqual([ids.recurring]);
+      expect(await identifiers({ period: "all", recurrence: "one_off" }))
+        .toEqual([
+          ids.paidOutsideDuePeriod,
+          ids.overdue,
+          ids.cancelled,
+          ids.paid,
+          ids.pending,
+          ids.futurePlanned,
+        ]);
       expect(await identifiers({ currency: "USD", period: "all" }))
         .toEqual([ids.overdue, ids.cancelled, ids.paid, ids.pending]);
 
@@ -274,6 +295,18 @@ describeDatabase("expense query matrix", () => {
       const emptyPage = await list({ page: 99, pageSize: 2, period: "all" });
       expect(emptyPage.items).toEqual([]);
       expect(emptyPage.pagination).toEqual({ page: 99, pageSize: 2, total: 7, totalPages: 4 });
+
+      observedQueries.length = 0;
+      const joinedPage = await queryExpenses(
+        transaction,
+        ownerId,
+        { page: 1, pageSize: 20, period: "all" },
+        "2026-09-10",
+      );
+      expect(joinedPage.items).toHaveLength(7);
+      expect(observedQueries).toHaveLength(1);
+      expect(observedQueries[0]).toMatch(/join "expense_categories"/i);
+      expect(observedQueries[0]).toMatch(/join "recurring_expenses"/i);
 
       const period = { start: "2026-09-01", end: "2026-10-01" };
       const summary = await runAsOwner(ownerId, (ownerDb) =>

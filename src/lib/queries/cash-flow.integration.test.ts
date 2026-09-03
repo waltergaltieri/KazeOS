@@ -27,8 +27,13 @@ const { queryMonthlyCashFlow } = await import("./cash-flow");
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
+const observedQueries: string[] = [];
 const databaseClient = databaseUrl
-  ? postgres(databaseUrl, { prepare: false, max: 1 })
+  ? postgres(databaseUrl, {
+      prepare: false,
+      max: 1,
+      debug: (_connection, query) => observedQueries.push(query),
+    })
   : undefined;
 const database = databaseClient
   ? drizzle({ client: databaseClient, schema })
@@ -61,6 +66,8 @@ describeDatabase("monthly cash flow query", () => {
       const categoryId = randomUUID();
       const otherCategoryId = randomUUID();
       const chargeId = randomUUID();
+      const dueThisMonthPaidNextMonthChargeId = randomUUID();
+      const dueLastMonthPaidThisMonthChargeId = randomUUID();
       const otherChargeId = randomUUID();
 
       await transaction.execute(
@@ -90,6 +97,24 @@ describeDatabase("monthly cash flow query", () => {
           currency: "ARS",
           description: "ARS income",
           dueDate: "2026-09-07",
+          ownerId,
+        },
+        {
+          amountMinor: 60_000,
+          clientId,
+          currency: "USD",
+          description: "Due September paid October",
+          dueDate: "2026-09-29",
+          id: dueThisMonthPaidNextMonthChargeId,
+          ownerId,
+        },
+        {
+          amountMinor: 80_000,
+          clientId,
+          currency: "USD",
+          description: "Due August paid September",
+          dueDate: "2026-08-29",
+          id: dueLastMonthPaidThisMonthChargeId,
           ownerId,
         },
         {
@@ -128,6 +153,24 @@ describeDatabase("monthly cash flow query", () => {
           ownerId,
           paymentDate: "2026-09-11",
           paymentMethod: "cash",
+        },
+        {
+          amountMinor: 60_000,
+          chargeId: dueThisMonthPaidNextMonthChargeId,
+          clientId,
+          currency: "USD",
+          ownerId,
+          paymentDate: "2026-10-01",
+          paymentMethod: "bank_transfer",
+        },
+        {
+          amountMinor: 80_000,
+          chargeId: dueLastMonthPaidThisMonthChargeId,
+          clientId,
+          currency: "USD",
+          ownerId,
+          paymentDate: "2026-09-12",
+          paymentMethod: "bank_transfer",
         },
         {
           amountMinor: 999_999,
@@ -174,6 +217,32 @@ describeDatabase("monthly cash flow query", () => {
           title: "ARS expense",
         },
         {
+          amountMinor: 7_000,
+          categoryId,
+          costType: "fixed",
+          currency: "USD",
+          dueDate: "2026-09-28",
+          ownerId,
+          paidDate: "2026-10-01",
+          paymentMethod: "cash",
+          scope: "business",
+          status: "paid",
+          title: "Due September paid October",
+        },
+        {
+          amountMinor: 11_000,
+          categoryId,
+          costType: "variable",
+          currency: "USD",
+          dueDate: "2026-08-28",
+          ownerId,
+          paidDate: "2026-09-22",
+          paymentMethod: "cash",
+          scope: "business",
+          status: "paid",
+          title: "Due August paid September",
+        },
+        {
           amountMinor: 999_999,
           categoryId,
           costType: "fixed",
@@ -197,16 +266,20 @@ describeDatabase("monthly cash flow query", () => {
       ]);
 
       const runAsOwner = createAuthenticatedDrizzleRunner(transaction);
-      await expect(runAsOwner(ownerId, (ownerDb) =>
-        queryMonthlyCashFlow(ownerDb, ownerId, "2026-09-01", "2026-10-01"),
+      observedQueries.length = 0;
+      await expect(queryMonthlyCashFlow(
+        transaction,
+        ownerId,
+        "2026-09-01",
+        "2026-10-01",
       )).resolves.toEqual({
         USD: {
-          projectedIncome: "200000",
-          actualIncome: "140000",
-          projectedExpenses: "80000",
-          actualExpenses: "50000",
-          projectedNet: "120000",
-          actualNet: "90000",
+          projectedIncome: "260000",
+          actualIncome: "220000",
+          projectedExpenses: "87000",
+          actualExpenses: "61000",
+          projectedNet: "173000",
+          actualNet: "159000",
         },
         ARS: {
           projectedIncome: "40000",
@@ -217,6 +290,8 @@ describeDatabase("monthly cash flow query", () => {
           actualNet: "10000",
         },
       });
+      expect(observedQueries).toHaveLength(1);
+      expect(observedQueries[0]).toMatch(/^\s*with projected_income/i);
       await expect(runAsOwner(ownerId, (ownerDb) =>
         queryMonthlyCashFlow(ownerDb, otherOwnerId, "2026-09-01", "2026-10-01"),
       )).resolves.toEqual({
