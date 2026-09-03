@@ -7,6 +7,7 @@ import {
   LogOut,
   Menu,
   Plus,
+  Receipt,
   UserPlus,
 } from "lucide-react";
 import Link from "next/link";
@@ -25,6 +26,7 @@ type TopbarProps = {
 const quickActions = [
   { href: "/clients/new", label: "Nuevo cliente", icon: UserPlus },
   { href: "/charges/new", label: "Nuevo cobro", icon: CircleDollarSign },
+  { href: "/expenses/new", label: "Nuevo gasto", icon: Receipt },
   { href: "/tasks/new", label: "Nueva tarea", icon: CheckSquare2 },
 ] as const;
 
@@ -81,12 +83,12 @@ export function Topbar({ user, onOpenNavigation, navigationTriggerRef }: TopbarP
       </div>
 
       <div className="topbar-actions">
-        {pathname === "/dashboard" ? (
+        {pathname === "/dashboard" || pathname.startsWith("/expenses") ? (
           <nav className="dashboard-currency-selector" aria-label="Moneda del resumen" role="group">
             {(["USD", "ARS"] as const).map((currency) => (
               <Link
                 key={currency}
-                href={`/dashboard?currency=${currency}`}
+                href={`${pathname.startsWith("/expenses") ? "/expenses" : "/dashboard"}?currency=${currency}`}
                 className={selectedCurrency === currency ? "is-active" : undefined}
                 aria-current={selectedCurrency === currency ? "true" : undefined}
               >

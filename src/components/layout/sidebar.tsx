@@ -4,6 +4,7 @@ import {
   CheckSquare2,
   CircleDollarSign,
   LayoutDashboard,
+  Receipt,
   Settings,
   Users,
   X,
@@ -16,6 +17,7 @@ const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/clients", label: "Clientes", icon: Users },
   { href: "/charges", label: "Cobros", icon: CircleDollarSign },
+  { href: "/expenses", label: "Gastos", icon: Receipt },
   { href: "/tasks", label: "Tareas", icon: CheckSquare2 },
   { href: "/settings", label: "Configuración", icon: Settings },
 ] as const;

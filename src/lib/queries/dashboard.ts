@@ -5,7 +5,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { withAuthenticatedDb } from "@/db";
 import * as schema from "@/db/schema";
-import { charges, clients, payments, services, tasks } from "@/db/schema";
+import { charges, clients, expenses, payments, services, tasks } from "@/db/schema";
 import { requireUser } from "@/lib/auth/require-user";
 import { validateCommercialDate } from "@/lib/domain/commercial-date";
 import type { AggregateMinorUnits, Currency } from "@/lib/domain/money";
@@ -19,6 +19,8 @@ export interface DashboardMetrics {
   pending: MoneyByCurrency;
   overdue: MoneyByCurrency;
   mrr: MoneyByCurrency;
+  expensesThisMonth: MoneyByCurrency;
+  projectedBalance: MoneyByCurrency;
   activeClients: number;
   chargesNextSevenDays: number;
 }
@@ -49,7 +51,7 @@ export interface DashboardTask {
 
 export interface DashboardMovement {
   id: string;
-  kind: "charge" | "task";
+  kind: "charge" | "expense" | "task";
   label: string;
   context: string | null;
   date: string | null;
@@ -59,27 +61,8 @@ export interface DashboardMovement {
   isOverdue: boolean;
 }
 
-export interface MonthlyRevenuePoint {
-  month: string;
-  USD: AggregateMinorUnits;
-  ARS: AggregateMinorUnits;
-}
-
-const zeroMoney = (): MoneyByCurrency => ({ USD: "0", ARS: "0" });
-
 function startOfMonth(date: string): string {
   return `${date.slice(0, 7)}-01`;
-}
-
-function monthKeysEndingAt(date: string): string[] {
-  const [year, month] = date.slice(0, 7).split("-").map(Number);
-  const sourceIndex = year * 12 + month - 1;
-  return Array.from({ length: 6 }, (_, index) => {
-    const monthIndex = sourceIndex - (5 - index);
-    const pointYear = Math.floor(monthIndex / 12);
-    const pointMonth = (monthIndex % 12) + 1;
-    return `${pointYear.toString().padStart(4, "0")}-${pointMonth.toString().padStart(2, "0")}`;
-  });
 }
 
 export async function queryDashboardMetrics(
@@ -98,6 +81,10 @@ export async function queryDashboardMetrics(
     overdue_ars: AggregateMinorUnits;
     mrr_usd: AggregateMinorUnits;
     mrr_ars: AggregateMinorUnits;
+    expenses_this_month_usd: AggregateMinorUnits;
+    expenses_this_month_ars: AggregateMinorUnits;
+    projected_balance_usd: AggregateMinorUnits;
+    projected_balance_ars: AggregateMinorUnits;
     active_clients: number;
     upcoming_count: number;
   }>(sql`
@@ -110,6 +97,10 @@ export async function queryDashboardMetrics(
       coalesce((select sum(greatest(amount_minor - amount_paid_minor, 0)) filter (where currency = 'ARS') from ${charges} where owner_id = ${ownerId} and status <> 'cancelled' and amount_paid_minor < amount_minor and due_date < ${asOf}), 0)::text as overdue_ars,
       coalesce((select floor((coalesce(sum(case billing_frequency when 'monthly' then amount_minor * 12 when 'quarterly' then amount_minor * 4 when 'yearly' then amount_minor else 0 end) filter (where currency = 'USD'), 0) + 6) / 12) from ${services} where owner_id = ${ownerId} and status = 'active' and billing_type = 'recurring'), 0)::text as mrr_usd,
       coalesce((select floor((coalesce(sum(case billing_frequency when 'monthly' then amount_minor * 12 when 'quarterly' then amount_minor * 4 when 'yearly' then amount_minor else 0 end) filter (where currency = 'ARS'), 0) + 6) / 12) from ${services} where owner_id = ${ownerId} and status = 'active' and billing_type = 'recurring'), 0)::text as mrr_ars,
+      coalesce((select sum(amount_minor) filter (where currency = 'USD') from ${expenses} where owner_id = ${ownerId} and status = 'paid' and paid_date >= ${monthStart} and paid_date < (${monthStart}::date + interval '1 month')), 0)::text as expenses_this_month_usd,
+      coalesce((select sum(amount_minor) filter (where currency = 'ARS') from ${expenses} where owner_id = ${ownerId} and status = 'paid' and paid_date >= ${monthStart} and paid_date < (${monthStart}::date + interval '1 month')), 0)::text as expenses_this_month_ars,
+      (coalesce((select sum(amount_minor) filter (where currency = 'USD') from ${charges} where owner_id = ${ownerId} and status <> 'cancelled' and due_date >= ${monthStart} and due_date < (${monthStart}::date + interval '1 month')), 0) - coalesce((select sum(amount_minor) filter (where currency = 'USD') from ${expenses} where owner_id = ${ownerId} and status <> 'cancelled' and due_date >= ${monthStart} and due_date < (${monthStart}::date + interval '1 month')), 0))::text as projected_balance_usd,
+      (coalesce((select sum(amount_minor) filter (where currency = 'ARS') from ${charges} where owner_id = ${ownerId} and status <> 'cancelled' and due_date >= ${monthStart} and due_date < (${monthStart}::date + interval '1 month')), 0) - coalesce((select sum(amount_minor) filter (where currency = 'ARS') from ${expenses} where owner_id = ${ownerId} and status <> 'cancelled' and due_date >= ${monthStart} and due_date < (${monthStart}::date + interval '1 month')), 0))::text as projected_balance_ars,
       (select count(*)::int from ${clients} where owner_id = ${ownerId} and status = 'active') as active_clients,
       (select count(*)::int from ${charges} where owner_id = ${ownerId} and status <> 'cancelled' and amount_paid_minor < amount_minor and due_date >= ${asOf} and due_date < (${asOf}::date + interval '7 days')) as upcoming_count
   `);
@@ -120,6 +111,8 @@ export async function queryDashboardMetrics(
     pending: { USD: row.pending_usd, ARS: row.pending_ars },
     overdue: { USD: row.overdue_usd, ARS: row.overdue_ars },
     mrr: { USD: row.mrr_usd, ARS: row.mrr_ars },
+    expensesThisMonth: { USD: row.expenses_this_month_usd, ARS: row.expenses_this_month_ars },
+    projectedBalance: { USD: row.projected_balance_usd, ARS: row.projected_balance_ars },
     activeClients: row.active_clients,
     chargesNextSevenDays: row.upcoming_count,
   };
@@ -187,7 +180,7 @@ export async function queryUpcomingMovements(
   const asOf = validateCommercialDate(asOfInput);
   const rows = await database.execute<{
     id: string;
-    kind: "charge" | "task";
+    kind: "charge" | "expense" | "task";
     label: string;
     context: string | null;
     movement_date: string | null;
@@ -207,6 +200,14 @@ export async function queryUpcomingMovements(
       inner join ${clients} on ${clients.ownerId} = ${charges.ownerId} and ${clients.id} = ${charges.clientId}
       where ${charges.ownerId} = ${ownerId} and ${charges.status} <> 'cancelled' and ${charges.amountPaidMinor} < ${charges.amountMinor}
       union all
+      select ${expenses.id}::text as id, 'expense'::text as kind, ${expenses.title} as label,
+        coalesce(nullif(btrim(${expenses.vendor}), ''), 'Gasto') as context,
+        ${expenses.dueDate}::text as movement_date, ${expenses.amountMinor}::text as amount_minor,
+        ${expenses.currency}::text as currency, null::text as priority,
+        (${expenses.dueDate} < ${asOf}) as is_overdue
+      from ${expenses}
+      where ${expenses.ownerId} = ${ownerId} and ${expenses.status} in ('planned', 'pending')
+      union all
       select ${tasks.id}::text as id, 'task'::text as kind, ${tasks.title} as label,
         case when ${clients.id} is null then null else trim(concat_ws(' ', ${clients.firstName}, ${clients.lastName})) end as context,
         ${tasks.dueDate}::text as movement_date, null::text as amount_minor, null::text as currency,
@@ -216,7 +217,7 @@ export async function queryUpcomingMovements(
       where ${tasks.ownerId} = ${ownerId} and ${tasks.status} = 'pending'
     ) movements
     order by case when movement_date is null then 1 else 0 end, movement_date,
-      case kind when 'charge' then 0 else 1 end, id
+      case kind when 'charge' then 0 when 'expense' then 1 else 2 end, id
     limit 8
   `);
   return rows.map((row) => ({
@@ -232,27 +233,6 @@ export async function queryUpcomingMovements(
   }));
 }
 
-export async function queryMonthlyRevenue(
-  database: DashboardDatabase,
-  ownerId: string,
-  asOfInput: string,
-): Promise<MonthlyRevenuePoint[]> {
-  const asOf = validateCommercialDate(asOfInput);
-  const months = monthKeysEndingAt(asOf);
-  const firstDate = `${months[0]}-01`;
-  const rows = await database.select({
-    month: sql<string>`to_char(${payments.paymentDate}, 'YYYY-MM')`,
-    currency: payments.currency,
-    amountMinor: sql<AggregateMinorUnits>`sum(${payments.amountMinor})::text`,
-  }).from(payments)
-    .where(and(eq(payments.ownerId, ownerId), sql`${payments.paymentDate} >= ${firstDate}`, sql`${payments.paymentDate} <= ${asOf}`))
-    .groupBy(sql`to_char(${payments.paymentDate}, 'YYYY-MM')`, payments.currency)
-    .orderBy(asc(sql`to_char(${payments.paymentDate}, 'YYYY-MM')`), asc(payments.currency));
-  const points = new Map(months.map((month) => [month, { month, ...zeroMoney() }]));
-  for (const row of rows) points.get(row.month)![row.currency] = row.amountMinor;
-  return months.map((month) => points.get(month)!);
-}
-
 async function authenticated<TResult>(
   asOfInput: string,
   query: (database: DashboardDatabase, ownerId: string, asOf: string) => Promise<TResult>,
@@ -266,4 +246,3 @@ export const getDashboardMetrics = (asOf: string) => authenticated(asOf, queryDa
 export const getUpcomingCharges = (asOf: string) => authenticated(asOf, queryUpcomingCharges);
 export const getPendingTasks = (asOf: string) => authenticated(asOf, queryPendingTasks);
 export const getUpcomingMovements = (asOf: string) => authenticated(asOf, queryUpcomingMovements);
-export const getMonthlyRevenue = (asOf: string) => authenticated(asOf, queryMonthlyRevenue);

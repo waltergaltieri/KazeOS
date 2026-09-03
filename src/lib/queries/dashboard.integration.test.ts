@@ -2,7 +2,6 @@
 
 import { randomUUID } from "node:crypto";
 
-import { config } from "dotenv";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -24,17 +23,16 @@ vi.mock("@/db", () => ({
 
 import { createAuthenticatedDrizzleRunner } from "@/db/authenticated";
 import * as schema from "@/db/schema";
-import { charges, clients, payments, services, tasks } from "@/db/schema";
+import { charges, clients, expenseCategories, expenses, payments, services, tasks } from "@/db/schema";
+import { loadDatabaseTestEnvironment } from "@/test/database-env";
 import {
   getDashboardMetrics,
-  getMonthlyRevenue,
   getPendingTasks,
   getUpcomingCharges,
   getUpcomingMovements,
 } from "./dashboard";
 
-config({ path: ".env.local", quiet: true });
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = loadDatabaseTestEnvironment();
 const describeDatabase = databaseUrl ? describe : describe.skip;
 const client = databaseUrl ? postgres(databaseUrl, { prepare: false, max: 1 }) : undefined;
 const database = client ? drizzle({ client, schema }) : undefined;
@@ -43,7 +41,7 @@ const rollback = new Error("ROLLBACK_DASHBOARD_QUERY_TEST");
 afterAll(async () => client?.end());
 
 describeDatabase("real-data dashboard queries", () => {
-  it("returns exact owner-scoped metrics, operational ordering, movements and six-month revenue", async () => {
+  it("returns exact owner-scoped financial metrics and operational ordering", async () => {
     try {
       await database!.transaction(async (transaction) => {
         const ownerId = randomUUID();
@@ -61,6 +59,8 @@ describeDatabase("real-data dashboard queries", () => {
         const upcomingChargeId = randomUUID();
         const outsideWindowChargeId = randomUUID();
         const nextMonthChargeId = randomUUID();
+        const categoryId = randomUUID();
+        const otherCategoryId = randomUUID();
 
         await transaction.execute(
           sql`insert into auth.users (id) values (${ownerId}), (${otherOwnerId})`,
@@ -76,6 +76,10 @@ describeDatabase("real-data dashboard queries", () => {
           { id: quarterlyServiceId, ownerId, clientId: secondClientId, name: "Trimestral", billingType: "recurring", billingFrequency: "quarterly", billingDay: 1, amountMinor: 30_000, currency: "USD", startDate: "2026-01-01" },
           { id: yearlyServiceId, ownerId, clientId: secondClientId, name: "Anual", billingType: "recurring", billingFrequency: "yearly", billingDay: 1, amountMinor: 120_000, currency: "ARS", startDate: "2026-01-01" },
           { ownerId, clientId: pausedClientId, name: "Pausado", billingType: "recurring", billingFrequency: "monthly", billingDay: 1, amountMinor: 999_999, currency: "USD", startDate: "2026-01-01", status: "paused" },
+        ]);
+        await transaction.insert(expenseCategories).values([
+          { id: categoryId, ownerId, name: `Dashboard ${categoryId}` },
+          { id: otherCategoryId, ownerId: otherOwnerId, name: `Dashboard other ${otherCategoryId}` },
         ]);
         await transaction.insert(charges).values([
           { id: overdueChargeId, ownerId, clientId: activeClientId, description: "Hosting vencido", amountMinor: 10_000, currency: "USD", dueDate: "2026-08-10" },
@@ -105,6 +109,14 @@ describeDatabase("real-data dashboard queries", () => {
           { id: randomUUID(), ownerId, title: "Completada", dueDate: "2026-08-13", status: "completed", completedAt: new Date("2026-08-13T12:00:00Z") },
           { id: randomUUID(), ownerId: otherOwnerId, clientId: otherClientId, title: "Tarea ajena", dueDate: "2026-08-01" },
         ]);
+        await transaction.insert(expenses).values([
+          { ownerId, categoryId, title: "Licencia pagada", amountMinor: 4_000, currency: "USD", scope: "business", costType: "fixed", dueDate: "2026-08-05", paidDate: "2026-08-06", status: "paid", paymentMethod: "credit_card" },
+          { ownerId, categoryId, title: "Impuesto vencido", amountMinor: 3_000, currency: "ARS", scope: "business", costType: "variable", dueDate: "2026-08-13" },
+          { ownerId, categoryId, title: "Suscripción próxima", amountMinor: 2_000, currency: "ARS", scope: "business", costType: "fixed", dueDate: "2026-08-17" },
+          { ownerId, categoryId, title: "Pago de julio", amountMinor: 1_000, currency: "USD", scope: "personal", costType: "variable", dueDate: "2026-07-30", paidDate: "2026-08-02", status: "paid", paymentMethod: "cash" },
+          { ownerId, categoryId, title: "Gasto cancelado", amountMinor: 999_999, currency: "USD", scope: "business", costType: "fixed", dueDate: "2026-08-08", status: "cancelled" },
+          { ownerId: otherOwnerId, categoryId: otherCategoryId, title: "Gasto ajeno", amountMinor: 999_999, currency: "USD", scope: "business", costType: "fixed", dueDate: "2026-08-09" },
+        ]);
 
         runtime.userId = ownerId;
         runtime.run = createAuthenticatedDrizzleRunner(transaction) as typeof runtime.run;
@@ -114,6 +126,8 @@ describeDatabase("real-data dashboard queries", () => {
           pending: { USD: "78000", ARS: "20000" },
           overdue: { USD: "8000", ARS: "0" },
           mrr: { USD: "22000", ARS: "10000" },
+          expensesThisMonth: { USD: "5000", ARS: "0" },
+          projectedBalance: { USD: "82000", ARS: "15000" },
           activeClients: 2,
           chargesNextSevenDays: 2,
         });
@@ -137,21 +151,20 @@ describeDatabase("real-data dashboard queries", () => {
         ]);
 
         const movements = await getUpcomingMovements("2026-08-15");
-        expect(movements.slice(0, 4).map((item) => `${item.kind}:${item.label}`)).toEqual([
+        expect(movements.slice(0, 6).map((item) => `${item.kind}:${item.label}`)).toEqual([
           "charge:Hosting vencido",
+          "expense:Impuesto vencido",
           "task:Renovar dominio",
           "charge:Diseño de hoy",
           "task:Enviar informe",
+          "task:Llamar al cliente",
         ]);
-
-        await expect(getMonthlyRevenue("2026-08-15")).resolves.toEqual([
-          { month: "2026-03", USD: "1000", ARS: "0" },
-          { month: "2026-04", USD: "0", ARS: "0" },
-          { month: "2026-05", USD: "0", ARS: "2000" },
-          { month: "2026-06", USD: "0", ARS: "0" },
-          { month: "2026-07", USD: "2000", ARS: "0" },
-          { month: "2026-08", USD: "6000", ARS: "18014398509486982" },
-        ]);
+        expect(movements.find((item) => item.label === "Impuesto vencido")).toMatchObject({
+          kind: "expense",
+          amountMinor: "3000",
+          currency: "ARS",
+          isOverdue: true,
+        });
 
         runtime.userId = otherOwnerId;
         await expect(getDashboardMetrics("2026-08-15")).resolves.toMatchObject({

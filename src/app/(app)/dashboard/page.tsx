@@ -1,12 +1,12 @@
+import { IncomeExpenseComparison } from "@/components/dashboard/income-expense-comparison";
 import { KpiStrip } from "@/components/dashboard/kpi-strip";
 import { PendingTasks } from "@/components/dashboard/pending-tasks";
-import { RevenueTrend } from "@/components/dashboard/revenue-trend";
 import { UpcomingCharges } from "@/components/dashboard/upcoming-charges";
 import { UpcomingMovements } from "@/components/dashboard/upcoming-movements";
-import { todayInBusinessZone } from "@/lib/domain/commercial-date";
+import { addCommercialPeriod, todayInBusinessZone } from "@/lib/domain/commercial-date";
+import { getMonthlyCashFlow } from "@/lib/queries/cash-flow";
 import {
   getDashboardMetrics,
-  getMonthlyRevenue,
   getPendingTasks,
   getUpcomingCharges,
   getUpcomingMovements,
@@ -16,12 +16,14 @@ export default async function DashboardPage({ searchParams = Promise.resolve({})
   const requestedCurrency = (await searchParams).currency;
   const selectedCurrency = requestedCurrency === "ARS" ? "ARS" : "USD";
   const today = todayInBusinessZone(new Date());
-  const [metrics, upcomingCharges, pendingTasks, upcomingMovements, monthlyRevenue] = await Promise.all([
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const monthEnd = addCommercialPeriod(monthStart, "monthly");
+  const [metrics, upcomingCharges, pendingTasks, upcomingMovements, cashFlow] = await Promise.all([
     getDashboardMetrics(today),
     getUpcomingCharges(today),
     getPendingTasks(today),
     getUpcomingMovements(today),
-    getMonthlyRevenue(today),
+    getMonthlyCashFlow(monthStart, monthEnd),
   ]);
 
   return (
@@ -39,7 +41,7 @@ export default async function DashboardPage({ searchParams = Promise.resolve({})
       </div>
       <div className="dashboard-insight-grid">
         <UpcomingMovements movements={upcomingMovements} />
-        <RevenueTrend points={monthlyRevenue} />
+        <IncomeExpenseComparison cashFlow={cashFlow} selectedCurrency={selectedCurrency} />
       </div>
     </main>
   );

@@ -49,7 +49,7 @@ describe("AppShell", () => {
     useSearchParamsMock.mockReturnValue(new URLSearchParams("currency=USD"));
   });
 
-  it("shows the dashboard currency selector only on the dashboard", () => {
+  it("shows the currency selector on the dashboard and expense workspace", () => {
     useThemeMock.mockReturnValue({ theme: "system", setTheme: vi.fn() });
     const { rerender } = render(
       <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
@@ -61,6 +61,15 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "USD" })).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("link", { name: "ARS" })).toHaveAttribute("href", "/dashboard?currency=ARS");
 
+    usePathnameMock.mockReturnValue("/expenses");
+    rerender(
+      <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
+        Contenido
+      </AppShell>,
+    );
+    expect(screen.getByRole("group", { name: "Moneda del resumen" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "ARS" })).toHaveAttribute("href", "/expenses?currency=ARS");
+
     usePathnameMock.mockReturnValue("/clients");
     rerender(
       <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
@@ -68,6 +77,30 @@ describe("AppShell", () => {
       </AppShell>,
     );
     expect(screen.queryByRole("group", { name: "Moneda del resumen" })).not.toBeInTheDocument();
+  });
+
+  it("orders the expense workspace in navigation without a reports dead link", () => {
+    usePathnameMock.mockReturnValue("/expenses/recurring");
+    useThemeMock.mockReturnValue({ theme: "system", setTheme: vi.fn() });
+    render(
+      <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
+        Contenido
+      </AppShell>,
+    );
+
+    const navigation = screen.getByRole("navigation", { name: "Principal" });
+    expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Dashboard",
+      "Clientes",
+      "Cobros",
+      "Gastos",
+      "Tareas",
+      "Configuración",
+    ]);
+    const expensesLink = within(navigation).getByRole("link", { name: "Gastos", current: "page" });
+    expect(expensesLink).toHaveAttribute("href", "/expenses");
+    expect(expensesLink.querySelector(".lucide-receipt")).toBeInTheDocument();
+    expect(within(navigation).queryByRole("link", { name: "Reportes" })).not.toBeInTheDocument();
   });
 
   it("grounds the page with ledger navigation and verified user context", () => {
@@ -224,6 +257,7 @@ describe("AppShell", () => {
     await user.click(screen.getByRole("button", { name: "Creación rápida" }));
     expect(screen.getByRole("menuitem", { name: "Nuevo cliente" })).toHaveFocus();
     expect(screen.getByRole("menuitem", { name: "Nuevo cobro" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Nuevo gasto" })).toHaveAttribute("href", "/expenses/new");
     expect(screen.getByRole("menuitem", { name: "Nueva tarea" })).toBeVisible();
 
     await user.keyboard("{ArrowDown}");

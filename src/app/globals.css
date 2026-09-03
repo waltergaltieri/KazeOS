@@ -309,7 +309,7 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 }
 .dashboard-page__heading > p:last-child { margin: 9px 0 0; color: var(--ink-secondary); }
 .dashboard-kpis { display: grid; grid-template-columns: minmax(0, 4fr) minmax(220px, 1fr); gap: 10px; }
-.dashboard-financial-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.dashboard-financial-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .dashboard-count-strip { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .dashboard-kpi, .dashboard-count-card, .dashboard-panel {
   min-width: 0; border: 1px solid var(--ledger-rule); border-radius: 12px;
@@ -320,6 +320,8 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .dashboard-kpi--collected::before { background: var(--collection-green); }
 .dashboard-kpi--pending::before { background: var(--reminder-amber); }
 .dashboard-kpi--overdue::before { background: var(--overdue-red); }
+.dashboard-kpi--expenses::before { background: var(--overdue-red); }
+.dashboard-kpi--balance::before { background: var(--collection-green); }
 .dashboard-kpi header { display: flex; align-items: center; gap: 8px; }
 .dashboard-kpi header span, .dashboard-count-card > span {
   display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center;
@@ -328,7 +330,10 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .dashboard-kpi--collected header span { background: var(--collection-green-soft); color: var(--collection-green); }
 .dashboard-kpi--pending header span { background: var(--reminder-amber-soft); color: var(--reminder-amber); }
 .dashboard-kpi--overdue header span { background: var(--overdue-red-soft); color: var(--overdue-red); }
+.dashboard-kpi--expenses header span { background: var(--overdue-red-soft); color: var(--overdue-red); }
+.dashboard-kpi--balance header span { background: var(--collection-green-soft); color: var(--collection-green); }
 .dashboard-kpi h2 { margin: 0; color: var(--ink-secondary); font-size: 11px; font-weight: 680; }
+.dashboard-kpi h2 a:hover { color: var(--action-violet); }
 .dashboard-kpi p { margin: 0; color: var(--ink-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
 .dashboard-money-pair { display: grid; min-width: 0; gap: 3px; }
 .dashboard-money-pair strong, .dashboard-money-pair span { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
@@ -369,24 +374,24 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .dashboard-movement-rail li:not(:last-child)::before { position: absolute; top: 29px; bottom: 0; left: 14px; width: 1px; background: var(--ledger-rule); content: ""; }
 .dashboard-movement-mark { z-index: 1; display: grid; width: 29px; height: 29px; place-items: center; border: 4px solid var(--paper-sheet); border-radius: 50%; background: var(--action-violet-soft); color: var(--action-violet); }
 .dashboard-movement-mark--charge { background: var(--collection-green-soft); color: var(--collection-green); }
+.dashboard-movement-mark--expense { background: var(--reminder-amber-soft); color: var(--reminder-amber); }
 .dashboard-movement-rail li.is-overdue .dashboard-movement-mark { background: var(--overdue-red-soft); color: var(--overdue-red); }
 .dashboard-movement-rail li > div { display: grid; min-width: 0; }
 .dashboard-movement-rail li > div:last-child { justify-items: end; }
 .dashboard-movement-rail strong { overflow-wrap: anywhere; font-size: 11px; }
 .dashboard-movement-rail span, .dashboard-movement-rail time { color: var(--ink-tertiary); font-size: 9px; }
-.dashboard-scale-note { max-width: 16ch; margin: 1px 0 0; color: var(--ink-muted); font-size: 9px; line-height: 1.25; text-align: right; }
-.dashboard-small-multiples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; }
-.dashboard-mini-trend { min-width: 0; padding: 10px 10px 7px; margin: 0; border: 1px solid var(--ledger-rule-soft); border-radius: 9px; background: var(--paper-inset); }
-.dashboard-mini-trend figcaption { color: var(--action-violet); font-size: 9px; font-weight: 720; letter-spacing: .035em; }
-.dashboard-mini-trend--ars figcaption { color: var(--collection-green); }
-.dashboard-mini-scale { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; margin-top: 5px; color: var(--ink-muted); font-size: 8px; font-variant-numeric: tabular-nums; }
-.dashboard-mini-scale span { min-width: 0; overflow-wrap: anywhere; }
-.dashboard-mini-scale span:last-child { text-align: right; }
-.dashboard-mini-trend svg { display: block; width: 100%; height: 108px; overflow: visible; margin-top: 4px; }
-.dashboard-mini-trend line { stroke: var(--ledger-rule); stroke-width: 1; }
-.dashboard-chart-line { fill: none; stroke: var(--action-violet); stroke-width: 2.2; vector-effect: non-scaling-stroke; }
-.dashboard-chart-line--ars { stroke: var(--collection-green); }
-.dashboard-chart-months { display: grid; grid-template-columns: repeat(6, 1fr); padding: 3px 1px 0; color: var(--ink-muted); font-size: 8px; text-align: center; }
+.dashboard-comparison-list { display: grid; padding: 0; margin: 0; border: 1px solid var(--ledger-rule-soft); border-radius: 9px; background: var(--paper-inset); }
+.dashboard-comparison-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 12px; border-bottom: 1px solid var(--ledger-rule-soft); }
+.dashboard-comparison-row:last-child { border-bottom: 0; }
+.dashboard-comparison-row dt { display: flex; min-width: 0; align-items: center; gap: 9px; color: var(--ink-secondary); font-size: 10px; font-weight: 680; }
+.dashboard-comparison-row dt > span { display: grid; width: 29px; height: 29px; flex: 0 0 29px; place-items: center; border-radius: 8px; background: var(--collection-green-soft); color: var(--collection-green); }
+.dashboard-comparison-row--expense dt > span { background: var(--overdue-red-soft); color: var(--overdue-red); }
+.dashboard-comparison-row--net dt > span { background: var(--action-violet-soft); color: var(--action-violet); }
+.dashboard-comparison-row dd { margin: 0; overflow-wrap: anywhere; font-size: 14px; font-weight: 740; font-variant-numeric: tabular-nums; }
+.dashboard-comparison-row--expense dd { color: var(--overdue-red); }
+.dashboard-comparison-row--net { background: var(--paper-sheet); }
+.dashboard-comparison-row--net dd { color: var(--action-violet); font-size: 17px; }
+.dashboard-comparison-note { margin: 9px 0 0; color: var(--ink-muted); font-size: 9px; }
 .dashboard-module-empty { display: grid; min-height: 140px; grid-template-columns: 40px minmax(0, 1fr); align-content: center; align-items: center; gap: 12px; padding: 18px; border: 1px dashed var(--ledger-rule); border-radius: 9px; background: var(--paper-inset); }
 .dashboard-module-empty > span { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 9px; background: var(--action-violet-soft); color: var(--action-violet); }
 .dashboard-module-empty strong { font-size: 12px; }
@@ -778,8 +783,6 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   .dashboard-kpi { min-height: 126px; }
   .dashboard-panel__heading { gap: 8px; }
   .dashboard-panel__heading > a { align-self: center; }
-  .dashboard-small-multiples { grid-template-columns: 1fr; }
-  .dashboard-mini-trend svg { height: 104px; }
   .dashboard-movement-rail li { grid-template-columns: 32px minmax(0, 1fr); }
   .dashboard-movement-rail li > div:last-child { grid-column: 2; justify-items: start; }
 }
