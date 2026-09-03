@@ -1,6 +1,6 @@
 {
-  "id": "91b6c36c-4a0a-4d35-9f85-f374d13b69a4",
-  "prevId": "6cc91d46-8700-4655-a651-57065e6eef0c",
+  "id": "08e83c47-4d9e-45df-845f-42e76a636014",
+  "prevId": "c2331fcb-1f1f-4cb2-9c02-02cb49009754",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -807,21 +807,21 @@
           ],
           "using": "(select auth.uid()) = \"expense_categories\".\"owner_id\""
         },
-        "expense_categories_authenticated_insert": {
-          "name": "expense_categories_authenticated_insert",
+        "expense_categories_backend_insert": {
+          "name": "expense_categories_backend_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
           "to": [
-            "authenticated"
+            "kazeos_backend"
           ],
           "withCheck": "(select auth.uid()) = \"expense_categories\".\"owner_id\""
         },
-        "expense_categories_authenticated_update": {
-          "name": "expense_categories_authenticated_update",
+        "expense_categories_backend_update": {
+          "name": "expense_categories_backend_update",
           "as": "PERMISSIVE",
           "for": "UPDATE",
           "to": [
-            "authenticated"
+            "kazeos_backend"
           ],
           "using": "(select auth.uid()) = \"expense_categories\".\"owner_id\"",
           "withCheck": "(select auth.uid()) = \"expense_categories\".\"owner_id\""
@@ -1193,33 +1193,33 @@
           ],
           "using": "(select auth.uid()) = \"expenses\".\"owner_id\""
         },
-        "expenses_authenticated_insert": {
-          "name": "expenses_authenticated_insert",
+        "expenses_backend_insert": {
+          "name": "expenses_backend_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
           "to": [
-            "authenticated"
+            "kazeos_backend"
           ],
           "withCheck": "(select auth.uid()) = \"expenses\".\"owner_id\""
         },
-        "expenses_authenticated_update": {
-          "name": "expenses_authenticated_update",
+        "expenses_backend_update": {
+          "name": "expenses_backend_update",
           "as": "PERMISSIVE",
           "for": "UPDATE",
           "to": [
-            "authenticated"
+            "kazeos_backend"
           ],
           "using": "(select auth.uid()) = \"expenses\".\"owner_id\"",
           "withCheck": "(select auth.uid()) = \"expenses\".\"owner_id\""
         },
-        "expenses_authenticated_delete": {
-          "name": "expenses_authenticated_delete",
+        "expenses_backend_delete": {
+          "name": "expenses_backend_delete",
           "as": "PERMISSIVE",
           "for": "DELETE",
           "to": [
-            "authenticated"
+            "kazeos_backend"
           ],
-          "using": "(select auth.uid()) = \"expenses\".\"owner_id\"\n        and \"expenses\".\"recurring_expense_id\" is null\n        and \"expenses\".\"generated_automatically\" = false\n        and \"expenses\".\"status\" in ('planned', 'pending')"
+          "using": "(select auth.uid()) = \"expenses\".\"owner_id\"\n        and \"expenses\".\"status\" in ('planned', 'pending')\n        and (\n          (\"expenses\".\"recurring_expense_id\" is null and \"expenses\".\"generated_automatically\" = false)\n          or\n          (\"expenses\".\"recurring_expense_id\" is not null and \"expenses\".\"generated_automatically\" = true)\n        )"
         }
       },
       "checkConstraints": {
@@ -1238,6 +1238,10 @@
         "expenses_paid_date_status_consistency": {
           "name": "expenses_paid_date_status_consistency",
           "value": "(\n        (\"expenses\".\"status\" = 'paid' and \"expenses\".\"paid_date\" is not null)\n        or\n        (\"expenses\".\"status\" <> 'paid' and \"expenses\".\"paid_date\" is null)\n      )"
+        },
+        "expenses_paid_payment_method_consistency": {
+          "name": "expenses_paid_payment_method_consistency",
+          "value": "\"expenses\".\"status\" <> 'paid' or \"expenses\".\"payment_method\" is not null"
         },
         "expenses_recurrence_consistency": {
           "name": "expenses_recurrence_consistency",
@@ -1837,21 +1841,21 @@
           ],
           "using": "(select auth.uid()) = \"recurring_expenses\".\"owner_id\""
         },
-        "recurring_expenses_authenticated_insert": {
-          "name": "recurring_expenses_authenticated_insert",
+        "recurring_expenses_backend_insert": {
+          "name": "recurring_expenses_backend_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
           "to": [
-            "authenticated"
+            "kazeos_backend"
           ],
           "withCheck": "(select auth.uid()) = \"recurring_expenses\".\"owner_id\""
         },
-        "recurring_expenses_authenticated_update": {
-          "name": "recurring_expenses_authenticated_update",
+        "recurring_expenses_backend_update": {
+          "name": "recurring_expenses_backend_update",
           "as": "PERMISSIVE",
           "for": "UPDATE",
           "to": [
-            "authenticated"
+            "kazeos_backend"
           ],
           "using": "(select auth.uid()) = \"recurring_expenses\".\"owner_id\"",
           "withCheck": "(select auth.uid()) = \"recurring_expenses\".\"owner_id\""
@@ -2726,7 +2730,14 @@
   },
   "schemas": {},
   "sequences": {},
-  "roles": {},
+  "roles": {
+    "kazeos_backend": {
+      "name": "kazeos_backend",
+      "createDb": false,
+      "createRole": false,
+      "inherit": true
+    }
+  },
   "policies": {},
   "views": {},
   "_meta": {

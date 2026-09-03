@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const migrationDirectory = resolve(process.cwd(), "supabase/migrations");
+const migrationMetaDirectory = resolve(migrationDirectory, "meta");
 const hardeningMigration = readdirSync(migrationDirectory).find((name) =>
   name.endsWith("_harden_schema_integrity.sql"),
 );
@@ -207,6 +208,53 @@ describe("expense history protection migration", () => {
 });
 
 describe("recurring expense projection restoration migration", () => {
+  it("registers the generated reconciliation with a matching Drizzle snapshot", () => {
+    const journal = JSON.parse(
+      readFileSync(resolve(migrationMetaDirectory, "_journal.json"), "utf8"),
+    ) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const entry = journal.entries.at(-1);
+
+    expect(entry).toMatchObject({
+      idx: 6,
+    });
+    expect(entry?.tag).toMatch(
+      /^\d{14}_allow_backend_projection_cleanup$/,
+    );
+
+    const snapshotName = `${entry!.tag.slice(0, 14)}_snapshot.json`;
+    const metaFiles = readdirSync(migrationMetaDirectory);
+    expect(metaFiles).toEqual(
+      expect.arrayContaining([
+        "0003_snapshot.json",
+        "0004_snapshot.json",
+        "0005_snapshot.json",
+        snapshotName,
+      ]),
+    );
+    expect(readdirSync(migrationDirectory)).toContain(`${entry!.tag}.sql`);
+
+    const snapshot = JSON.parse(
+      readFileSync(resolve(migrationMetaDirectory, snapshotName), "utf8"),
+    ) as {
+      tables: Record<
+        string,
+        { policies?: Record<string, { to: string[]; using?: string }> }
+      >;
+    };
+    const policy =
+      snapshot.tables["public.expenses"]?.policies?.expenses_backend_delete;
+    const predicate = policy?.using?.replaceAll('"', "").replace(/\s+/g, " ");
+
+    expect(policy?.to).toEqual(["kazeos_backend"]);
+    expect(predicate).toContain("recurring_expense_id is null");
+    expect(predicate).toContain("recurring_expense_id is not null");
+    expect(predicate).toContain("generated_automatically = false");
+    expect(predicate).toContain("generated_automatically = true");
+    expect(predicate).toContain("status in ('planned', 'pending')");
+  });
+
   it("allows only the backend to delete mutable generated projections", () => {
     expect(recurringExpenseProjectionMigration).toMatch(
       /^\d{14}_allow_backend_projection_cleanup\.sql$/,

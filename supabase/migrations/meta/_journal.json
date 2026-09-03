@@ -43,6 +43,13 @@
       "when": 1788400021361,
       "tag": "20260903013000_restrict_expense_writes_to_backend",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788402229403,
+      "tag": "20260903022349_allow_backend_projection_cleanup",
+      "breakpoints": true
     }
   ]
 }

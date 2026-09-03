@@ -574,14 +574,35 @@ describeDatabase("remote database integrity", () => {
     });
   });
 
-  it("deletes only manual unpaid expenses and retains financial history", async () => {
+  it("blocks direct authenticated expense deletion", async () => {
+    await expectDatabaseRejection("42501", async (transaction) => {
+      const { expenseId, ownerId } = await createExpenseHistoryFixture(
+        transaction,
+        { generated: true },
+      );
+
+      await transaction`
+        select set_config(
+          'request.jwt.claims',
+          ${JSON.stringify({ sub: ownerId, role: "authenticated" })},
+          true
+        )
+      `;
+      await transaction.unsafe("set local role authenticated");
+      await transaction`delete from public.expenses where id = ${expenseId}`;
+    });
+  });
+
+  it("cleans up only mutable future automatic projections", async () => {
     await withRollback(async (transaction) => {
       const { firstOwnerId } = await createExpenseOwners(transaction);
       const categoryId = randomUUID();
       const recurringExpenseId = randomUUID();
       const manualPendingId = randomUUID();
       const paidExpenseId = randomUUID();
-      const generatedExpenseId = randomUUID();
+      const pastExpenseId = randomUUID();
+      const cancelledExpenseId = randomUUID();
+      const mutableProjectionId = randomUUID();
 
       await transaction`
         insert into public.expense_categories (id, owner_id, name)
@@ -604,14 +625,20 @@ describeDatabase("remote database integrity", () => {
           status, payment_method, generated_automatically
         ) values
           (${manualPendingId}, ${firstOwnerId}, 'Manual pending', 1000, 'USD',
-           ${categoryId}, 'business', 'fixed', null, null, '2026-09-02', null,
+           ${categoryId}, 'business', 'fixed', null, null, '2026-10-01', null,
            'pending', null, false),
           (${paidExpenseId}, ${firstOwnerId}, 'Paid history', 1000, 'USD',
-           ${categoryId}, 'business', 'fixed', null, null, '2026-09-01',
-           '2026-09-01', 'paid', 'cash', false),
-          (${generatedExpenseId}, ${firstOwnerId}, 'Generated history', 1000,
+           ${categoryId}, 'business', 'fixed', ${recurringExpenseId},
+           '2026-11', '2026-11-01', '2026-11-01', 'paid', 'cash', true),
+          (${pastExpenseId}, ${firstOwnerId}, 'Past projection', 1000, 'USD',
+           ${categoryId}, 'business', 'fixed', ${recurringExpenseId},
+           '2026-08', '2026-08-01', null, 'pending', null, true),
+          (${cancelledExpenseId}, ${firstOwnerId}, 'Cancelled projection', 1000,
            'USD', ${categoryId}, 'business', 'fixed', ${recurringExpenseId},
-           '2026-09', '2026-09-02', null, 'pending', null, true)
+           '2026-12', '2026-12-01', null, 'cancelled', null, true),
+          (${mutableProjectionId}, ${firstOwnerId}, 'Mutable projection', 1000,
+           'USD', ${categoryId}, 'business', 'fixed', ${recurringExpenseId},
+           '2026-10', '2026-10-01', null, 'pending', null, true)
       `;
 
       await transaction`
@@ -625,23 +652,40 @@ describeDatabase("remote database integrity", () => {
 
       const deleted = await transaction`
         delete from public.expenses
-        where id = any(${[
-          manualPendingId,
-          paidExpenseId,
-          generatedExpenseId,
-        ]}::uuid[])
+        where owner_id = ${firstOwnerId}
+          and recurring_expense_id = ${recurringExpenseId}
+          and id = any(${[
+            manualPendingId,
+            paidExpenseId,
+            pastExpenseId,
+            cancelledExpenseId,
+            mutableProjectionId,
+          ]}::uuid[])
+          and due_date >= '2026-09-10'
+          and generated_automatically = true
+          and status in ('planned', 'pending')
         returning id
       `;
       const retained = await transaction`
         select id
         from public.expenses
-        where id = any(${[paidExpenseId, generatedExpenseId]}::uuid[])
+        where id = any(${[
+          manualPendingId,
+          paidExpenseId,
+          pastExpenseId,
+          cancelledExpenseId,
+        ]}::uuid[])
         order by id
       `;
 
-      expect(deleted.map((row) => row.id)).toEqual([manualPendingId]);
+      expect(deleted.map((row) => row.id)).toEqual([mutableProjectionId]);
       expect(retained.map((row) => row.id).sort()).toEqual(
-        [paidExpenseId, generatedExpenseId].sort(),
+        [
+          manualPendingId,
+          paidExpenseId,
+          pastExpenseId,
+          cancelledExpenseId,
+        ].sort(),
       );
     });
   });

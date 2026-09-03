@@ -48,7 +48,7 @@ describeDatabase("safe idempotent demo seed through RLS", () => {
         const expected = createDemoSeedData(ownerId);
         await runAsOwner(ownerId, async (ownerDatabase) => {
           const [identity] = await ownerDatabase.execute<{ current_user: string; auth_uid: string }>(sql`select current_user, auth.uid()::text as auth_uid`);
-          expect(identity).toEqual({ current_user: "authenticated", auth_uid: ownerId });
+          expect(identity).toEqual({ current_user: "kazeos_backend", auth_uid: ownerId });
 
           const count = async (table: typeof clients | typeof services | typeof charges | typeof payments | typeof tasks | typeof clientNotes) => {
             const [row] = await ownerDatabase.select({ value: sql<number>`count(*)::int` }).from(table).where(eq(table.ownerId, ownerId));
