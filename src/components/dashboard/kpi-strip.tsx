@@ -13,17 +13,26 @@ const financialCards = [
   { key: "projectedBalance", label: "Balance proyectado", note: "Ingresos menos gastos", icon: Scale, tone: "balance", href: "/expenses" },
 ] as const;
 
+function projectedBalanceState(value: string) {
+  const balance = BigInt(value);
+  if (balance < BigInt(0)) return { label: "Déficit proyectado", tone: "negative" } as const;
+  if (balance === BigInt(0)) return { label: "Equilibrio proyectado", tone: "neutral" } as const;
+  return { label: "Superávit proyectado", tone: "positive" } as const;
+}
+
 export function KpiStrip({ metrics, selectedCurrency = "USD" }: { metrics: DashboardMetrics; selectedCurrency?: "USD" | "ARS" }) {
+  const balanceState = projectedBalanceState(metrics.projectedBalance[selectedCurrency]);
+
   return (
     <section className="dashboard-kpis" aria-label="Indicadores del negocio">
       <div className="dashboard-financial-strip">
         {financialCards.map(({ key, label, note, icon: Icon, tone, ...card }) => (
-          <article className={`dashboard-kpi dashboard-kpi--${tone}`} key={key}>
+          <article className={`dashboard-kpi dashboard-kpi--${key === "projectedBalance" ? `balance-${balanceState.tone}` : tone}`} key={key}>
             <header><span aria-hidden="true"><Icon size={17} /></span><h2>{"href" in card ? <Link href={card.href}>{label}</Link> : label}</h2></header>
             <div className="dashboard-money-pair">
               <strong>{formatAggregateMoney(metrics[key][selectedCurrency], selectedCurrency)}</strong>
             </div>
-            <p>{note}</p>
+            <p>{key === "projectedBalance" ? balanceState.label : note}</p>
           </article>
         ))}
       </div>

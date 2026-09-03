@@ -49,7 +49,7 @@ describe("AppShell", () => {
     useSearchParamsMock.mockReturnValue(new URLSearchParams("currency=USD"));
   });
 
-  it("shows the currency selector on the dashboard and expense workspace", () => {
+  it("shows the topbar currency selector only on the dashboard", () => {
     useThemeMock.mockReturnValue({ theme: "system", setTheme: vi.fn() });
     const { rerender } = render(
       <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
@@ -67,8 +67,15 @@ describe("AppShell", () => {
         Contenido
       </AppShell>,
     );
-    expect(screen.getByRole("group", { name: "Moneda del resumen" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "ARS" })).toHaveAttribute("href", "/expenses?currency=ARS");
+    expect(screen.queryByRole("group", { name: "Moneda del resumen" })).not.toBeInTheDocument();
+
+    usePathnameMock.mockReturnValue("/expenses/recurring");
+    rerender(
+      <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
+        Contenido
+      </AppShell>,
+    );
+    expect(screen.queryByRole("group", { name: "Moneda del resumen" })).not.toBeInTheDocument();
 
     usePathnameMock.mockReturnValue("/clients");
     rerender(

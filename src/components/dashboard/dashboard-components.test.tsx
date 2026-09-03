@@ -81,6 +81,33 @@ describe("dashboard components", () => {
     expect(document.querySelector(".dashboard-movement-mark--expense .lucide-receipt")).toBeInTheDocument();
   });
 
+  it("tones projected balance from the exact aggregate sign", () => {
+    const { rerender } = render(
+      <KpiStrip
+        metrics={{ ...metrics, projectedBalance: { USD: "-9007199254740993", ARS: "0" } }}
+        selectedCurrency="USD"
+      />,
+    );
+    const balanceCard = screen.getByRole("heading", { name: "Balance proyectado" }).closest("article");
+    expect(balanceCard).toHaveClass("dashboard-kpi--balance-negative");
+    expect(balanceCard).toHaveTextContent("Déficit proyectado");
+
+    rerender(
+      <KpiStrip metrics={{ ...metrics, projectedBalance: { USD: "0", ARS: "0" } }} selectedCurrency="USD" />,
+    );
+    expect(balanceCard).toHaveClass("dashboard-kpi--balance-neutral");
+    expect(balanceCard).toHaveTextContent("Equilibrio proyectado");
+
+    rerender(
+      <KpiStrip
+        metrics={{ ...metrics, projectedBalance: { USD: "9007199254740993", ARS: "0" } }}
+        selectedCurrency="USD"
+      />,
+    );
+    expect(balanceCard).toHaveClass("dashboard-kpi--balance-positive");
+    expect(balanceCard).toHaveTextContent("Superávit proyectado");
+  });
+
   it("keeps CTA-backed empty states", () => {
     const { rerender } = render(<UpcomingCharges charges={[]} today="2026-08-15" />);
     expect(screen.getByRole("link", { name: "Crear primer cobro" })).toHaveAttribute("href", "/charges/new");

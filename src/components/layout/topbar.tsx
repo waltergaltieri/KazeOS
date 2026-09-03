@@ -83,12 +83,12 @@ export function Topbar({ user, onOpenNavigation, navigationTriggerRef }: TopbarP
       </div>
 
       <div className="topbar-actions">
-        {pathname === "/dashboard" || pathname.startsWith("/expenses") ? (
+        {pathname === "/dashboard" ? (
           <nav className="dashboard-currency-selector" aria-label="Moneda del resumen" role="group">
             {(["USD", "ARS"] as const).map((currency) => (
               <Link
                 key={currency}
-                href={`${pathname.startsWith("/expenses") ? "/expenses" : "/dashboard"}?currency=${currency}`}
+                href={`/dashboard?currency=${currency}`}
                 className={selectedCurrency === currency ? "is-active" : undefined}
                 aria-current={selectedCurrency === currency ? "true" : undefined}
               >
