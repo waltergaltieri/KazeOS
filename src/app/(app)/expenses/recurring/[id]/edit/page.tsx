@@ -4,11 +4,14 @@ import { ExpenseForm, type ExpenseFormDefaults } from "@/components/expenses/exp
 import { updateRecurringExpenseAction } from "@/lib/actions/recurring-expenses";
 import { buildRecurringPeriods } from "@/lib/domain/recurrence";
 import { getExpenseFormOptions, getRecurringExpenseById } from "@/lib/queries/expenses";
+import { recurringExpenseIdSchema } from "@/lib/validations/expense";
 
 export default async function EditRecurringExpensePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const idResult = recurringExpenseIdSchema.safeParse(id);
+  if (!idResult.success) notFound();
   const [recurringExpense, options] = await Promise.all([
-    getRecurringExpenseById(id),
+    getRecurringExpenseById(idResult.data),
     getExpenseFormOptions({ includeInactive: true }),
   ]);
   if (!recurringExpense || recurringExpense.status === "cancelled") notFound();
@@ -53,6 +56,7 @@ export default async function EditRecurringExpensePage({ params }: { params: Pro
         <p>Los pagos y vencimientos históricos permanecen intactos.</p>
       </header>
       <ExpenseForm
+        key={`recurring-expense-edit:${recurringExpense.id}`}
         recurringAction={updateRecurringExpenseAction}
         categories={options.categories}
         defaults={defaults}

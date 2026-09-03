@@ -4,12 +4,15 @@ import { ExpenseForm, type ExpenseFormDefaults } from "@/components/expenses/exp
 import { updateExpenseAction } from "@/lib/actions/expenses";
 import { todayInBusinessZone } from "@/lib/domain/commercial-date";
 import { getExpenseById, getExpenseFormOptions } from "@/lib/queries/expenses";
+import { expenseIdSchema } from "@/lib/validations/expense";
 
 export default async function EditExpensePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const idResult = expenseIdSchema.safeParse(id);
+  if (!idResult.success) notFound();
   const today = todayInBusinessZone(new Date());
   const [expense, options] = await Promise.all([
-    getExpenseById(id, today),
+    getExpenseById(idResult.data, today),
     getExpenseFormOptions({ includeInactive: true }),
   ]);
 
@@ -47,6 +50,7 @@ export default async function EditExpensePage({ params }: { params: Promise<{ id
         <p>La corrección conserva la identidad y el historial de la obligación.</p>
       </header>
       <ExpenseForm
+        key={`expense-edit:${expense.id}`}
         oneOffAction={updateExpenseAction}
         categories={options.categories}
         defaults={defaults}

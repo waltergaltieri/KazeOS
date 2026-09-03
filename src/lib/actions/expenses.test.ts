@@ -163,6 +163,37 @@ describe("expense actions", () => {
     );
   });
 
+  it("rolls back the inserted draft when marking a new paid expense fails", async () => {
+    const persisted: string[] = [];
+    mocks.withAuthenticatedDb.mockImplementation(async (
+      _ownerId: string,
+      operation: (database: { staged: string[] }) => Promise<unknown>,
+    ) => {
+      const database = { staged: [] as string[] };
+      const result = await operation(database);
+      persisted.push(...database.staged);
+      return result;
+    });
+    mocks.createManualExpense.mockImplementation(async (database: { staged: string[] }) => {
+      database.staged.push(expenseId);
+      return { id: expenseId };
+    });
+    mocks.markExpensePaid.mockRejectedValue(new Error("payment write failed"));
+
+    const result = await createExpenseAction(
+      { status: "idle" },
+      expenseForm({
+        status: "paid",
+        paidDate: "2026-09-21",
+        paymentMethod: "credit_card",
+      }),
+    );
+
+    expect(result).toMatchObject({ status: "error" });
+    expect(persisted).toEqual([]);
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
   it("authenticates before returning structured validation errors", async () => {
     const result = await createExpenseAction(
       { status: "idle" },

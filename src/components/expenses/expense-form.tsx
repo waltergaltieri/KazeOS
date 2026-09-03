@@ -21,6 +21,16 @@ type ExpenseFormAction = (
   data: FormData,
 ) => Promise<ExpenseFormState>;
 
+interface ExpenseFormProps {
+  oneOffAction?: ExpenseFormAction;
+  recurringAction?: ExpenseFormAction;
+  categories: ExpenseCategoryOption[];
+  defaultCurrency?: "USD" | "ARS";
+  defaults?: ExpenseFormDefaults;
+  mode?: "create" | "edit" | "recurring-edit";
+  forceRecurring?: boolean;
+}
+
 type ExpenseCategoryOption = {
   id: string;
   name: string;
@@ -70,7 +80,20 @@ function FieldError({ id, message }: { id: string; message?: string }) {
   return message ? <small id={id} className="field-error">{message}</small> : null;
 }
 
-export function ExpenseForm({
+export function ExpenseForm(props: ExpenseFormProps) {
+  const defaults = props.defaults ?? {};
+  const resetKey = JSON.stringify({
+    categories: props.categories.map(({ id, active }) => [id, active]),
+    defaultCurrency: props.defaultCurrency ?? "USD",
+    defaults,
+    forceRecurring: props.forceRecurring ?? false,
+    mode: props.mode ?? "create",
+  });
+
+  return <ExpenseFormFields key={resetKey} {...props} defaults={defaults} />;
+}
+
+function ExpenseFormFields({
   oneOffAction,
   recurringAction,
   categories,
@@ -78,15 +101,7 @@ export function ExpenseForm({
   defaults = {},
   mode = "create",
   forceRecurring = false,
-}: {
-  oneOffAction?: ExpenseFormAction;
-  recurringAction?: ExpenseFormAction;
-  categories: ExpenseCategoryOption[];
-  defaultCurrency?: "USD" | "ARS";
-  defaults?: ExpenseFormDefaults;
-  mode?: "create" | "edit" | "recurring-edit";
-  forceRecurring?: boolean;
-}) {
+}: ExpenseFormProps) {
   const router = useRouter();
   const [oneOffState, oneOffFormAction, oneOffPending] = useActionState(
     oneOffAction ?? unavailableAction,
@@ -305,7 +320,16 @@ export function ExpenseForm({
                 />
                 <FieldError id="expense-frequency-error" message={error("frequency")} />
               </div>
-              <input type="hidden" name="billingDay" value={billingDayFromDate(dueDate)} />
+              <input
+                type="hidden"
+                name="billingDay"
+                value={mode === "recurring-edit"
+                  ? defaults.billingDay ?? ""
+                  : billingDayFromDate(dueDate)}
+              />
+              {mode === "recurring-edit" ? (
+                <input type="hidden" name="startDate" value={defaults.startDate ?? ""} />
+              ) : null}
               <div className="field-stack">
                 <span>Fin opcional</span>
                 <MiniDatePicker

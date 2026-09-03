@@ -64,13 +64,13 @@ describe("ChargeForm", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Vencimiento: 15/09/2026" }));
+    await user.click(screen.getByRole("combobox", { name: "Vencimiento: 15/09/2026" }));
     expect(screen.getByRole("dialog", { name: "Seleccionar vencimiento" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Mes siguiente" }));
     expect(screen.getByText("octubre 2026")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "20/10/2026" }));
 
-    expect(screen.getByRole("button", { name: "Vencimiento: 20/10/2026" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Vencimiento: 20/10/2026" })).toBeVisible();
     expect(document.querySelector('input[type="hidden"][name="dueDate"]')).toHaveValue("2026-10-20");
   });
 
@@ -100,7 +100,7 @@ describe("ChargeForm", () => {
     );
     expect(screen.getByLabelText("Concepto *")).toHaveValue("Mantenimiento");
     expect(screen.getByLabelText("Monto *")).toHaveValue("123,45");
-    expect(screen.getByRole("button", { name: "Vencimiento: 15/09/2026" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Vencimiento: 15/09/2026" })).toBeVisible();
     expect(document.querySelector('input[type="hidden"][name="dueDate"]')).toHaveValue("2026-09-15");
     expect(document.querySelector('input[name="currency"]')).toHaveValue("ARS");
     expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeVisible();

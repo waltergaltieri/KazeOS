@@ -31,11 +31,16 @@ export interface RecurringExpenseActionState {
   fieldErrors?: Record<string, string[]>;
 }
 
-function expenseInputFromFormData(formData: FormData) {
+function expenseInputFromFormData(
+  formData: FormData,
+  options: { preserveAnchor: boolean },
+) {
   const dueDate = formData.get("dueDate");
-  const billingDay = typeof dueDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)
-    ? dueDate.slice(8, 10)
-    : null;
+  const billingDay = options.preserveAnchor
+    ? formData.get("billingDay")
+    : typeof dueDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)
+      ? dueDate.slice(8, 10)
+      : null;
   return {
     amount: formData.get("amount"),
     automaticGeneration: formData.get("automaticGeneration"),
@@ -52,7 +57,7 @@ function expenseInputFromFormData(formData: FormData) {
     paymentMethod: formData.get("paymentMethod"),
     recurring: formData.get("recurring"),
     scope: formData.get("scope"),
-    startDate: dueDate,
+    startDate: options.preserveAnchor ? formData.get("startDate") : dueDate,
     status: formData.get("status") || undefined,
     title: formData.get("title"),
     vendor: formData.get("vendor"),
@@ -130,7 +135,7 @@ export async function createRecurringExpenseAction(
   formData: FormData,
 ): Promise<RecurringExpenseActionState> {
   const user = await requireUser();
-  const parsed = expenseFormSchema.safeParse(expenseInputFromFormData(formData));
+  const parsed = expenseFormSchema.safeParse(expenseInputFromFormData(formData, { preserveAnchor: false }));
   if (!parsed.success) return validationError(parsed.error);
 
   const values = recurringValues(parsed.data);
@@ -169,7 +174,7 @@ export async function updateRecurringExpenseAction(
   const idResult = recurringExpenseIdSchema.safeParse(
     formData.get("recurringExpenseId"),
   );
-  const parsed = expenseFormSchema.safeParse(expenseInputFromFormData(formData));
+  const parsed = expenseFormSchema.safeParse(expenseInputFromFormData(formData, { preserveAnchor: true }));
   if (!idResult.success) {
     return { message: "El gasto recurrente no es válido.", status: "error" };
   }
@@ -238,22 +243,22 @@ async function runLifecycleAction(
   }
 }
 
-export function pauseRecurringExpenseAction(
+export async function pauseRecurringExpenseAction(
   _previousState: RecurringExpenseActionState,
   formData: FormData,
 ) {
-  return runLifecycleAction(
+  return await runLifecycleAction(
     formData,
     pauseRecurringExpense,
     "No pudimos pausar el gasto recurrente.",
   );
 }
 
-export function cancelRecurringExpenseAction(
+export async function cancelRecurringExpenseAction(
   _previousState: RecurringExpenseActionState,
   formData: FormData,
 ) {
-  return runLifecycleAction(
+  return await runLifecycleAction(
     formData,
     cancelRecurringExpense,
     "No pudimos cancelar el gasto recurrente.",

@@ -85,4 +85,43 @@ describe("ExpenseFilters", () => {
     expect(screen.getByLabelText("Desde")).toBeRequired();
     expect(screen.getByLabelText("Hasta")).toBeRequired();
   });
+
+  it("synchronizes every control when URL params change in place", () => {
+    const { rerender } = render(
+      <ExpenseFilters
+        params={params}
+        categories={[{ id: params.categoryId, label: "Software" }]}
+      />,
+    );
+
+    rerender(
+      <ExpenseFilters
+        params={{
+          q: "seguro",
+          status: "paid",
+          period: "next_month",
+          month: "2026-10",
+          categoryId: "",
+          scope: "family",
+          costType: "variable",
+          recurrence: "one_off",
+          currency: "ARS",
+        }}
+        categories={[{ id: params.categoryId, label: "Software" }]}
+      />,
+    );
+
+    expect(screen.getByRole("searchbox", { name: "Buscar gastos" })).toHaveValue("seguro");
+    expect(screen.getByLabelText("Mes de referencia")).toHaveValue("2026-10");
+    expect(screen.getByRole("combobox", { name: "Período" })).toHaveTextContent("Próximo mes");
+    expect(screen.getByRole("combobox", { name: "Categoría" })).toHaveTextContent("Todas");
+    expect(screen.getByRole("combobox", { name: "Ámbito" })).toHaveTextContent("Familia");
+    expect(screen.getByRole("combobox", { name: "Tipo" })).toHaveTextContent("Variable");
+    expect(screen.getByRole("combobox", { name: "Recurrencia" })).toHaveTextContent("Únicos");
+    expect(screen.getByRole("combobox", { name: "Moneda" })).toHaveTextContent("ARS");
+    expect(screen.getByLabelText("Desde")).toHaveValue("");
+    expect(screen.getByLabelText("Hasta")).toHaveValue("");
+    expect(screen.getByLabelText("Desde")).not.toBeRequired();
+    expect(screen.getByLabelText("Hasta")).not.toBeRequired();
+  });
 });

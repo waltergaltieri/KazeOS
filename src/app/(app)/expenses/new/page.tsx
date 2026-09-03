@@ -51,6 +51,7 @@ export default async function NewExpensePage({
         <p>Dejá visible la obligación ahora; ampliá el detalle sólo si hace falta.</p>
       </header>
       <ExpenseForm
+        key={duplicateId ? `expense-duplicate:${duplicateId}` : forceRecurring ? "expense-new:recurring" : "expense-new:one-off"}
         oneOffAction={createExpenseAction}
         recurringAction={createRecurringExpenseAction}
         categories={options.categories}

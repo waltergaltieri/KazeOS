@@ -71,4 +71,13 @@ describe("EditExpensePage", () => {
       .rejects.toThrow("NEXT_NOT_FOUND");
     expect(mocks.notFound).toHaveBeenCalledOnce();
   });
+
+  it("returns not found for an invalid id before querying expense data", async () => {
+    await expect(EditExpensePage({ params: Promise.resolve({ id: "not-a-uuid" }) }))
+      .rejects.toThrow("NEXT_NOT_FOUND");
+
+    expect(mocks.notFound).toHaveBeenCalledOnce();
+    expect(mocks.getExpenseById).not.toHaveBeenCalled();
+    expect(mocks.getExpenseFormOptions).not.toHaveBeenCalled();
+  });
 });

@@ -30,6 +30,7 @@ import {
   updateRecurringExpenseAction,
 } from "./recurring-expenses";
 import { ExpenseCategoryInactiveError } from "@/lib/services/expense-category-manager";
+import { buildRecurringPeriods } from "@/lib/domain/recurrence";
 
 const ownerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const categoryId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -53,6 +54,7 @@ function recurringFormData() {
   data.set("recurring", "on");
   data.set("frequency", "monthly");
   data.set("billingDay", "31");
+  data.set("startDate", "2026-09-10");
   data.set("endDate", "");
   data.set("automaticGeneration", "on");
   return data;
@@ -181,6 +183,21 @@ describe("recurring expense actions", () => {
     );
   });
 
+  it("keeps the original day-31 anchor when editing through a February occurrence", async () => {
+    const data = recurringFormData();
+    data.set("recurringExpenseId", recurringExpenseId);
+    data.set("dueDate", "2026-02-28");
+    data.set("startDate", "2026-01-31");
+    data.set("billingDay", "31");
+
+    await updateRecurringExpenseAction({ status: "idle" }, data);
+
+    const values = mocks.updateRecurringExpenseWithOccurrences.mock.calls[0]![1].values;
+    expect(values).toMatchObject({ startDate: "2026-01-31", billingDay: 31 });
+    expect(buildRecurringPeriods({ ...values, label: values.title }, "2026-03-01", 2).map(({ dueDate }) => dueDate))
+      .toEqual(["2026-03-31", "2026-04-30"]);
+  });
+
   it.each([
     [pauseRecurringExpenseAction, mocks.pauseRecurringExpense],
     [cancelRecurringExpenseAction, mocks.cancelRecurringExpense],
@@ -197,5 +214,10 @@ describe("recurring expense actions", () => {
       ownerId,
       recurringExpenseId,
     });
+  });
+
+  it("exports lifecycle server actions as native async functions", () => {
+    expect(pauseRecurringExpenseAction.constructor.name).toBe("AsyncFunction");
+    expect(cancelRecurringExpenseAction.constructor.name).toBe("AsyncFunction");
   });
 });

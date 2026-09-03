@@ -68,13 +68,24 @@ function HiddenScope({ params, omit = [] }: { params: ExpenseFilterParams; omit?
   ))}</>;
 }
 
-export function ExpenseFilters({
-  params,
-  categories,
-}: {
+interface ExpenseFiltersProps {
   params: ExpenseFilterParams;
   categories: FilterOption[];
-}) {
+}
+
+export function ExpenseFilters(props: ExpenseFiltersProps) {
+  const controlsKey = [
+    ...queryOrder.map((key) => `${key}:${props.params[key] ?? ""}`),
+    ...props.categories.map((category) => `${category.id}:${category.label}`),
+  ].join("|");
+
+  return <ExpenseFilterControls key={controlsKey} {...props} />;
+}
+
+function ExpenseFilterControls({
+  params,
+  categories,
+}: ExpenseFiltersProps) {
   const status = statuses.some((item) => item.value === params.status) ? params.status! : "all";
   const period = periodOptions.some((item) => item.value === params.period) ? params.period! : "current_month";
   const [selectedPeriod, setSelectedPeriod] = useState(period);

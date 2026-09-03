@@ -63,6 +63,7 @@ describe("EditRecurringExpensePage", () => {
         categoryId: category.id,
         dueDate: "2026-09-10",
         billingDay: 10,
+        startDate: "2026-09-01",
       },
     });
   });
@@ -76,4 +77,13 @@ describe("EditRecurringExpensePage", () => {
       expect(mocks.notFound).toHaveBeenCalledOnce();
     },
   );
+
+  it("returns not found for an invalid id before querying recurring data", async () => {
+    await expect(EditRecurringExpensePage({ params: Promise.resolve({ id: "not-a-uuid" }) }))
+      .rejects.toThrow("NEXT_NOT_FOUND");
+
+    expect(mocks.notFound).toHaveBeenCalledOnce();
+    expect(mocks.getRecurringExpenseById).not.toHaveBeenCalled();
+    expect(mocks.getExpenseFormOptions).not.toHaveBeenCalled();
+  });
 });

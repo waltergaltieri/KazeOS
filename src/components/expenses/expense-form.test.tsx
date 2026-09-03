@@ -59,7 +59,7 @@ describe("ExpenseForm", () => {
     expect(within(primary).getByRole("combobox", { name: "Categoría" })).toHaveAttribute("aria-required", "true");
     expect(within(primary).getByRole("combobox", { name: "Ámbito" })).toHaveAttribute("aria-required", "true");
     expect(within(primary).getByRole("combobox", { name: "Tipo de costo" })).toHaveAttribute("aria-required", "true");
-    expect(within(primary).getByRole("button", { name: "Vencimiento: sin fecha" })).toHaveAccessibleDescription("Campo obligatorio.");
+    expect(within(primary).getByRole("combobox", { name: "Vencimiento: sin fecha" })).toHaveAccessibleDescription("Campo obligatorio.");
     expect(document.querySelector('input[name="status"]')).toHaveValue("pending");
     expect(screen.getByText("Información adicional")).toBeVisible();
   });
@@ -80,13 +80,13 @@ describe("ExpenseForm", () => {
     await user.click(screen.getByText("Información adicional"));
     await user.click(screen.getByRole("combobox", { name: "Estado" }));
     await user.click(screen.getByRole("option", { name: "Pagado" }));
-    expect(screen.getByRole("button", { name: "Fecha de pago: sin fecha" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Fecha de pago: sin fecha" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Método de pago" })).toBeVisible();
 
     await user.click(screen.getByRole("checkbox", { name: "Repetir este gasto" }));
     expect(screen.getByRole("group", { name: "Regla de recurrencia" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Frecuencia" })).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Fecha de pago: sin fecha" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Fecha de pago: sin fecha" })).not.toBeInTheDocument();
     expect(document.querySelector('input[name="status"]')).toHaveValue("pending");
 
     await user.click(screen.getByRole("combobox", { name: "Estado" }));
@@ -122,7 +122,7 @@ describe("ExpenseForm", () => {
     expect(document.querySelector('input[name="title"]')).toHaveValue("Seguro del auto");
     expect(screen.getByLabelText("Monto *")).toHaveValue("125.000");
     expect(screen.getByRole("combobox", { name: "Ámbito" })).toHaveTextContent("Familia");
-    expect(screen.getByRole("button", { name: "Vencimiento: 15/09/2026" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Vencimiento: 15/09/2026" })).toBeVisible();
     expect(screen.getByLabelText("Descripción")).toHaveValue("Cobertura anual");
     expect(screen.getByLabelText("Proveedor")).toHaveValue("Aseguradora Sur");
     expect(screen.getByLabelText("Notas")).toHaveValue("Póliza 42");
@@ -142,7 +142,7 @@ describe("ExpenseForm", () => {
     await user.click(screen.getByText("Información adicional"));
     await user.click(screen.getByRole("combobox", { name: "Estado" }));
     await user.click(screen.getByRole("option", { name: "Pagado" }));
-    await user.click(screen.getByRole("button", { name: "Fecha de pago: sin fecha" }));
+    await user.click(screen.getByRole("combobox", { name: "Fecha de pago: sin fecha" }));
     await user.click(screen.getByRole("button", { name: "18/09/2026" }));
     await user.click(screen.getByRole("combobox", { name: "Método de pago" }));
     await user.click(screen.getByRole("option", { name: "Tarjeta de crédito" }));
@@ -155,7 +155,7 @@ describe("ExpenseForm", () => {
       paidDate: "2026-09-18",
       paymentMethod: "credit_card",
     });
-    expect(screen.getByRole("button", { name: "Fecha de pago: 18/09/2026" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Fecha de pago: 18/09/2026" })).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Método de pago" })).toHaveTextContent("Tarjeta de crédito");
   });
 
@@ -179,7 +179,7 @@ describe("ExpenseForm", () => {
     );
 
     expect(screen.queryByLabelText("Inicio *")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Fin: 15/09/2027" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Fin: 15/09/2027" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Guardar recurrencia" }));
 
     await screen.findByRole("alert");
@@ -190,8 +190,80 @@ describe("ExpenseForm", () => {
     expect(formData.get("endDate")).toBe("2027-09-15");
     expect(formData.get("status")).toBe("pending");
     expect(screen.getByRole("combobox", { name: "Frecuencia" })).toHaveTextContent("Trimestral");
-    expect(screen.getByRole("button", { name: "Fin: 15/09/2027" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Fin: 15/09/2027" })).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Generar vencimientos automáticamente" })).toBeChecked();
+  });
+
+  it("preserves the original recurrence anchor when editing a clamped occurrence", async () => {
+    const user = userEvent.setup();
+    const action = vi.fn().mockResolvedValue({ status: "error", message: "Control" });
+    render(
+      <ExpenseForm
+        recurringAction={action}
+        categories={[activeCategory]}
+        forceRecurring
+        mode="recurring-edit"
+        defaults={{
+          ...defaults,
+          recurringExpenseId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          categoryId: activeCategory.id,
+          dueDate: "2026-02-28",
+          startDate: "2026-01-31",
+          billingDay: 31,
+          frequency: "monthly",
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await screen.findByRole("alert");
+
+    const formData = action.mock.calls[0]![1] as FormData;
+    expect(formData.get("dueDate")).toBe("2026-02-28");
+    expect(formData.get("startDate")).toBe("2026-01-31");
+    expect(formData.get("billingDay")).toBe("31");
+  });
+
+  it("resets every default-backed control when the form identity changes", () => {
+    const { rerender } = render(
+      <ExpenseForm
+        oneOffAction={vi.fn()}
+        categories={[activeCategory]}
+        defaults={{
+          ...defaults,
+          categoryId: activeCategory.id,
+          title: "Internet",
+          amountMinor: 45_000_00,
+          dueDate: "2026-09-15",
+          scope: "business",
+        }}
+      />,
+    );
+
+    rerender(
+      <ExpenseForm
+        oneOffAction={vi.fn()}
+        categories={[activeCategory]}
+        forceRecurring
+        defaults={{
+          title: "Alquiler",
+          amountMinor: 90_000_00,
+          currency: "USD",
+          categoryId: activeCategory.id,
+          scope: "family",
+          costType: "variable",
+          dueDate: "2026-10-31",
+          frequency: "monthly",
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Título *")).toHaveValue("Alquiler");
+    expect(screen.getByLabelText("Monto *")).toHaveValue("90.000,00");
+    expect(screen.getByRole("combobox", { name: "Moneda" })).toHaveTextContent("USD");
+    expect(screen.getByRole("combobox", { name: "Ámbito" })).toHaveTextContent("Familia");
+    expect(screen.getByRole("combobox", { name: "Vencimiento: 31/10/2026" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Regla de recurrencia" })).toBeVisible();
   });
 
   it("excludes inactive categories on create but retains the historical selection on edit", () => {

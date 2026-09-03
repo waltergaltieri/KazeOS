@@ -37,7 +37,9 @@ export function MiniDatePicker({
   const [month, setMonth] = useState(initialDate ?? new Date());
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const id = useId();
+  const dialogId = `${id}-dialog`;
   const errorId = `${id}-error`;
   const requiredId = `${id}-required`;
   const describedBy = [required ? requiredId : null, error ? errorId : null]
@@ -51,6 +53,11 @@ export function MiniDatePicker({
     [month],
   );
 
+  function closeCalendar(restoreFocus = false) {
+    setOpen(false);
+    if (restoreFocus) triggerRef.current?.focus();
+  }
+
   return (
     <div
       ref={rootRef}
@@ -59,15 +66,22 @@ export function MiniDatePicker({
         if (!rootRef.current?.contains(event.relatedTarget)) setOpen(false);
       }}
       onKeyDown={(event) => {
-        if (event.key === "Escape") setOpen(false);
+        if (event.key === "Escape" && open) {
+          event.preventDefault();
+          closeCalendar(true);
+        }
       }}
     >
       <button
+        ref={triggerRef}
         className="form-control mini-date-picker__trigger"
         type="button"
+        role="combobox"
         aria-label={`${label}: ${selected ? format(parseISO(selected), "dd/MM/yyyy") : "sin fecha"}`}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-controls={open ? dialogId : undefined}
+        aria-invalid={Boolean(error) || undefined}
         aria-describedby={describedBy}
         onClick={() => setOpen((value) => !value)}
       >
@@ -77,7 +91,7 @@ export function MiniDatePicker({
       <input type="hidden" name={name} value={selected} />
       {required ? <span id={requiredId} className="sr-only">Campo obligatorio.</span> : null}
       {open ? (
-        <div className="mini-calendar" role="dialog" aria-label={`Seleccionar ${label.toLowerCase()}`}>
+        <div id={dialogId} className="mini-calendar" role="dialog" aria-label={`Seleccionar ${label.toLowerCase()}`}>
           <header>
             <button type="button" className="icon-button" aria-label="Mes anterior" onClick={() => setMonth((value) => subMonths(value, 1))}>
               <ChevronLeft size={16} aria-hidden="true" />
@@ -104,7 +118,7 @@ export function MiniDatePicker({
                   onClick={() => {
                     setSelected(iso);
                     onValueChange?.(iso);
-                    setOpen(false);
+                    closeCalendar(true);
                   }}
                 >
                   {format(day, "d")}
