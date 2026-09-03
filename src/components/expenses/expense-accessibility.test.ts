@@ -26,12 +26,18 @@ describe("expense ledger accessibility styles", () => {
     for (const theme of [tokensFor(":root"), tokensFor(".dark")]) {
       expect(contrast(theme["ink-tertiary"], theme["paper-sheet"])).toBeGreaterThanOrEqual(4.5);
       expect(contrast(theme["ink-tertiary"], theme["paper-canvas"])).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(theme["ink-secondary"], theme["reminder-amber-soft"])).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(theme["ink-secondary"], theme["collection-green-soft"])).toBeGreaterThanOrEqual(4.5);
+      for (const [foreground, background] of [
+        ["ink-secondary", "paper-inset"],
+        ["ink-secondary", "reminder-amber-soft"],
+        ["overdue-red", "overdue-red-soft"],
+        ["ink-secondary", "collection-green-soft"],
+      ] as const) {
+        expect(contrast(theme[foreground], theme[background])).toBeGreaterThanOrEqual(4.5);
+      }
     }
     expect(css).toMatch(/\.expenses-page\s*\{[^}]*--expense-small-muted:\s*var\(--ink-tertiary\)[^}]*--expense-small-semantic:\s*var\(--ink-secondary\)/);
     expect(css).toMatch(/\.expenses-page\s+:is\([^}]*\.client-result-count[^}]*\)\s*\{\s*color:\s*var\(--expense-small-muted\)/);
-    expect(css).toMatch(/\.expenses-page\s+:is\([^}]*\.expense-status--pending[^}]*\.expense-status--paid[^}]*\)\s*\{\s*color:\s*var\(--expense-small-semantic\)/);
+    expect(css).toMatch(/\.expenses-page\s+:is\([^}]*\.expense-status--planned[^}]*\.expense-status--pending[^}]*\.expense-status--paid[^}]*\.expense-status--cancelled[^}]*\.recurring-expense-status--active[^}]*\.recurring-expense-status--paused[^}]*\.recurring-expense-status--cancelled[^}]*\)\s*\{\s*color:\s*var\(--expense-small-semantic\)/);
   });
 
   it("keeps mobile recurrence management and edit, cancel and delete targets reachable at 44px", () => {

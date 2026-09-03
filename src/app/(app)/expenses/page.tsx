@@ -1,5 +1,6 @@
 import { CalendarClock, Plus } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { ExpenseFilters, type ExpenseFilterParams } from "@/components/expenses/expense-filters";
 import { ExpenseTable } from "@/components/expenses/expense-table";
@@ -118,6 +119,9 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     getExpenseFormOptions({ includeInactive: true }),
     getRecurringExpenses(),
   ]);
+  if (params.page && page.pagination.totalPages > 0 && page.pagination.page > page.pagination.totalPages) {
+    redirect(paginationHref(params, page.pagination.totalPages));
+  }
 
   return <main className="expenses-page">
     <header className="page-heading page-heading--actions"><div><p className="eyebrow">Libro de obligaciones</p><h1>Gastos</h1><p>Detectá qué vence y resolvelo sin perder contexto.</p></div><Link className="primary-button" href="/expenses/new"><Plus size={17} /> Nuevo gasto</Link></header>

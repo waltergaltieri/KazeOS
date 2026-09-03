@@ -1004,7 +1004,7 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .recurring-expense-status--active { background: var(--collection-green-soft); color: var(--collection-green); }.recurring-expense-status--paused { background: var(--reminder-amber-soft); color: var(--reminder-amber); }.recurring-expense-status--cancelled { background: var(--paper-inset); color: var(--ink-muted); }
 .recurring-expense-empty { display: flex; align-items: center; gap: 10px; padding-top: 16px; color: var(--ink-tertiary); }.recurring-expense-empty p { flex: 1; margin: 0; }
 .expenses-page :is(.client-result-count, .expense-table th, .expense-table td:first-child small, .expense-category > span, .expense-pagination > span[aria-disabled="true"], .recurring-expense-copy span, .recurring-expense-copy small, .expense-card__amount > span, .expense-card dt) { color: var(--expense-small-muted); }
-.expenses-page :is(.expense-status--pending, .expense-status--paid, .recurring-expense-status--active, .recurring-expense-status--paused) { color: var(--expense-small-semantic); }
+.expenses-page :is(.expense-status--planned, .expense-status--pending, .expense-status--paid, .expense-status--cancelled, .recurring-expense-status--active, .recurring-expense-status--paused, .recurring-expense-status--cancelled) { color: var(--expense-small-semantic); }
 
 @media (max-width: 720px) {
   .expenses-page .page-heading--actions { flex-direction: column; align-items: stretch; }

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getExpenses: vi.fn(), getOptions: vi.fn(), getRecurring: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getExpenses: vi.fn(), getOptions: vi.fn(), getRecurring: vi.fn(), redirect: vi.fn() }));
 vi.mock("@/lib/queries/expenses", () => ({
   getExpenses: mocks.getExpenses,
   getExpenseFormOptions: mocks.getOptions,
@@ -9,6 +9,7 @@ vi.mock("@/lib/queries/expenses", () => ({
 }));
 vi.mock("@/lib/domain/commercial-date", () => ({ todayInBusinessZone: () => "2026-09-03" }));
 vi.mock("@/lib/actions/expenses", () => ({ cancelExpenseAction: vi.fn(), correctPaidExpenseAction: vi.fn(), deleteExpenseAction: vi.fn(), markExpensePaidAction: vi.fn() }));
+vi.mock("next/navigation", () => ({ redirect: mocks.redirect, useRouter: () => ({ refresh: vi.fn() }) }));
 
 import ExpensesPage from "./page";
 
@@ -77,5 +78,21 @@ describe("ExpensesPage", () => {
       recurrence: "all",
       currency: undefined,
     }, "2026-09-03");
+  });
+
+  it("redirects a valid page beyond the result set to the last page without looping", async () => {
+    mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 999, pageSize: 25, total: 70, totalPages: 3 } });
+    mocks.getOptions.mockResolvedValue({ categories: [], recurringExpenses: [] });
+    mocks.getRecurring.mockResolvedValue([]);
+
+    await ExpensesPage({ searchParams: Promise.resolve({ q: "nube", status: "pending", currency: "USD", page: "999" }) });
+
+    expect(mocks.redirect).toHaveBeenCalledOnce();
+    expect(mocks.redirect).toHaveBeenCalledWith("/expenses?q=nube&status=pending&currency=USD&page=3");
+
+    mocks.redirect.mockClear();
+    mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 3, pageSize: 25, total: 70, totalPages: 3 } });
+    await ExpensesPage({ searchParams: Promise.resolve({ q: "nube", status: "pending", currency: "USD", page: "3" }) });
+    expect(mocks.redirect).not.toHaveBeenCalled();
   });
 });
