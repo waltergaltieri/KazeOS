@@ -2,17 +2,63 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ profile: vi.fn(), business: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  profile: vi.fn(),
+  business: vi.fn(),
+  getSettings: vi.fn(),
+  getCategories: vi.fn(),
+  createCategory: vi.fn(),
+  updateCategory: vi.fn(),
+  toggleCategory: vi.fn(),
+}));
 vi.mock("@/lib/actions/settings", () => ({
   updateProfileSettingsAction: mocks.profile,
   updateBusinessSettingsAction: mocks.business,
 }));
+vi.mock("@/lib/actions/expense-categories", () => ({
+  createExpenseCategoryAction: mocks.createCategory,
+  updateExpenseCategoryAction: mocks.updateCategory,
+  toggleExpenseCategoryAction: mocks.toggleCategory,
+}));
+vi.mock("@/lib/queries/settings", () => ({ getSettings: mocks.getSettings }));
+vi.mock("@/lib/queries/expense-categories", () => ({
+  getExpenseCategories: mocks.getCategories,
+}));
 
+import SettingsPage from "@/app/(app)/settings/page";
 import { BusinessForm } from "./business-form";
 import { ProfileForm } from "./profile-form";
 
 describe("settings forms", () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.profile.mockResolvedValue({ status: "idle" }); mocks.business.mockResolvedValue({ status: "idle" }); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.profile.mockResolvedValue({ status: "idle" });
+    mocks.business.mockResolvedValue({ status: "idle" });
+    mocks.createCategory.mockResolvedValue({ status: "idle" });
+    mocks.updateCategory.mockResolvedValue({ status: "idle" });
+    mocks.toggleCategory.mockResolvedValue({ status: "idle" });
+    mocks.getSettings.mockResolvedValue({
+      profile: { fullName: "Agustín", email: "admin@example.com" },
+      business: { primaryCurrency: "USD", timezone: "America/Argentina/Buenos_Aires", locale: "es-AR", businessName: null, businessInfo: null },
+    });
+    mocks.getCategories.mockResolvedValue([{
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "Servicios",
+      icon: "Zap",
+      active: true,
+    }]);
+  });
+
+  it("loads settings and all expense categories together without replacing existing forms", async () => {
+    render(await SettingsPage());
+
+    expect(mocks.getSettings).toHaveBeenCalledOnce();
+    expect(mocks.getCategories).toHaveBeenCalledWith({ includeInactive: true });
+    expect(screen.getByRole("heading", { name: "Perfil" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Negocio y región" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Categorías de gastos" })).toBeVisible();
+    expect(screen.getByText("Servicios")).toBeVisible();
+  });
   it("keeps authoritative email read-only and labels profile controls", () => {
     render(<ProfileForm profile={{ fullName: "Agustín", email: "admin@example.com" }} />);
     expect(screen.getByLabelText("Nombre visible")).toHaveValue("Agustín");
