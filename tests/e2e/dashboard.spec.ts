@@ -36,6 +36,9 @@ test.describe("authenticated dashboard summary", () => {
     const chargeId = randomUUID();
     const paymentId = randomUUID();
     const taskId = randomUUID();
+    const expenseCategoryId = randomUUID();
+    const expenseId = randomUUID();
+    const expenseTitle = `Gasto dashboard ${marker}`;
     const today = todayInBusinessZone(new Date());
     let clientId: string | undefined;
 
@@ -70,16 +73,35 @@ test.describe("authenticated dashboard summary", () => {
         insert into tasks (id, owner_id, client_id, title, due_date, priority)
         values (${taskId}, ${ownerId}, ${clientId!}, ${`Tarea ${marker}`}, ${today}, 'high')
       `;
+      await database!`
+        insert into expense_categories (id, owner_id, name)
+        values (${expenseCategoryId}, ${ownerId}, ${`Dashboard E2E ${marker}`})
+      `;
+      await database!`
+        insert into expenses (
+          id, owner_id, category_id, title, amount_minor, currency,
+          scope, cost_type, due_date, status
+        ) values (
+          ${expenseId}, ${ownerId}, ${expenseCategoryId}, ${expenseTitle}, 1234,
+          'USD', 'business', 'fixed', ${today}, 'pending'
+        )
+      `;
 
       await page.goto("/dashboard");
       await expect(page.getByRole("heading", { name: "Resumen diario" })).toBeVisible();
       await expect(page.getByText(clientName).first()).toBeVisible();
       await expect(page.getByText(`Cobro ${marker}`).first()).toBeVisible();
       await expect(page.getByText(`Tarea ${marker}`).first()).toBeVisible();
+      await expect(page.getByText(expenseTitle).first()).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Gastos del mes" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Balance proyectado" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Ingresos vs gastos — este mes" })).toBeVisible();
       await expect(page.getByText("USD 456,78").first()).toBeVisible();
       await expect(page.getByText("USD 321,23").first()).toBeVisible();
     } finally {
       if (database) {
+        await database`delete from expenses where id = ${expenseId}`;
+        await database`delete from expense_categories where id = ${expenseCategoryId}`;
         await database`delete from tasks where id = ${taskId}`;
         await database`delete from payments where id = ${paymentId}`;
         await database`delete from charges where id = ${chargeId}`;
