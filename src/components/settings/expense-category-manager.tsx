@@ -187,36 +187,42 @@ function CategoryToggle({ category }: { category: ExpenseCategoryListItem }) {
     formData: FormData,
   ) {
     const result = await toggleExpenseCategoryAction(previousState, formData);
-    if (result.status === "success") setConfirming(false);
+    if (result.status === "success") {
+      openerRef.current?.focus();
+      setConfirming(false);
+    }
     return result;
   }
   const [state, action, pending] = useActionState(toggleAction, initialState);
   const openerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
-  const restoreOpenerFocusRef = useRef(false);
   const titleId = useId();
   const descriptionId = useId();
   const verb = category.active ? "Desactivar" : "Reactivar";
   const actionName = `${verb} ${category.name}`;
 
   useEffect(() => {
-    if (confirming) {
-      confirmRef.current?.focus();
-      return;
-    }
-    if (restoreOpenerFocusRef.current) {
-      restoreOpenerFocusRef.current = false;
-      openerRef.current?.focus();
-    }
+    if (confirming) confirmRef.current?.focus();
   }, [confirming]);
 
   function cancel() {
-    restoreOpenerFocusRef.current = true;
+    openerRef.current?.focus();
     setConfirming(false);
   }
 
   return (
     <div className="expense-category-toggle">
+      <button
+        aria-expanded={confirming}
+        aria-label={actionName}
+        className="quiet-button"
+        onClick={() => setConfirming(true)}
+        ref={openerRef}
+        type="button"
+      >
+        {category.active ? <Power size={15} /> : <RotateCcw size={15} />}
+        {verb}
+      </button>
       {confirming ? (
         <form
           action={action}
@@ -249,18 +255,7 @@ function CategoryToggle({ category }: { category: ExpenseCategoryListItem }) {
             <CategoryFeedback state={state} successMessage="" />
           ) : null}
         </form>
-      ) : (
-        <button
-          aria-label={actionName}
-          className="quiet-button"
-          onClick={() => setConfirming(true)}
-          ref={openerRef}
-          type="button"
-        >
-          {category.active ? <Power size={15} /> : <RotateCcw size={15} />}
-          {verb}
-        </button>
-      )}
+      ) : null}
       {state.status === "success" ? (
         <CategoryFeedback
           state={state}

@@ -18,6 +18,8 @@
   --action-violet-soft: #efedff;
   --collection-green: #168653;
   --collection-green-soft: #e7f6ee;
+  --settings-success-text: #117346;
+  --settings-inactive-text: #586176;
   --reminder-amber: #b66308;
   --reminder-amber-soft: #fff2dc;
   --overdue-red: #c73541;
@@ -47,6 +49,8 @@
   --action-violet-soft: #292348;
   --collection-green: #52bd83;
   --collection-green-soft: #173627;
+  --settings-success-text: #52bd83;
+  --settings-inactive-text: #9098aa;
   --reminder-amber: #eba84b;
   --reminder-amber-soft: #3d2c16;
   --overdue-red: #f07982;
@@ -895,6 +899,7 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .settings-sheet footer { display: flex; justify-content: flex-end; padding-top: 4px; border-top: 1px solid var(--ledger-rule-soft); }
 .settings-business-info { grid-column: 1 / -1; }
 .form-success { color: var(--collection-green); font-size: 12px; font-weight: 680; }
+.settings-page .form-success { color: var(--settings-success-text); }
 .expense-category-create {
   display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, .72fr) auto;
   align-items: start; gap: 12px; padding: 14px; border: 1px solid var(--ledger-rule-soft);
@@ -908,7 +913,7 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   gap: 12px; min-height: 68px; padding: 11px 0; border-bottom: 1px solid var(--ledger-rule-soft);
 }
 .expense-category-list > li:last-child { border-bottom: 0; }
-.expense-category-list > li.is-inactive { color: var(--ink-tertiary); }
+.expense-category-list > li.is-inactive { color: var(--settings-inactive-text); }
 .expense-category-mark {
   display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px;
   background: var(--action-violet-soft); color: var(--action-violet);
@@ -917,12 +922,13 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .expense-category-copy { display: grid; min-width: 0; gap: 2px; }
 .expense-category-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .expense-category-copy span { color: var(--ink-tertiary); font-size: 11px; }
+.expense-category-list > li.is-inactive .expense-category-copy span { color: var(--settings-inactive-text); }
 .expense-category-status {
   padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 720;
   letter-spacing: .03em; text-transform: uppercase;
 }
-.expense-category-status--active { background: var(--collection-green-soft); color: var(--collection-green); }
-.expense-category-status--inactive { background: var(--paper-inset); color: var(--ink-tertiary); }
+.expense-category-status--active { background: var(--collection-green-soft); color: var(--settings-success-text); }
+.expense-category-status--inactive { background: var(--paper-inset); color: var(--settings-inactive-text); }
 .expense-category-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
 .expense-category-actions .quiet-button, .expense-category-toggle > .quiet-button { min-height: 36px; padding: 0 10px; font-size: 11px; }
 .expense-category-toggle { display: grid; justify-items: end; gap: 5px; }
@@ -970,11 +976,12 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   .expense-category-list > li { grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; }
   .expense-category-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; }
   .expense-category-actions > :is(button, .expense-category-toggle), .expense-category-toggle > button { width: 100%; }
+  .expense-category-toggle { grid-column: 1 / -1; width: 100%; justify-items: stretch; }
   .expense-category-actions .quiet-button, .expense-category-toggle > .quiet-button { min-height: 44px; }
   .expense-category-editor { grid-column: 1 / -1; grid-template-columns: 1fr; }
   .expense-category-editor__actions { display: grid; grid-template-columns: 1fr 1fr; }
   .expense-category-editor__actions > :is(.primary-button, .quiet-button) { min-height: 44px; }
-  .expense-category-confirm { grid-template-columns: 1fr 1fr; max-width: none; }
+  .expense-category-confirm { width: 100%; grid-template-columns: 1fr 1fr; max-width: none; }
   .expense-category-confirm > :is(.danger-button, .quiet-button, .primary-button) { min-height: 44px; }
   .financial-history-sheet { padding: 18px 14px; }
   .financial-history-sheet > header { align-items: start; }.financial-history-sheet > header > span { display: none; }

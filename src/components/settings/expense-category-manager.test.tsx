@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +17,32 @@ vi.mock("@/lib/actions/expense-categories", () => ({
 }));
 
 import { ExpenseCategoryManager } from "./expense-category-manager";
+
+const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+
+function tokensFor(selector: string) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const block = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+  return Object.fromEntries(
+    [...block.matchAll(/--([\w-]+):\s*(#[\da-f]{6})/gi)]
+      .map((match) => [match[1], match[2]]),
+  );
+}
+
+function luminance(hex: string | undefined) {
+  if (!hex) return Number.NaN;
+  const channels = [1, 3, 5]
+    .map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255)
+    .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrast(foreground: string | undefined, background: string | undefined) {
+  const values = [luminance(foreground), luminance(background)];
+  if (values.some(Number.isNaN)) return 0;
+  const [lighter, darker] = values.sort((left, right) => right - left);
+  return (lighter + 0.05) / (darker + 0.05);
+}
 
 const categories = [
   {
@@ -133,10 +161,36 @@ describe("ExpenseCategoryManager", () => {
     await user.click(screen.getByRole("button", { name: "Desactivar Servicios" }));
     await user.click(screen.getByRole("button", { name: "Confirmar desactivación" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Servicios desactivada.");
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Desactivar Servicios" }),
+    ).toHaveFocus());
 
     await user.click(screen.getByRole("button", { name: "Reactivar Viajes" }));
     await user.click(screen.getByRole("button", { name: "Confirmar reactivación" }));
     expect((await screen.findAllByRole("status")).at(-1)).toHaveTextContent("Viajes reactivada.");
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Reactivar Viajes" }),
+    ).toHaveFocus());
+  });
+
+  it("restores focus to the stable category action after successful deactivation and reordering", async () => {
+    let resolveToggle: ((value: { status: "success"; categoryId: string; active: false }) => void) | undefined;
+    mocks.toggle.mockImplementationOnce(() => new Promise((resolve) => { resolveToggle = resolve; }));
+    const user = userEvent.setup();
+    const { rerender } = render(<ExpenseCategoryManager categories={categories} />);
+
+    await user.click(screen.getByRole("button", { name: "Desactivar Servicios" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar desactivación" }));
+    rerender(<ExpenseCategoryManager categories={[
+      categories[1],
+      { ...categories[0], active: false },
+    ]} />);
+    resolveToggle?.({ status: "success", categoryId: categories[0].id, active: false });
+
+    await screen.findByText("Servicios desactivada.");
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Reactivar Servicios" }),
+    ).toHaveFocus());
   });
 
   it("disables category actions while their mutation is pending", async () => {
@@ -151,5 +205,37 @@ describe("ExpenseCategoryManager", () => {
     expect(screen.getByRole("button", { name: "Creando categoría" })).toBeDisabled();
     resolveCreate?.({ status: "success" });
     await screen.findByText("Categoría creada.");
+  });
+
+  it("keeps category success, active and inactive text at WCAG AA contrast in both themes", () => {
+    const light = { ...tokensFor(":root"), ...tokensFor(".settings-page") };
+    const dark = { ...tokensFor(".dark"), ...tokensFor(".dark .settings-page") };
+
+    for (const [name, theme] of [["light", light], ["dark", dark]] as const) {
+      for (const [foreground, background] of [
+        ["settings-success-text", "paper-sheet"],
+        ["settings-success-text", "collection-green-soft"],
+        ["settings-inactive-text", "paper-sheet"],
+        ["settings-inactive-text", "paper-inset"],
+      ] as const) {
+        expect(
+          contrast(theme[foreground], theme[background]),
+          `${name}: ${foreground} on ${background}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+
+    expect(css).toMatch(/\.settings-page \.form-success\s*\{[^}]*color:\s*var\(--settings-success-text\)/);
+    expect(css).toMatch(/\.expense-category-status--active\s*\{[^}]*color:\s*var\(--settings-success-text\)/);
+    expect(css).toMatch(/\.expense-category-status--inactive\s*\{[^}]*color:\s*var\(--settings-inactive-text\)/);
+  });
+
+  it("gives mobile confirmations a full-width row and controls", () => {
+    expect(css).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.expense-category-toggle\s*\{[^}]*grid-column:\s*1 \/ -1[^}]*width:\s*100%/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.expense-category-confirm\s*\{[^}]*width:\s*100%/,
+    );
   });
 });
