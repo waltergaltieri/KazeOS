@@ -39,7 +39,7 @@ describe("expense query authentication", () => {
     await getExpenseById(expenseId, "2026-09-10");
     await getExpenseFormOptions();
     await getExpenseSummary(period, "2026-09-10");
-    await getUpcomingExpenses("2026-09-10", 8);
+    await getUpcomingExpenses("2026-09-10", "USD", 8);
     await getExpensesByCategory(period);
     await getExpensesByScope(period);
     await getFixedVariableBreakdown(period);

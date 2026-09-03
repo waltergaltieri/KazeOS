@@ -85,4 +85,16 @@ describe("ExpenseSummary", () => {
     expect(screen.getByText(/ARS\s+-150,00/)).toHaveClass("is-negative");
     expect(screen.getAllByText("Déficit")).toHaveLength(2);
   });
+
+  it("labels a zero net as equilibrium instead of surplus", () => {
+    const balanced: MonthlyCashFlow = {
+      ...cashFlow,
+      USD: { ...cashFlow.USD, projectedNet: "0", actualNet: "0" },
+    };
+
+    render(<ExpenseSummary summary={summary} cashFlow={balanced} currency="USD" />);
+
+    expect(screen.getAllByText("Equilibrio")).toHaveLength(2);
+    expect(screen.queryByText("Superávit")).not.toBeInTheDocument();
+  });
 });

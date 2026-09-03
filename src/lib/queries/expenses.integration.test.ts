@@ -429,14 +429,27 @@ describeDatabase("expense query matrix", () => {
         { key: "variable", amounts: { USD: "20000", ARS: "0" } },
       ]);
 
+      await transaction.insert(expenses).values(Array.from({ length: 9 }, (_, index) => ({
+        amountMinor: 1_000 + index,
+        categoryId: softwareCategoryId,
+        costType: "fixed" as const,
+        currency: "ARS" as const,
+        dueDate: `2026-09-${String(index + 1).padStart(2, "0")}`,
+        id: randomUUID(),
+        ownerId,
+        scope: "business" as const,
+        status: "pending" as const,
+        title: `ARS obligation ${index}`,
+      })));
+
       const upcoming = await runAsOwner(ownerId, (ownerDb) =>
-        queryUpcomingExpenses(ownerDb, ownerId, "2026-09-10", 3),
+        queryUpcomingExpenses(ownerDb, ownerId, "2026-09-10", "USD", 3),
       );
       expect(upcoming.map(({ id }) => id)).toEqual([
         ids.overdue,
-        ids.recurring,
         ids.pending,
       ]);
+      expect(upcoming.every(({ currency }) => currency === "USD")).toBe(true);
 
       const expense = await runAsOwner(ownerId, (ownerDb) =>
         queryExpenseById(ownerDb, ownerId, ids.recurring, "2026-09-10"),

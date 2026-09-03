@@ -226,6 +226,13 @@ function parsePositiveInteger(
   return parsed;
 }
 
+function parseCurrency(value: unknown): Currency {
+  if (value !== "USD" && value !== "ARS") {
+    throw new RangeError("Invalid expense currency");
+  }
+  return value;
+}
+
 function parseExpenseQuery(input: unknown): ParsedExpenseQuery {
   if (input === undefined) {
     return { filters: expenseFiltersSchema.parse({}), page: 1, pageSize: 25 };
@@ -715,9 +722,11 @@ export async function queryUpcomingExpenses(
   database: ExpenseQueryDatabase,
   ownerId: string,
   asOfInput: string,
+  currencyInput: unknown,
   limitInput = 5,
 ): Promise<ExpenseListItem[]> {
   const today = validateCommercialDate(asOfInput);
+  const currency = parseCurrency(currencyInput);
   const limit = parsePositiveInteger(limitInput, 5, 100, "upcoming expense limit");
   return database
     .select(expenseSelection(today))
@@ -738,6 +747,7 @@ export async function queryUpcomingExpenses(
     )
     .where(and(
       eq(expenses.ownerId, ownerId),
+      eq(expenses.currency, currency),
       sql`${expenses.status} in ('planned', 'pending')`,
     ))
     .orderBy(
@@ -857,12 +867,17 @@ export async function getExpenseSummary(
     queryExpenseSummary(database, user.id, periodInput, asOfInput));
 }
 
-export async function getUpcomingExpenses(asOfInput: string, limit = 5) {
+export async function getUpcomingExpenses(
+  asOfInput: string,
+  currencyInput: unknown,
+  limit = 5,
+) {
   validateCommercialDate(asOfInput);
+  const currency = parseCurrency(currencyInput);
   parsePositiveInteger(limit, 5, 100, "upcoming expense limit");
   const user = await requireUser();
   return withAuthenticatedDb(user.id, (database) =>
-    queryUpcomingExpenses(database, user.id, asOfInput, limit));
+    queryUpcomingExpenses(database, user.id, asOfInput, currency, limit));
 }
 
 async function authenticatedPeriodQuery<TResult>(

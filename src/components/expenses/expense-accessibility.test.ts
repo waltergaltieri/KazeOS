@@ -46,4 +46,33 @@ describe("expense ledger accessibility styles", () => {
     expect(css).toMatch(/\.expense-card footer \.expense-command-actions > button\s*\{[^}]*min-height:\s*44px/);
     expect(css).toMatch(/\.recurring-expense-meta \.icon-button\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/);
   });
+
+  it("keeps every new small insight label and badge at WCAG AA contrast", () => {
+    const light = { ...tokensFor(":root"), ...tokensFor(".expenses-page") };
+    const dark = { ...tokensFor(".dark"), ...tokensFor(".dark .expenses-page") };
+    for (const theme of [light, dark]) {
+      for (const [foreground, background] of [
+        ["ink-secondary", "paper-inset"],
+        ["ink-tertiary", "paper-sheet"],
+        ["expense-action-text", "action-violet-soft"],
+        ["expense-action-text", "paper-sheet"],
+        ["expense-positive-text", "paper-sheet"],
+        ["expense-positive-text", "collection-green-soft"],
+        ["overdue-red", "overdue-red-soft"],
+      ] as const) {
+        expect(contrast(theme[foreground], theme[background]), `${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    expect(css).toMatch(/\.expense-summary-metric small\s*\{[^}]*color:\s*var\(--ink-tertiary\)/);
+    expect(css).toMatch(/\.expense-result-column header p\s*\{[^}]*color:\s*var\(--ink-tertiary\)/);
+    expect(css).toMatch(/\.expense-result-state\s*\{[^}]*color:\s*var\(--expense-positive-text\)/);
+    expect(css).toMatch(/\.expense-result-total dd\s*\{[^}]*color:\s*var\(--expense-positive-text\)/);
+    expect(css).toMatch(/\.expense-breakdown-sheet > header > span\s*\{[^}]*color:\s*var\(--ink-tertiary\)/);
+  });
+
+  it("keeps all new mobile insight actions at least 44px tall", () => {
+    expect(css).toMatch(/\.expense-currency-switch a\s*\{[^}]*min-height:\s*44px/);
+    expect(css).toMatch(/\.upcoming-expense-sheet > header > a\s*\{[^}]*min-height:\s*44px/);
+    expect(css).toMatch(/\.upcoming-expense-empty \.secondary-button\s*\{[^}]*min-height:\s*44px/);
+  });
 });

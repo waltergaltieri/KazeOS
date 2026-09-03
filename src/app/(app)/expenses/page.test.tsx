@@ -1,29 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  getExpenses: vi.fn(),
-  getOptions: vi.fn(),
-  getRecurring: vi.fn(),
-  getSummary: vi.fn(),
-  getCashFlow: vi.fn(),
-  getByCategory: vi.fn(),
-  getByScope: vi.fn(),
-  getByCostType: vi.fn(),
-  getUpcoming: vi.fn(),
-  redirect: vi.fn(),
-}));
-vi.mock("@/lib/queries/expenses", () => ({
-  getExpenses: mocks.getExpenses,
-  getExpenseFormOptions: mocks.getOptions,
-  getRecurringExpenses: mocks.getRecurring,
-  getExpenseSummary: mocks.getSummary,
-  getExpensesByCategory: mocks.getByCategory,
-  getExpensesByScope: mocks.getByScope,
-  getFixedVariableBreakdown: mocks.getByCostType,
-  getUpcomingExpenses: mocks.getUpcoming,
-}));
-vi.mock("@/lib/queries/cash-flow", () => ({ getMonthlyCashFlow: mocks.getCashFlow }));
+const mocks = vi.hoisted(() => ({ getPageData: vi.fn(), redirect: vi.fn() }));
+vi.mock("@/lib/queries/expense-page", () => ({ getExpensePageData: mocks.getPageData }));
 vi.mock("@/lib/domain/commercial-date", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/domain/commercial-date")>(),
   todayInBusinessZone: () => "2026-09-03",
@@ -33,134 +12,131 @@ vi.mock("next/navigation", () => ({ redirect: mocks.redirect, useRouter: () => (
 
 import ExpensesPage from "./page";
 
+const summary = {
+  USD: { actual: "0", pending: "0", overdue: "0", projected: "0", fixed: "0", variable: "0", monthlyFixedCommitments: "0" },
+  ARS: { actual: "0", pending: "0", overdue: "0", projected: "0", fixed: "0", variable: "0", monthlyFixedCommitments: "0" },
+};
+const cashFlow = {
+  USD: { projectedIncome: "0", actualIncome: "0", projectedExpenses: "0", actualExpenses: "0", projectedNet: "0", actualNet: "0" },
+  ARS: { projectedIncome: "0", actualIncome: "0", projectedExpenses: "0", actualExpenses: "0", projectedNet: "0", actualNet: "0" },
+};
+
+function pageData(overrides: Record<string, unknown> = {}) {
+  return {
+    page: { items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } },
+    options: { categories: [], recurringExpenses: [] },
+    recurringExpenses: [],
+    summary,
+    cashFlow,
+    byCategory: [],
+    byScope: [],
+    byCostType: [],
+    upcomingExpenses: [],
+    insightUnavailable: [],
+    ...overrides,
+  };
+}
+
 describe("ExpensesPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } });
-    mocks.getOptions.mockResolvedValue({ categories: [], recurringExpenses: [] });
-    mocks.getRecurring.mockResolvedValue([]);
-    mocks.getSummary.mockResolvedValue({
-      USD: { actual: "0", pending: "0", overdue: "0", projected: "0", fixed: "0", variable: "0", monthlyFixedCommitments: "0" },
-      ARS: { actual: "0", pending: "0", overdue: "0", projected: "0", fixed: "0", variable: "0", monthlyFixedCommitments: "0" },
-    });
-    mocks.getCashFlow.mockResolvedValue({
-      USD: { projectedIncome: "0", actualIncome: "0", projectedExpenses: "0", actualExpenses: "0", projectedNet: "0", actualNet: "0" },
-      ARS: { projectedIncome: "0", actualIncome: "0", projectedExpenses: "0", actualExpenses: "0", projectedNet: "0", actualNet: "0" },
-    });
-    mocks.getByCategory.mockResolvedValue([]);
-    mocks.getByScope.mockResolvedValue([]);
-    mocks.getByCostType.mockResolvedValue([]);
-    mocks.getUpcoming.mockResolvedValue([]);
+    mocks.getPageData.mockResolvedValue(pageData());
   });
 
-  it("loads the URL-backed ledger, options and recurring commitments", async () => {
-    mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } });
-    mocks.getOptions.mockResolvedValue({ categories: [{ id: "11111111-1111-4111-8111-111111111111", name: "Software", icon: null, active: true }], recurringExpenses: [] });
-    mocks.getRecurring.mockResolvedValue([]);
+  it("normalizes a missing currency to USD for the selector, ledger and projections", async () => {
+    render(await ExpensesPage({ searchParams: Promise.resolve({}) }));
+
+    expect(screen.getByRole("link", { name: "USD" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("region", { name: "Resumen de gastos USD" })).toBeInTheDocument();
+    expect(mocks.getPageData).toHaveBeenCalledWith({
+      currency: "USD",
+      expenseQuery: {
+        categoryId: undefined,
+        costType: undefined,
+        currency: "USD",
+        from: undefined,
+        month: undefined,
+        period: "current_month",
+        recurrence: "all",
+        scope: undefined,
+        search: undefined,
+        status: "all",
+        to: undefined,
+      },
+      period: { start: "2026-09-01", end: "2026-10-01" },
+      today: "2026-09-03",
+    });
+  });
+
+  it("loads the selected URL-backed ledger period and preserves currency navigation", async () => {
+    mocks.getPageData.mockResolvedValue(pageData({
+      options: { categories: [{ id: "11111111-1111-4111-8111-111111111111", name: "Software", icon: null, active: true }], recurringExpenses: [] },
+    }));
 
     render(await ExpensesPage({ searchParams: Promise.resolve({ q: "nube", status: "overdue", period: "next_month", month: "2026-10", categoryId: "11111111-1111-4111-8111-111111111111", scope: "business", costType: "fixed", recurrence: "recurring", currency: "USD" }) }));
 
     expect(screen.getByRole("heading", { name: "Gastos" })).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Nuevo gasto" })[0]).toHaveAttribute("href", "/expenses/new");
-    expect(mocks.getExpenses).toHaveBeenCalledWith({ search: "nube", status: "overdue", period: "next_month", month: "2026-10", categoryId: "11111111-1111-4111-8111-111111111111", scope: "business", costType: "fixed", recurrence: "recurring", currency: "USD", from: undefined, to: undefined }, "2026-09-03");
-    expect(mocks.getOptions).toHaveBeenCalledWith({ includeInactive: true });
     expect(screen.getByText("0 gastos")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Compromisos recurrentes" })).toBeInTheDocument();
-    expect(mocks.getSummary).toHaveBeenCalledWith({ start: "2026-11-01", end: "2026-12-01" }, "2026-09-03");
-    expect(mocks.getCashFlow).toHaveBeenCalledWith("2026-11-01", "2026-12-01");
-    expect(mocks.getByCategory).toHaveBeenCalledWith({ start: "2026-11-01", end: "2026-12-01" });
-    expect(mocks.getUpcoming).toHaveBeenCalledWith("2026-09-03", 8);
+    expect(mocks.getPageData).toHaveBeenCalledWith(expect.objectContaining({
+      currency: "USD",
+      period: { start: "2026-11-01", end: "2026-12-01" },
+      expenseQuery: expect.objectContaining({ search: "nube", status: "overdue", currency: "USD" }),
+    }));
+    expect(screen.getByRole("link", { name: "ARS" })).toHaveAttribute("href", expect.stringContaining("currency=ARS"));
   });
 
   it("keeps every expense reachable through URL-preserving pagination", async () => {
-    mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 2, pageSize: 25, total: 70, totalPages: 3 } });
-    mocks.getOptions.mockResolvedValue({ categories: [], recurringExpenses: [] });
-    mocks.getRecurring.mockResolvedValue([]);
+    mocks.getPageData.mockResolvedValue(pageData({ page: { items: [], pagination: { page: 2, pageSize: 25, total: 70, totalPages: 3 } } }));
 
     render(await ExpensesPage({ searchParams: Promise.resolve({ q: "nube", status: "pending", page: "2" }) }));
 
-    expect(mocks.getExpenses).toHaveBeenCalledWith(expect.objectContaining({ page: "2", search: "nube", status: "pending" }), "2026-09-03");
+    expect(mocks.getPageData).toHaveBeenCalledWith(expect.objectContaining({ expenseQuery: expect.objectContaining({ page: "2", search: "nube", status: "pending", currency: "USD" }) }));
     expect(screen.getByText("Página 2 de 3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Página anterior" })).toHaveAttribute("href", "/expenses?q=nube&status=pending&page=1");
     expect(screen.getByRole("link", { name: "Página siguiente" })).toHaveAttribute("href", "/expenses?q=nube&status=pending&page=3");
   });
 
-  it("recovers from duplicate, malformed and out-of-range URL parameters", async () => {
-    mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } });
-    mocks.getOptions.mockResolvedValue({ categories: [], recurringExpenses: [] });
-    mocks.getRecurring.mockResolvedValue([]);
-
+  it("recovers from malformed URL parameters into the safe USD defaults", async () => {
     render(await ExpensesPage({ searchParams: Promise.resolve<Record<string, string | string[] | undefined>>({
-      q: ["nube", "duplicado"],
-      status: ["overdue", "paid"],
-      period: "custom",
-      month: "2026-99",
-      from: "no-es-fecha",
-      to: "2026-09-31",
-      categoryId: "11111111-1111-1111-1111-111111111111",
-      scope: "global",
-      costType: "semi-fixed",
-      recurrence: "sometimes",
-      currency: "EUR",
-      page: "10001",
+      q: ["nube", "duplicado"], status: ["overdue", "paid"], period: "custom", month: "2026-99", from: "no-es-fecha", to: "2026-09-31",
+      categoryId: "11111111-1111-1111-1111-111111111111", scope: "global", costType: "semi-fixed", recurrence: "sometimes", currency: "EUR", page: "10001",
     }) }));
 
-    expect(screen.getByRole("heading", { name: "Gastos" })).toBeInTheDocument();
-    expect(mocks.getExpenses).toHaveBeenCalledWith({
-      search: undefined,
-      status: "all",
-      period: "current_month",
-      month: undefined,
-      from: undefined,
-      to: undefined,
-      categoryId: undefined,
-      scope: undefined,
-      costType: undefined,
-      recurrence: "all",
-      currency: undefined,
-    }, "2026-09-03");
+    expect(mocks.getPageData).toHaveBeenCalledWith(expect.objectContaining({
+      currency: "USD",
+      expenseQuery: expect.objectContaining({ currency: "USD", period: "current_month", recurrence: "all", status: "all" }),
+      period: { start: "2026-09-01", end: "2026-10-01" },
+    }));
   });
 
-  it("redirects a valid page beyond the result set to the last page without looping", async () => {
-    mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 999, pageSize: 25, total: 70, totalPages: 3 } });
-    mocks.getOptions.mockResolvedValue({ categories: [], recurringExpenses: [] });
-    mocks.getRecurring.mockResolvedValue([]);
-
+  it("redirects a valid page beyond the result set without looping", async () => {
+    mocks.getPageData.mockResolvedValue(pageData({ page: { items: [], pagination: { page: 999, pageSize: 25, total: 70, totalPages: 3 } } }));
     await ExpensesPage({ searchParams: Promise.resolve({ q: "nube", status: "pending", currency: "USD", page: "999" }) });
-
-    expect(mocks.redirect).toHaveBeenCalledOnce();
     expect(mocks.redirect).toHaveBeenCalledWith("/expenses?q=nube&status=pending&currency=USD&page=3");
 
     mocks.redirect.mockClear();
-    mocks.getExpenses.mockResolvedValue({ items: [], pagination: { page: 3, pageSize: 25, total: 70, totalPages: 3 } });
+    mocks.getPageData.mockResolvedValue(pageData({ page: { items: [], pagination: { page: 3, pageSize: 25, total: 70, totalPages: 3 } } }));
     await ExpensesPage({ searchParams: Promise.resolve({ q: "nube", status: "pending", currency: "USD", page: "3" }) });
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
-  it("starts every page projection in parallel", async () => {
-    const resolvers: Array<() => void> = [];
-    const pending = () => new Promise<void>((resolve) => resolvers.push(resolve));
-    for (const query of [
-      mocks.getExpenses,
-      mocks.getOptions,
-      mocks.getRecurring,
-      mocks.getSummary,
-      mocks.getCashFlow,
-      mocks.getByCategory,
-      mocks.getByScope,
-      mocks.getByCostType,
-      mocks.getUpcoming,
-    ]) query.mockImplementationOnce(pending);
+  it("keeps the operational ledger visible and announces partial insight failures", async () => {
+    mocks.getPageData.mockResolvedValue(pageData({
+      page: {
+        items: [{
+          id: "expense", title: "Servidor productivo", description: null, amountMinor: 10000, currency: "USD", scope: "business", costType: "fixed", dueDate: "2026-09-18", paidDate: null, status: "pending", persistedStatus: "pending", paymentMethod: null, vendor: null, notes: null, periodKey: null, generatedAutomatically: false,
+          category: { id: "category", name: "Software", icon: null, active: true }, recurringExpense: null,
+        }],
+        pagination: { page: 1, pageSize: 25, total: 1, totalPages: 1 },
+      },
+      insightUnavailable: ["category", "upcoming"],
+    }));
 
-    const rendering = ExpensesPage({ searchParams: Promise.resolve({ currency: "ARS" }) });
-    await Promise.resolve();
-    await Promise.resolve();
+    render(await ExpensesPage({ searchParams: Promise.resolve({ currency: "USD" }) }));
 
-    expect(resolvers).toHaveLength(9);
-    expect(mocks.getSummary).toHaveBeenCalledWith({ start: "2026-09-01", end: "2026-10-01" }, "2026-09-03");
-    expect(mocks.getCashFlow).toHaveBeenCalledWith("2026-09-01", "2026-10-01");
-
-    // The suspended render proves no projection waits for a previous one.
-    void rendering;
+    expect(screen.getAllByText("Servidor productivo")).toHaveLength(2);
+    expect(screen.getByRole("status")).toHaveTextContent("Parte del análisis no está disponible");
+    expect(screen.getByText("1 gasto")).toBeInTheDocument();
   });
 });

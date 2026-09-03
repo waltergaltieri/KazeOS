@@ -30,13 +30,15 @@ function ResultColumn({
   net: AggregateMinorUnits;
 }) {
   const title = actual ? "Resultado real" : "Resultado proyectado";
-  const isNegative = BigInt(net) < BigInt(0);
+  const netAmount = BigInt(net);
+  const isNegative = netAmount < BigInt(0);
+  const isNeutral = netAmount === BigInt(0);
   return (
     <article className="expense-result-column" role="group" aria-label={title}>
       <header>
         <div><p>{actual ? "Movimientos registrados" : "Obligaciones previstas"}</p><h3>{title}</h3></div>
-        <span className={`expense-result-state${isNegative ? " is-negative" : ""}`}>
-          {isNegative ? "Déficit" : "Superávit"}
+        <span className={`expense-result-state${isNegative ? " is-negative" : isNeutral ? " is-neutral" : ""}`}>
+          {isNegative ? "Déficit" : isNeutral ? "Equilibrio" : "Superávit"}
         </span>
       </header>
       <dl>

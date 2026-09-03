@@ -1,4 +1,4 @@
-import { CalendarClock, Plus } from "lucide-react";
+import { CalendarClock, Plus, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -10,21 +10,16 @@ import { RecurringExpenseList } from "@/components/expenses/recurring-expense-li
 import { UpcomingExpenses } from "@/components/expenses/upcoming-expenses";
 import { addCommercialPeriod, todayInBusinessZone, validateCommercialDate } from "@/lib/domain/commercial-date";
 import type { Currency } from "@/lib/domain/money";
-import { getMonthlyCashFlow } from "@/lib/queries/cash-flow";
-import {
-  getExpenseFormOptions,
-  getExpenses,
-  getExpensesByCategory,
-  getExpensesByScope,
-  getExpenseSummary,
-  getFixedVariableBreakdown,
-  getRecurringExpenses,
-  getUpcomingExpenses,
-  type ExpensePeriod,
-} from "@/lib/queries/expenses";
+import { getExpensePageData } from "@/lib/queries/expense-page";
+import type { ExpensePeriod, ExpenseQueryInput } from "@/lib/queries/expenses";
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
 interface SanitizedSearchParams extends ExpenseFilterParams {
+  status?: typeof allowedStatus[number];
+  period?: typeof allowedPeriod[number];
+  scope?: typeof allowedScope[number];
+  costType?: typeof allowedCostType[number];
+  recurrence?: typeof allowedRecurrence[number];
   currency?: Currency;
   page?: string;
   [key: string]: string | undefined;
@@ -144,9 +139,23 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     scope: params.scope,
     costType: params.costType,
     recurrence: params.recurrence ?? "all",
-    currency: params.currency,
+    currency: selectedCurrency,
   };
-  const [
+  const expenseQuery: ExpenseQueryInput = {
+    search: params.q,
+    status: params.status ?? "all",
+    period: params.period ?? "current_month",
+    month: params.month,
+    from: params.from,
+    to: params.to,
+    categoryId: params.categoryId,
+    scope: params.scope,
+    costType: params.costType,
+    recurrence: params.recurrence ?? "all",
+    currency: selectedCurrency,
+    ...(params.page ? { page: params.page } : {}),
+  };
+  const {
     page,
     options,
     recurringExpenses,
@@ -156,36 +165,20 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     byScope,
     byCostType,
     upcomingExpenses,
-  ] = await Promise.all([
-    getExpenses({
-      search: filters.q,
-      status: filters.status,
-      period: filters.period,
-      month: filters.month,
-      from: filters.from,
-      to: filters.to,
-      categoryId: filters.categoryId,
-      scope: filters.scope,
-      costType: filters.costType,
-      recurrence: filters.recurrence,
-      currency: filters.currency,
-      ...(params.page ? { page: params.page } : {}),
-    }, today),
-    getExpenseFormOptions({ includeInactive: true }),
-    getRecurringExpenses(),
-    getExpenseSummary(period, today),
-    getMonthlyCashFlow(period.start, period.end),
-    getExpensesByCategory(period),
-    getExpensesByScope(period),
-    getFixedVariableBreakdown(period),
-    getUpcomingExpenses(today, 8),
-  ]);
+    insightUnavailable,
+  } = await getExpensePageData({
+    currency: selectedCurrency,
+    expenseQuery,
+    period,
+    today,
+  });
   if (params.page && page.pagination.totalPages > 0 && page.pagination.page > page.pagination.totalPages) {
     redirect(paginationHref(params, page.pagination.totalPages));
   }
 
   return <main className="expenses-page">
     <header className="page-heading page-heading--actions"><div><p className="eyebrow">Libro de obligaciones</p><h1>Gastos</h1><p>Detectá qué vence y resolvelo sin perder contexto.</p></div><div className="expense-heading-actions"><nav className="expense-currency-switch" aria-label="Moneda de lectura">{(["USD", "ARS"] as const).map((currency) => <Link key={currency} href={currencyHref(params, currency)} aria-current={selectedCurrency === currency ? "page" : undefined}>{currency}</Link>)}</nav><Link className="primary-button" href="/expenses/new"><Plus size={17} /> Nuevo gasto</Link></div></header>
+    {insightUnavailable.length > 0 ? <div className="expense-insight-warning" role="status" aria-live="polite"><TriangleAlert aria-hidden="true" size={18} /><p><strong>Parte del análisis no está disponible.</strong> El libro y sus acciones siguen operativos.</p></div> : null}
     <ExpenseSummary summary={summary} cashFlow={cashFlow} currency={selectedCurrency} />
     <ExpenseFilters params={filters} categories={options.categories.map((category) => ({ id: category.id, label: category.name }))} />
     <div className="client-result-count" aria-live="polite">{page.pagination.total} {page.pagination.total === 1 ? "gasto" : "gastos"}</div>
