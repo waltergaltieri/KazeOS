@@ -194,7 +194,7 @@ describe("ExpenseForm", () => {
     expect(screen.getByRole("checkbox", { name: "Generar vencimientos automáticamente" })).toBeChecked();
   });
 
-  it("preserves the original recurrence anchor when editing a clamped occurrence", async () => {
+  it("submits a changed recurring due date as the proposed new anchor", async () => {
     const user = userEvent.setup();
     const action = vi.fn().mockResolvedValue({ status: "error", message: "Control" });
     render(
@@ -215,13 +215,16 @@ describe("ExpenseForm", () => {
       />,
     );
 
+    await user.click(screen.getByRole("combobox", { name: "Vencimiento: 28/02/2026" }));
+    await user.click(screen.getByRole("button", { name: "Mes siguiente" }));
+    await user.click(screen.getByRole("button", { name: "15/03/2026" }));
     await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await screen.findByRole("alert");
 
     const formData = action.mock.calls[0]![1] as FormData;
-    expect(formData.get("dueDate")).toBe("2026-02-28");
-    expect(formData.get("startDate")).toBe("2026-01-31");
-    expect(formData.get("billingDay")).toBe("31");
+    expect(formData.get("dueDate")).toBe("2026-03-15");
+    expect(formData.get("startDate")).toBeNull();
+    expect(formData.get("billingDay")).toBe("15");
   });
 
   it("resets every default-backed control when the form identity changes", () => {

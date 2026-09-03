@@ -4,6 +4,7 @@ import {
   buildChargePeriods,
   buildRecurringPeriods,
   nextDueDate,
+  resolveRecurringEditAnchor,
   type RecurringServiceInput,
 } from "./recurrence";
 
@@ -200,5 +201,31 @@ describe("buildRecurringPeriods", () => {
         "2026-02-01",
       ),
     ).toThrow(RangeError);
+  });
+});
+
+describe("resolveRecurringEditAnchor", () => {
+  const current = {
+    amountMinor: 2_000,
+    billingDay: 31,
+    endDate: null,
+    frequency: "monthly" as const,
+    label: "Vercel",
+    startDate: "2026-02-01",
+  };
+
+  it("preserves the trusted day-31 anchor when the clamped February date is unchanged", () => {
+    expect(resolveRecurringEditAnchor(current, "2026-02-28")).toEqual({
+      billingDay: 31,
+      startDate: "2026-02-01",
+    });
+  });
+
+  it("uses a changed visible date as the new anchor", () => {
+    const anchor = resolveRecurringEditAnchor(current, "2026-03-15");
+
+    expect(anchor).toEqual({ billingDay: 15, startDate: "2026-03-15" });
+    expect(buildRecurringPeriods({ ...current, ...anchor }, "2026-03-01", 2)
+      .map(({ dueDate }) => dueDate)).toEqual(["2026-03-15", "2026-04-15"]);
   });
 });

@@ -287,6 +287,32 @@ export function buildRecurringPeriods(
   return candidates;
 }
 
+export function firstRecurringDueDate(
+  schedule: Readonly<RecurringScheduleInput>,
+): string {
+  return buildRecurringPeriods(schedule, schedule.startDate, 13)[0]?.dueDate
+    ?? schedule.startDate;
+}
+
+export function resolveRecurringEditAnchor(
+  current: Readonly<RecurringScheduleInput>,
+  submittedDueDate: string,
+): Pick<RecurringScheduleInput, "billingDay" | "startDate"> {
+  validateCommercialDate(submittedDueDate);
+
+  if (submittedDueDate === firstRecurringDueDate(current)) {
+    return {
+      billingDay: current.billingDay,
+      startDate: current.startDate,
+    };
+  }
+
+  return {
+    billingDay: Number(submittedDueDate.slice(8, 10)),
+    startDate: submittedDueDate,
+  };
+}
+
 /**
  * Builds occurrences within [asOf, asOf + horizonMonths). The original billing
  * day remains the anchor, so a 31st clamps in short months and returns to the

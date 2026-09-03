@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { ExpenseForm, type ExpenseFormDefaults } from "@/components/expenses/expense-form";
 import { updateRecurringExpenseAction } from "@/lib/actions/recurring-expenses";
-import { buildRecurringPeriods } from "@/lib/domain/recurrence";
+import { firstRecurringDueDate } from "@/lib/domain/recurrence";
 import { getExpenseFormOptions, getRecurringExpenseById } from "@/lib/queries/expenses";
 import { recurringExpenseIdSchema } from "@/lib/validations/expense";
 
@@ -18,14 +18,14 @@ export default async function EditRecurringExpensePage({ params }: { params: Pro
 
   const firstDueDate = recurringExpense.frequency === "one_time"
     ? recurringExpense.startDate
-    : buildRecurringPeriods({
+    : firstRecurringDueDate({
         amountMinor: recurringExpense.amountMinor,
         billingDay: recurringExpense.billingDay,
         endDate: recurringExpense.endDate,
         frequency: recurringExpense.frequency,
         label: recurringExpense.title,
         startDate: recurringExpense.startDate,
-      }, recurringExpense.startDate, 13)[0]?.dueDate ?? recurringExpense.startDate;
+      });
 
   const defaults: ExpenseFormDefaults = {
     recurringExpenseId: recurringExpense.id,

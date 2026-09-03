@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 
 import { config } from "dotenv";
-import { and, asc, eq, sql as drizzleSql } from "drizzle-orm";
+import { and, asc, eq, gte, sql as drizzleSql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -115,6 +115,77 @@ describeDatabase("recurring expense manager", () => {
         .from(recurringExpenses)
         .where(eq(recurringExpenses.id, result.id));
       expect(template).toEqual({ id: result.id, status: "active" });
+    });
+  }, 30_000);
+
+  it("preserves an unchanged clamped anchor and replaces it after an explicit date change", async () => {
+    await withFixture(async ({ categoryId, ownerId, transaction }) => {
+      const originalValues = {
+        ...initialValues(categoryId),
+        billingDay: 31,
+        startDate: "2026-02-01",
+      };
+      const created = await createRecurringExpenseWithOccurrences(transaction, {
+        asOf: "2026-02-01",
+        ownerId,
+        values: originalValues,
+      });
+
+      await updateRecurringExpenseWithOccurrences(transaction, {
+        asOf: "2026-02-01",
+        ownerId,
+        recurringExpenseId: created.id,
+        submittedDueDate: "2026-02-28",
+        values: {
+          ...originalValues,
+          billingDay: 28,
+          startDate: "2026-02-28",
+        },
+      });
+
+      const [preserved] = await transaction
+        .select({
+          billingDay: recurringExpenses.billingDay,
+          startDate: recurringExpenses.startDate,
+        })
+        .from(recurringExpenses)
+        .where(eq(recurringExpenses.id, created.id));
+      expect(preserved).toEqual({ billingDay: 31, startDate: "2026-02-01" });
+
+      await updateRecurringExpenseWithOccurrences(transaction, {
+        asOf: "2026-03-01",
+        ownerId,
+        recurringExpenseId: created.id,
+        submittedDueDate: "2026-03-15",
+        values: {
+          ...originalValues,
+          billingDay: 15,
+          startDate: "2026-03-15",
+        },
+      });
+
+      const [changed] = await transaction
+        .select({
+          billingDay: recurringExpenses.billingDay,
+          startDate: recurringExpenses.startDate,
+        })
+        .from(recurringExpenses)
+        .where(eq(recurringExpenses.id, created.id));
+      expect(changed).toEqual({ billingDay: 15, startDate: "2026-03-15" });
+
+      const futureDates = await transaction
+        .select({ dueDate: expenses.dueDate })
+        .from(expenses)
+        .where(and(
+          eq(expenses.recurringExpenseId, created.id),
+          gte(expenses.dueDate, "2026-03-01"),
+        ))
+        .orderBy(asc(expenses.dueDate));
+      expect(futureDates).toEqual([
+        { dueDate: "2026-03-15" },
+        { dueDate: "2026-04-15" },
+        { dueDate: "2026-05-15" },
+      ]);
     });
   }, 30_000);
 

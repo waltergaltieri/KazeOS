@@ -323,13 +323,8 @@ function ExpenseFormFields({
               <input
                 type="hidden"
                 name="billingDay"
-                value={mode === "recurring-edit"
-                  ? defaults.billingDay ?? ""
-                  : billingDayFromDate(dueDate)}
+                value={billingDayFromDate(dueDate)}
               />
-              {mode === "recurring-edit" ? (
-                <input type="hidden" name="startDate" value={defaults.startDate ?? ""} />
-              ) : null}
               <div className="field-stack">
                 <span>Fin opcional</span>
                 <MiniDatePicker

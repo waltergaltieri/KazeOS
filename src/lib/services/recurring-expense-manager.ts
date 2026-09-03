@@ -1,7 +1,10 @@
 import { and, asc, eq, gte, inArray } from "drizzle-orm";
 
 import { expenses, recurringExpenses } from "@/db/schema";
-import { buildRecurringPeriods } from "@/lib/domain/recurrence";
+import {
+  buildRecurringPeriods,
+  resolveRecurringEditAnchor,
+} from "@/lib/domain/recurrence";
 
 import {
   generateRecurringExpenses,
@@ -41,6 +44,7 @@ export interface CreateRecurringExpenseInput extends RecurringExpenseScope {
 
 export interface UpdateRecurringExpenseInput extends RecurringExpenseScope {
   recurringExpenseId: string;
+  submittedDueDate?: string;
   values: RecurringExpenseValues;
 }
 
@@ -98,9 +102,15 @@ async function lockTemplate(
 ) {
   const [current] = await database
     .select({
+      amountMinor: recurringExpenses.amountMinor,
+      billingDay: recurringExpenses.billingDay,
       categoryId: recurringExpenses.categoryId,
+      endDate: recurringExpenses.endDate,
+      frequency: recurringExpenses.frequency,
       id: recurringExpenses.id,
+      startDate: recurringExpenses.startDate,
       status: recurringExpenses.status,
+      title: recurringExpenses.title,
     })
     .from(recurringExpenses)
     .where(templateWhere(input))
@@ -164,16 +174,35 @@ export async function updateRecurringExpenseWithOccurrences(
   if (current.status === "cancelled") {
     throw new RecurringExpenseStatusLockedError();
   }
-  if (current.categoryId !== input.values.categoryId) {
+  if (current.frequency === "one_time") {
+    throw new RangeError("Recurring expense cannot use a one-time frequency");
+  }
+  const values = {
+    ...input.values,
+    ...(input.submittedDueDate
+      ? resolveRecurringEditAnchor(
+          {
+            amountMinor: current.amountMinor,
+            billingDay: current.billingDay,
+            endDate: current.endDate,
+            frequency: current.frequency,
+            label: current.title,
+            startDate: current.startDate,
+          },
+          input.submittedDueDate,
+        )
+      : {}),
+  };
+  if (current.categoryId !== values.categoryId) {
     await assertActiveExpenseCategory(database, {
-      categoryId: input.values.categoryId,
+      categoryId: values.categoryId,
       ownerId: input.ownerId,
     });
   }
 
   await database
     .update(recurringExpenses)
-    .set({ ...input.values, updatedAt: new Date() })
+    .set({ ...values, updatedAt: new Date() })
     .where(templateWhere(input));
 
   if (current.status === "paused") {
@@ -196,17 +225,16 @@ export async function updateRecurringExpenseWithOccurrences(
     .orderBy(asc(expenses.dueDate), asc(expenses.id))
     .for("update");
 
-  const canGenerate =
-    current.status === "active" && input.values.automaticGeneration;
+  const canGenerate = current.status === "active" && values.automaticGeneration;
   const candidates = canGenerate
     ? buildRecurringPeriods(
         {
-          amountMinor: input.values.amountMinor,
-          billingDay: input.values.billingDay,
-          endDate: input.values.endDate,
-          frequency: input.values.frequency,
-          label: input.values.title,
-          startDate: input.values.startDate,
+          amountMinor: values.amountMinor,
+          billingDay: values.billingDay,
+          endDate: values.endDate,
+          frequency: values.frequency,
+          label: values.title,
+          startDate: values.startDate,
         },
         input.asOf,
         3,
@@ -231,17 +259,17 @@ export async function updateRecurringExpenseWithOccurrences(
       .update(expenses)
       .set({
         amountMinor: candidate.amountMinor,
-        categoryId: input.values.categoryId,
-        costType: input.values.costType,
-        currency: input.values.currency,
-        description: input.values.description,
+        categoryId: values.categoryId,
+        costType: values.costType,
+        currency: values.currency,
+        description: values.description,
         dueDate: candidate.dueDate,
-        notes: input.values.notes,
-        paymentMethod: input.values.paymentMethod,
-        scope: input.values.scope,
-        title: input.values.title,
+        notes: values.notes,
+        paymentMethod: values.paymentMethod,
+        scope: values.scope,
+        title: values.title,
         updatedAt: new Date(),
-        vendor: input.values.vendor,
+        vendor: values.vendor,
       })
       .where(
         and(
