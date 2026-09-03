@@ -4,6 +4,7 @@ import Link from "next/link";
 import { formatMoney } from "@/lib/domain/money";
 import { buildRecurringPeriods } from "@/lib/domain/recurrence";
 import type { RecurringExpenseListItem } from "@/lib/queries/expenses";
+import { RecurringExpenseLifecycleControl } from "./recurring-expense-lifecycle-control";
 
 const frequencyLabels = { monthly: "Mensual", quarterly: "Trimestral", yearly: "Anual", one_time: "Única" } as const;
 const statusLabels = { active: "Activa", paused: "Pausada", cancelled: "Cancelada" } as const;
@@ -29,7 +30,7 @@ export function RecurringExpenseList({ recurringExpenses, today }: { recurringEx
     return <li key={item.id}>
       <span className={`recurring-expense-mark recurring-expense-mark--${item.status}`} aria-hidden="true"><CalendarClock size={16} /></span>
       <div className="recurring-expense-copy"><strong>{item.title}</strong><span>{item.category.name} · {frequencyLabels[item.frequency]} · día {item.billingDay}</span><small>{upcoming ? `Próximo: ${shortDate(upcoming)}` : "Sin próxima fecha"}</small></div>
-      <div className="recurring-expense-meta"><span className={`recurring-expense-status recurring-expense-status--${item.status}`}>{statusLabels[item.status]}</span><strong className="money-data">{formatMoney(item.amountMinor, item.currency)}</strong>{item.status !== "cancelled" ? <Link className="icon-button" href={`/expenses/recurring/${item.id}/edit`} aria-label={`Editar recurrencia ${item.title}`}><Pencil size={15} /></Link> : null}</div>
+      <div className="recurring-expense-meta"><span className={`recurring-expense-status recurring-expense-status--${item.status}`}>{statusLabels[item.status]}</span><strong className="money-data">{formatMoney(item.amountMinor, item.currency)}</strong><div className="recurring-expense-actions">{item.status !== "cancelled" ? <Link className="icon-button" href={`/expenses/recurring/${item.id}/edit`} aria-label={`Editar recurrencia ${item.title}`}><Pencil size={15} /></Link> : null}<RecurringExpenseLifecycleControl recurringExpenseId={item.id} title={item.title} status={item.status} /></div></div>
     </li>;
   })}</ol>;
 }

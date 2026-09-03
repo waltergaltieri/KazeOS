@@ -211,14 +211,14 @@ describe("expense actions", () => {
   it("updates only through the verified owner transaction", async () => {
     const result = await updateExpenseAction(
       { status: "idle" },
-      expenseForm({ expenseId, status: "planned" }),
+      expenseForm({ expenseId, paymentMethod: "bank_transfer", status: "planned" }),
     );
 
     expect(result).toEqual({ status: "success", expenseId });
     expect(mocks.updateManualExpense).toHaveBeenCalledWith(expect.anything(), {
       expenseId,
       ownerId,
-      values: expect.objectContaining({ status: "planned" }),
+      values: expect.objectContaining({ paymentMethod: "bank_transfer", status: "planned" }),
     });
   });
 

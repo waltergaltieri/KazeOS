@@ -1,5 +1,11 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/actions/recurring-expenses", () => ({
+  cancelRecurringExpenseAction: vi.fn(),
+  pauseRecurringExpenseAction: vi.fn(),
+}));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 import type { RecurringExpenseListItem } from "@/lib/queries/expenses";
 import { RecurringExpenseList } from "./recurring-expense-list";
@@ -33,6 +39,8 @@ describe("RecurringExpenseList", () => {
     expect(screen.getByText("Activa")).toBeInTheDocument();
     expect(document.querySelector(".money-data")).toHaveTextContent("USD 300,00");
     expect(screen.getByRole("link", { name: "Editar recurrencia Coworking" })).toHaveAttribute("href", "/expenses/recurring/11111111-1111-4111-8111-111111111111/edit");
+    expect(screen.getByRole("button", { name: "Pausar recurrencia Coworking" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Cancelar recurrencia Coworking" })).toBeVisible();
   });
 
   it("does not offer a dead edit action for cancelled commitments", () => {
@@ -40,5 +48,13 @@ describe("RecurringExpenseList", () => {
 
     expect(screen.getByText("Cancelada")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Editar recurrencia Coworking" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /recurrencia Coworking/ })).not.toBeInTheDocument();
+  });
+
+  it("does not offer pause for an already paused commitment", () => {
+    render(<RecurringExpenseList recurringExpenses={[{ ...item, status: "paused" }]} today="2026-09-03" />);
+
+    expect(screen.queryByRole("button", { name: "Pausar recurrencia Coworking" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancelar recurrencia Coworking" })).toBeVisible();
   });
 });

@@ -178,7 +178,11 @@ describe("recurring expense actions", () => {
     expect(result).toEqual({ status: "success", recurringExpenseId });
     expect(mocks.updateRecurringExpenseWithOccurrences).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ ownerId, recurringExpenseId }),
+      expect.objectContaining({
+        ownerId,
+        recurringExpenseId,
+        values: expect.objectContaining({ paymentMethod: "credit_card" }),
+      }),
     );
   });
 

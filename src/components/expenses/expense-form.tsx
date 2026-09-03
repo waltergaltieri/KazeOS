@@ -85,7 +85,8 @@ export function ExpenseForm(props: ExpenseFormProps) {
   const resetKey = JSON.stringify({
     categories: props.categories.map(({ id, active }) => [id, active]),
     defaultCurrency: props.defaultCurrency ?? "USD",
-    defaults,
+    expenseId: defaults.id,
+    recurringExpenseId: defaults.recurringExpenseId,
     forceRecurring: props.forceRecurring ?? false,
     mode: props.mode ?? "create",
   });
@@ -384,43 +385,41 @@ function ExpenseFormFields({
             />
           </div>
           {status === "paid" ? (
-            <>
-              <div className="field-stack">
-                <span>Fecha de pago *</span>
-                <MiniDatePicker
-                  name="paidDate"
-                  label="Fecha de pago"
-                  required
-                  defaultValue={paidDate}
-                  error={error("paidDate")}
-                  onValueChange={setPaidDate}
-                />
-              </div>
-              <div className="field-stack">
-                <span>Método de pago *</span>
-                <LedgerSelect
-                  name="paymentMethod"
-                  label="Método de pago"
-                  required
-                  defaultValue={defaults.paymentMethod ?? ""}
-                  error={error("paymentMethod")}
-                  options={[
-                    { value: "", label: "Sin especificar" },
-                    { value: "bank_transfer", label: "Transferencia bancaria" },
-                    { value: "cash", label: "Efectivo" },
-                    { value: "mercadopago", label: "Mercado Pago" },
-                    { value: "debit_card", label: "Tarjeta de débito" },
-                    { value: "credit_card", label: "Tarjeta de crédito" },
-                    { value: "paypal", label: "PayPal" },
-                    { value: "payoneer", label: "Payoneer" },
-                    { value: "stripe", label: "Stripe" },
-                    { value: "crypto", label: "Cripto" },
-                    { value: "other", label: "Otro" },
-                  ]}
-                />
-              </div>
-            </>
+            <div className="field-stack">
+              <span>Fecha de pago *</span>
+              <MiniDatePicker
+                name="paidDate"
+                label="Fecha de pago"
+                required
+                defaultValue={paidDate}
+                error={error("paidDate")}
+                onValueChange={setPaidDate}
+              />
+            </div>
           ) : <input type="hidden" name="paidDate" value="" />}
+          <div className="field-stack">
+            <span>Método de pago{status === "paid" ? " *" : " opcional"}</span>
+            <LedgerSelect
+              name="paymentMethod"
+              label="Método de pago"
+              required={status === "paid"}
+              defaultValue={defaults.paymentMethod ?? ""}
+              error={error("paymentMethod")}
+              options={[
+                { value: "", label: "Sin especificar" },
+                { value: "bank_transfer", label: "Transferencia bancaria" },
+                { value: "cash", label: "Efectivo" },
+                { value: "mercadopago", label: "Mercado Pago" },
+                { value: "debit_card", label: "Tarjeta de débito" },
+                { value: "credit_card", label: "Tarjeta de crédito" },
+                { value: "paypal", label: "PayPal" },
+                { value: "payoneer", label: "Payoneer" },
+                { value: "stripe", label: "Stripe" },
+                { value: "crypto", label: "Cripto" },
+                { value: "other", label: "Otro" },
+              ]}
+            />
+          </div>
           <label className="field-stack">
             <span>Notas</span>
             <textarea className="form-control" name="notes" rows={3} maxLength={2_000} value={notes} onChange={(event) => setNotes(event.target.value)} />

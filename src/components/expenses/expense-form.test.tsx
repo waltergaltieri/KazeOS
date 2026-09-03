@@ -320,7 +320,7 @@ describe("ExpenseForm", () => {
         oneOffAction={action}
         categories={[activeCategory]}
         mode="edit"
-        defaults={{ ...defaults, categoryId: activeCategory.id }}
+        defaults={{ ...defaults, categoryId: activeCategory.id, paymentMethod: "bank_transfer" }}
       />,
     );
 
@@ -334,9 +334,37 @@ describe("ExpenseForm", () => {
     expect(Object.fromEntries(formData)).toMatchObject({
       expenseId: defaults.id,
       paidDate: "",
+      paymentMethod: "bank_transfer",
       recurring: "false",
       status: "planned",
     });
+  });
+
+  it("preserves an optional payment method when editing an unpaid recurrence", async () => {
+    const user = userEvent.setup();
+    const action = vi.fn().mockResolvedValue({ status: "error", message: "Control" });
+    render(
+      <ExpenseForm
+        recurringAction={action}
+        categories={[activeCategory]}
+        forceRecurring
+        mode="recurring-edit"
+        defaults={{
+          ...defaults,
+          recurringExpenseId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          categoryId: activeCategory.id,
+          paymentMethod: "bank_transfer",
+        }}
+      />,
+    );
+
+    await user.click(screen.getByText("Información adicional"));
+    expect(screen.getByRole("combobox", { name: "Método de pago" })).toHaveTextContent("Transferencia bancaria");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await screen.findByRole("alert");
+
+    const formData = action.mock.calls[0]![1] as FormData;
+    expect(formData.get("paymentMethod")).toBe("bank_transfer");
   });
 
   it("redirects both one-off and recurring successes to the expense ledger", async () => {
