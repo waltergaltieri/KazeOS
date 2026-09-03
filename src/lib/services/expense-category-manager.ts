@@ -184,7 +184,8 @@ export async function assertActiveExpenseCategory(
     .select({ id: expenseCategories.id, active: expenseCategories.active })
     .from(expenseCategories)
     .where(categoryWhere(input))
-    .limit(1);
+    .limit(1)
+    .for("share");
 
   if (!category) throw new ExpenseCategoryNotFoundError();
   if (!category.active) throw new ExpenseCategoryInactiveError();

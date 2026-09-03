@@ -33,7 +33,7 @@ process.env.APP_ORIGIN ??= "http://localhost:3000";
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
 const databaseClient = databaseUrl
-  ? postgres(databaseUrl, { prepare: false, max: 1 })
+  ? postgres(databaseUrl, { prepare: false, max: 3 })
   : undefined;
 const database = databaseClient
   ? drizzle({ client: databaseClient, schema })
@@ -41,6 +41,29 @@ const database = databaseClient
 const rollback = new Error("ROLLBACK_EXPENSE_CATEGORY_MANAGER_TEST");
 type Database = NonNullable<typeof database>;
 type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function waitForBlockedBackend(pid: number) {
+  for (let attempt = 0; attempt < 250; attempt += 1) {
+    const [row] = await database!.execute(sql<{ waiting: boolean }>`
+      select exists (
+        select 1 from pg_locks
+        where pid = ${pid} and granted = false
+      ) as waiting
+    `);
+    if (row?.waiting) return;
+    await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+  }
+
+  throw new Error(`Backend ${pid} did not wait for the category lock`);
+}
 
 async function withRollback(operation: (transaction: Transaction) => Promise<void>) {
   try {
@@ -226,5 +249,102 @@ describeDatabase("transactional expense category management", () => {
         }),
       )).resolves.toMatchObject({ id: category!.id, active: true });
     });
+  }, 30_000);
+
+  it("serializes deactivation behind active-category validation until the expense write commits", async () => {
+    const ownerId = randomUUID();
+    const categoryId = randomUUID();
+    const expenseId = randomUUID();
+    const validationComplete = deferred();
+    const allowExpenseWrite = deferred();
+    const deactivationStarted = deferred();
+    const deactivationFinished = deferred();
+    let deactivationPid = 0;
+    let deactivationCompleted = false;
+    let expenseWrite: Promise<unknown> | undefined;
+    let deactivation: Promise<unknown> | undefined;
+
+    await database!.execute(sql`insert into auth.users (id) values (${ownerId})`);
+    await database!.insert(expenseCategories).values({
+      id: categoryId,
+      ownerId,
+      name: `Concurrent ${randomUUID()}`,
+    });
+
+    try {
+      const runAsOwner = createAuthenticatedDrizzleRunner(database!);
+      expenseWrite = runAsOwner(ownerId, async (db) => {
+        await assertActiveExpenseCategory(db, { categoryId, ownerId });
+        validationComplete.resolve();
+        await allowExpenseWrite.promise;
+        return db.insert(expenses).values({
+          id: expenseId,
+          ownerId,
+          title: "Gasto concurrente",
+          amountMinor: 1_000,
+          currency: "USD",
+          categoryId,
+          scope: "business",
+          costType: "fixed",
+          dueDate: "2026-09-02",
+        });
+      });
+
+      await validationComplete.promise;
+      deactivation = runAsOwner(ownerId, async (db) => {
+        const [backend] = await db.execute(sql<{ pid: number }>`
+          select pg_backend_pid()::integer as pid
+        `);
+        const pid = Number(backend?.pid);
+        if (!Number.isSafeInteger(pid) || pid <= 0) {
+          throw new Error("Database did not return a valid backend pid");
+        }
+        deactivationPid = pid;
+        deactivationStarted.resolve();
+        const result = await toggleExpenseCategory(db, {
+          active: false,
+          categoryId,
+          ownerId,
+        });
+        deactivationCompleted = true;
+        deactivationFinished.resolve();
+        return result;
+      });
+
+      await deactivationStarted.promise;
+      const concurrencyState = await Promise.race([
+        waitForBlockedBackend(deactivationPid).then(() => "blocked" as const),
+        deactivationFinished.promise.then(() => "completed" as const),
+      ]);
+      expect(concurrencyState).toBe("blocked");
+      expect(deactivationCompleted).toBe(false);
+
+      allowExpenseWrite.resolve();
+      await Promise.all([expenseWrite, deactivation]);
+
+      const [category] = await database!.select({ active: expenseCategories.active })
+        .from(expenseCategories)
+        .where(and(
+          eq(expenseCategories.id, categoryId),
+          eq(expenseCategories.ownerId, ownerId),
+        ));
+      const storedExpenses = await database!.select({ id: expenses.id })
+        .from(expenses)
+        .where(and(eq(expenses.id, expenseId), eq(expenses.ownerId, ownerId)));
+
+      expect(category?.active).toBe(false);
+      expect(storedExpenses).toEqual([{ id: expenseId }]);
+    } finally {
+      allowExpenseWrite.resolve();
+      await Promise.allSettled(
+        [expenseWrite, deactivation].filter(
+          (operation): operation is Promise<unknown> => operation !== undefined,
+        ),
+      );
+      await database!.delete(expenses).where(eq(expenses.ownerId, ownerId));
+      await database!.delete(expenseCategories)
+        .where(eq(expenseCategories.ownerId, ownerId));
+      await database!.execute(sql`delete from auth.users where id = ${ownerId}`);
+    }
   }, 30_000);
 });
