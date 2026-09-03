@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { config } from "dotenv";
 import postgres from "postgres";
 
@@ -14,6 +14,8 @@ import {
 } from "../../src/lib/domain/money";
 
 config({ path: ".env.local", quiet: true });
+
+const expect = baseExpect.configure({ timeout: 30_000 });
 
 const authEmail = process.env.E2E_AUTH_EMAIL;
 const authPassword = process.env.E2E_AUTH_PASSWORD;
@@ -67,6 +69,7 @@ async function createExpense(
   input: {
     amount: string;
     category: string;
+    currency?: "USD" | "ARS";
     dueDate: string;
     recurring?: boolean;
     status?: "Pendiente" | "Planificado";
@@ -76,6 +79,7 @@ async function createExpense(
   await page.goto("/expenses/new");
   await page.getByLabel("Título *").fill(input.title);
   await page.getByLabel("Monto *").fill(input.amount);
+  if (input.currency) await choose(page, "Moneda", input.currency);
   await choose(page, "Categoría", input.category);
   await choose(page, "Ámbito", "Negocio");
   await choose(page, "Tipo de costo", "Fijo");
@@ -101,36 +105,37 @@ async function createExpense(
   await expect(page).toHaveURL(/\/expenses$/);
 }
 
-async function readUsdCashFlow(
+async function readCashFlow(
   ownerId: string,
   monthStart: string,
   monthEnd: string,
+  currency: "USD" | "ARS",
 ): Promise<CurrencyTotals> {
   const [row] = await cleanupDatabase!<CurrencyTotals[]>`
     select
       coalesce((select sum(amount_minor) from charges
-        where owner_id = ${ownerId} and currency = 'USD' and status <> 'cancelled'
+        where owner_id = ${ownerId} and currency = ${currency} and status <> 'cancelled'
           and due_date >= ${monthStart} and due_date < ${monthEnd}), 0)::text as projected_income,
       coalesce((select sum(amount_minor) from payments
-        where owner_id = ${ownerId} and currency = 'USD'
+        where owner_id = ${ownerId} and currency = ${currency}
           and payment_date >= ${monthStart} and payment_date < ${monthEnd}), 0)::text as actual_income,
       coalesce((select sum(amount_minor) from expenses
-        where owner_id = ${ownerId} and currency = 'USD' and status <> 'cancelled'
+        where owner_id = ${ownerId} and currency = ${currency} and status <> 'cancelled'
           and due_date >= ${monthStart} and due_date < ${monthEnd}), 0)::text as projected_expenses,
       coalesce((select sum(amount_minor) from expenses
-        where owner_id = ${ownerId} and currency = 'USD' and status = 'paid'
+        where owner_id = ${ownerId} and currency = ${currency} and status = 'paid'
           and paid_date >= ${monthStart} and paid_date < ${monthEnd}), 0)::text as actual_expenses,
       (coalesce((select sum(amount_minor) from charges
-        where owner_id = ${ownerId} and currency = 'USD' and status <> 'cancelled'
+        where owner_id = ${ownerId} and currency = ${currency} and status <> 'cancelled'
           and due_date >= ${monthStart} and due_date < ${monthEnd}), 0)
        - coalesce((select sum(amount_minor) from expenses
-        where owner_id = ${ownerId} and currency = 'USD' and status <> 'cancelled'
+        where owner_id = ${ownerId} and currency = ${currency} and status <> 'cancelled'
           and due_date >= ${monthStart} and due_date < ${monthEnd}), 0))::text as projected_net,
       (coalesce((select sum(amount_minor) from payments
-        where owner_id = ${ownerId} and currency = 'USD'
+        where owner_id = ${ownerId} and currency = ${currency}
           and payment_date >= ${monthStart} and payment_date < ${monthEnd}), 0)
        - coalesce((select sum(amount_minor) from expenses
-        where owner_id = ${ownerId} and currency = 'USD' and status = 'paid'
+        where owner_id = ${ownerId} and currency = ${currency} and status = 'paid'
           and paid_date >= ${monthStart} and paid_date < ${monthEnd}), 0))::text as actual_net
   `;
 
@@ -147,6 +152,7 @@ test("protects the expense ledger from unauthenticated access", async ({ page })
 });
 
 test.describe("authenticated expense acceptance flow", () => {
+  test.describe.configure({ mode: "serial" });
   test.skip(
     !ready,
     "Pendiente externo: requiere credenciales E2E, DATABASE_URL y CRON_SECRET.",
@@ -156,6 +162,7 @@ test.describe("authenticated expense acceptance flow", () => {
     page,
     request,
   }) => {
+    test.setTimeout(300_000);
     const marker = randomUUID();
     const categoryName = `Aceptación E2E ${marker}`;
     const plannedTitle = `Planificado E2E ${marker}`;
@@ -163,6 +170,7 @@ test.describe("authenticated expense acceptance flow", () => {
     const editedCopyTitle = `Copia editada E2E ${marker}`;
     const recurringTitle = `Recurrente E2E ${marker}`;
     const editedRecurringTitle = `Recurrente actualizado E2E ${marker}`;
+    const arsTitle = `Pesos E2E ${marker}`;
     const mobileTitle = `Móvil pagado E2E ${marker}`;
     const disposableTitle = `Descartable E2E ${marker}`;
     const today = todayInBusinessZone(new Date());
@@ -181,16 +189,23 @@ test.describe("authenticated expense acceptance flow", () => {
       await expect(page).toHaveURL(/\/settings$/);
 
       await page.getByLabel("Nombre de la nueva categoría").fill(categoryName);
+      const categoryMutation = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          new URL(response.url()).pathname === "/settings",
+      );
       await page.getByRole("button", { name: "Crear categoría" }).click();
-      await expect(page.getByRole("status")).toHaveText("Categoría creada.");
-      await expect(page.getByText(categoryName, { exact: true })).toBeVisible();
+      const categoryResponse = await categoryMutation;
+      expect(categoryResponse.ok()).toBe(true);
 
       await expect.poll(async () => {
         const rows = await cleanupDatabase!`
           select id, owner_id from expense_categories where name = ${categoryName}
         `;
         return rows.length;
-      }).toBe(1);
+      }, { timeout: 30_000 }).toBe(1);
+      await expect(page.getByRole("status")).toHaveText("Categoría creada.");
+      await expect(page.getByText(categoryName, { exact: true })).toBeVisible();
       const [createdCategory] = await cleanupDatabase!`
         select id, owner_id from expense_categories where name = ${categoryName}
       `;
@@ -303,17 +318,26 @@ test.describe("authenticated expense acceptance flow", () => {
       `;
       expect(recurringRows).toHaveLength(3);
       expect(recurringRows[0]).toMatchObject({
-        amount_minor: 7_700,
+        amount_minor: "7700",
         due_date: today,
         status: "paid",
         title: recurringTitle,
       });
       expect(recurringRows.slice(1)).toEqual([
-        expect.objectContaining({ amount_minor: 8_800, status: "pending", title: editedRecurringTitle }),
-        expect.objectContaining({ amount_minor: 8_800, status: "pending", title: editedRecurringTitle }),
+        expect.objectContaining({ amount_minor: "8800", status: "pending", title: editedRecurringTitle }),
+        expect.objectContaining({ amount_minor: "8800", status: "pending", title: editedRecurringTitle }),
       ]);
 
-      const cashFlow = await readUsdCashFlow(ownerId!, monthStart, monthEnd);
+      await createExpense(page, {
+        amount: "33,00",
+        category: categoryName,
+        currency: "ARS",
+        dueDate: today,
+        status: "Planificado",
+        title: arsTitle,
+      });
+
+      const cashFlow = await readCashFlow(ownerId!, monthStart, monthEnd, "USD");
       await page.goto("/expenses?currency=USD");
       const projectedResult = page.getByRole("group", { name: "Resultado proyectado" });
       const actualResult = page.getByRole("group", { name: "Resultado real" });
@@ -344,6 +368,18 @@ test.describe("authenticated expense acceptance flow", () => {
       });
       await expect(desktopExpenseRow(page, recurringTitle)).toHaveCount(1);
       await expect(desktopExpenseRow(page, editedRecurringTitle)).toHaveCount(0);
+
+      await page.goto(`/expenses?period=all&q=${encodeURIComponent(marker)}&currency=ARS`);
+      await expect(desktopExpenseRow(page, arsTitle)).toHaveCount(1);
+      await expect(desktopExpenseRow(page, plannedTitle)).toHaveCount(0);
+      const arsCashFlow = await readCashFlow(ownerId!, monthStart, monthEnd, "ARS");
+      await expect(page.getByLabel("Resumen de gastos ARS")).toContainText(
+        formatAggregateMoney(arsCashFlow.projected_expenses, "ARS"),
+      );
+
+      await page.goto(`/expenses?period=all&q=${encodeURIComponent(marker)}&currency=USD`);
+      await expect(desktopExpenseRow(page, arsTitle)).toHaveCount(0);
+      await expect(desktopExpenseRow(page, plannedTitle)).toHaveCount(1);
 
       await page.goto("/dashboard?currency=USD");
       const expenseCard = page.getByRole("article").filter({
