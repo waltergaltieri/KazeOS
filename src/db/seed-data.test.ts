@@ -7,6 +7,25 @@ import { createDemoSeedData, DEMO_SEED_REFERENCE_DATE } from "./seed-data";
 
 const ownerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
+const expectedExpenseCategories = [
+  "Servicios",
+  "Software",
+  "Comida",
+  "Transporte",
+  "Ropa",
+  "Equipamiento",
+  "Hogar",
+  "Salud",
+  "Educación",
+  "Entretenimiento",
+  "Impuestos",
+  "Marketing",
+  "Viajes",
+  "Suscripciones",
+  "Honorarios",
+  "Otros",
+] as const;
+
 describe("demo seed contract", () => {
   it("is deterministic, owner-specific and uses stable UUIDs", () => {
     const first = createDemoSeedData(ownerId);
@@ -44,5 +63,173 @@ describe("demo seed contract", () => {
     expect(new Set(derived)).toEqual(new Set(["paid", "partial", "overdue", "pending"]));
     const source = readFileSync(new URL("./seed-data.ts", import.meta.url), "utf8");
     expect(source).not.toMatch(/Date\.now\s*\(|new Date\(\s*\)/);
+  });
+
+  it("contains the exact approved expense categories, templates and examples", () => {
+    const data = createDemoSeedData(ownerId) as ReturnType<
+      typeof createDemoSeedData
+    > & {
+      expenseCategories: Array<{
+        id: string;
+        name: string;
+      }>;
+      expenses: Array<{
+        amountMinor: number;
+        categoryId: string;
+        costType: string;
+        currency: string;
+        dueDate: string;
+        generatedAutomatically: boolean;
+        paidDate: string | null;
+        recurringExpenseId: string | null;
+        scope: string;
+        status: string;
+        title: string;
+      }>;
+      recurringExpenses: Array<{
+        amountMinor: number;
+        automaticGeneration: boolean;
+        billingDay: number;
+        categoryId: string;
+        costType: string;
+        currency: string;
+        frequency: string;
+        id: string;
+        scope: string;
+        startDate: string;
+        status: string;
+        title: string;
+      }>;
+    };
+
+    expect(data.expenseCategories).toBeDefined();
+    expect(data.recurringExpenses).toBeDefined();
+    expect(data.expenses).toBeDefined();
+    expect(data.expenseCategories.map(({ name }) => name)).toEqual(
+      expectedExpenseCategories,
+    );
+    const categoryNames = new Map(
+      data.expenseCategories.map(({ id, name }) => [id, name]),
+    );
+
+    expect(
+      data.recurringExpenses.map((template) => ({
+        amountMinor: template.amountMinor,
+        automaticGeneration: template.automaticGeneration,
+        billingDay: template.billingDay,
+        category: categoryNames.get(template.categoryId),
+        costType: template.costType,
+        currency: template.currency,
+        frequency: template.frequency,
+        scope: template.scope,
+        startDate: template.startDate,
+        status: template.status,
+        title: template.title,
+      })),
+    ).toEqual([
+      {
+        amountMinor: 2_000,
+        automaticGeneration: true,
+        billingDay: 5,
+        category: "Software",
+        costType: "fixed",
+        currency: "USD",
+        frequency: "monthly",
+        scope: "business",
+        startDate: DEMO_SEED_REFERENCE_DATE,
+        status: "active",
+        title: "Vercel",
+      },
+      {
+        amountMinor: 4_500_000,
+        automaticGeneration: true,
+        billingDay: 10,
+        category: "Servicios",
+        costType: "fixed",
+        currency: "ARS",
+        frequency: "monthly",
+        scope: "personal",
+        startDate: DEMO_SEED_REFERENCE_DATE,
+        status: "active",
+        title: "Internet",
+      },
+      {
+        amountMinor: 15_000_000,
+        automaticGeneration: true,
+        billingDay: 15,
+        category: "Marketing",
+        costType: "variable",
+        currency: "ARS",
+        frequency: "monthly",
+        scope: "business",
+        startDate: DEMO_SEED_REFERENCE_DATE,
+        status: "active",
+        title: "Marketing",
+      },
+    ]);
+
+    expect(
+      data.expenses
+        .filter(({ recurringExpenseId }) => recurringExpenseId === null)
+        .map((expense) => ({
+          amountMinor: expense.amountMinor,
+          category: categoryNames.get(expense.categoryId),
+          costType: expense.costType,
+          currency: expense.currency,
+          dueDate: expense.dueDate,
+          generatedAutomatically: expense.generatedAutomatically,
+          paidDate: expense.paidDate,
+          scope: expense.scope,
+          status: expense.status,
+          title: expense.title,
+        })),
+    ).toEqual([
+      {
+        amountMinor: 4_000_000,
+        category: "Comida",
+        costType: "variable",
+        currency: "ARS",
+        dueDate: "2026-08-30",
+        generatedAutomatically: false,
+        paidDate: "2026-08-30",
+        scope: "partner",
+        status: "paid",
+        title: "Cena",
+      },
+      {
+        amountMinor: 90_000,
+        category: "Equipamiento",
+        costType: "variable",
+        currency: "USD",
+        dueDate: "2026-09-30",
+        generatedAutomatically: false,
+        paidDate: null,
+        scope: "business",
+        status: "planned",
+        title: "Notebook",
+      },
+    ]);
+
+    const generated = data.expenses.filter(
+      ({ recurringExpenseId }) => recurringExpenseId !== null,
+    );
+    expect(generated).toHaveLength(9);
+    expect(
+      generated.map(({ dueDate, status, title }) => ({
+        dueDate,
+        status,
+        title,
+      })),
+    ).toEqual([
+      { dueDate: "2026-09-05", status: "pending", title: "Vercel" },
+      { dueDate: "2026-10-05", status: "pending", title: "Vercel" },
+      { dueDate: "2026-11-05", status: "pending", title: "Vercel" },
+      { dueDate: "2026-09-10", status: "pending", title: "Internet" },
+      { dueDate: "2026-10-10", status: "pending", title: "Internet" },
+      { dueDate: "2026-11-10", status: "pending", title: "Internet" },
+      { dueDate: "2026-09-15", status: "pending", title: "Marketing" },
+      { dueDate: "2026-10-15", status: "pending", title: "Marketing" },
+      { dueDate: "2026-11-15", status: "pending", title: "Marketing" },
+    ]);
   });
 });

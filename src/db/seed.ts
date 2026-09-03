@@ -41,7 +41,7 @@ export async function runDemoSeed(environment: Environment = process.env) {
     const counts = await database.transaction(async (transaction) => {
       const claims = JSON.stringify({ sub: ownerId, role: "authenticated" });
       await transaction.execute(sql`select set_config('request.jwt.claims', ${claims}, true)`);
-      await transaction.execute(sql.raw("set local role authenticated"));
+      await transaction.execute(sql.raw("set local role kazeos_backend"));
       return seedDemoData(transaction, ownerId);
     });
     process.stdout.write(`Demo seed completed safely (${Object.values(counts).reduce((total, count) => total + count, 0)} rows reconciled).\n`);

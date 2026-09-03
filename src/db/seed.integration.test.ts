@@ -12,7 +12,17 @@ vi.mock("server-only", () => ({}));
 
 import { createAuthenticatedDrizzleRunner } from "./authenticated";
 import * as schema from "./schema";
-import { charges, clientNotes, clients, payments, services, tasks } from "./schema";
+import {
+  charges,
+  clientNotes,
+  clients,
+  expenseCategories,
+  expenses,
+  payments,
+  recurringExpenses,
+  services,
+  tasks,
+} from "./schema";
 import { createDemoSeedData, DEMO_SEED_REFERENCE_DATE, seedDemoData } from "./seed-data";
 import { runDemoSeed } from "./seed";
 
@@ -42,26 +52,63 @@ describeDatabase("safe idempotent demo seed through RLS", () => {
 
         const runAsOwner = createAuthenticatedDrizzleRunner(transaction);
         const first = await runAsOwner(ownerId, (ownerDatabase) => seedDemoData(ownerDatabase, ownerId));
+        const expected = createDemoSeedData(ownerId);
+        const vercelTemplate = expected.recurringExpenses.find(
+          ({ title }) => title === "Vercel",
+        )!;
+        const [vercelOccurrence] = expected.expenses.filter(
+          ({ recurringExpenseId }) => recurringExpenseId === vercelTemplate.id,
+        );
+
+        await runAsOwner(ownerId, (ownerDatabase) =>
+          ownerDatabase
+            .update(expenses)
+            .set({
+              notes: "Pago confirmado después del seed inicial",
+              paidDate: "2026-09-04",
+              paymentMethod: "credit_card",
+              status: "paid",
+            })
+            .where(eq(expenses.id, vercelOccurrence!.id)),
+        );
+
         const second = await runAsOwner(ownerId, (ownerDatabase) => seedDemoData(ownerDatabase, ownerId));
         expect(second).toEqual(first);
 
-        const expected = createDemoSeedData(ownerId);
         await runAsOwner(ownerId, async (ownerDatabase) => {
           const [identity] = await ownerDatabase.execute<{ current_user: string; auth_uid: string }>(sql`select current_user, auth.uid()::text as auth_uid`);
           expect(identity).toEqual({ current_user: "kazeos_backend", auth_uid: ownerId });
 
-          const count = async (table: typeof clients | typeof services | typeof charges | typeof payments | typeof tasks | typeof clientNotes) => {
+          const count = async (table: typeof clients | typeof services | typeof charges | typeof payments | typeof tasks | typeof clientNotes | typeof expenseCategories | typeof recurringExpenses | typeof expenses) => {
             const [row] = await ownerDatabase.select({ value: sql<number>`count(*)::int` }).from(table).where(eq(table.ownerId, ownerId));
             return row?.value;
           };
-          await expect(Promise.all([count(clients), count(services), count(charges), count(payments), count(tasks), count(clientNotes)])).resolves.toEqual([
-            expected.clients.length, expected.services.length, expected.charges.length, expected.payments.length, expected.tasks.length, expected.notes.length,
+          await expect(Promise.all([count(clients), count(services), count(charges), count(payments), count(tasks), count(clientNotes), count(expenseCategories), count(recurringExpenses), count(expenses)])).resolves.toEqual([
+            expected.clients.length, expected.services.length, expected.charges.length, expected.payments.length, expected.tasks.length, expected.notes.length, expected.expenseCategories.length, expected.recurringExpenses.length, expected.expenses.length,
           ]);
 
           const rows = await ownerDatabase.select({ description: charges.description, amountMinor: charges.amountMinor, amountPaidMinor: charges.amountPaidMinor, status: charges.status, dueDate: charges.dueDate }).from(charges).where(eq(charges.ownerId, ownerId));
           const states = rows.map((charge) => charge.status === "paid" || charge.status === "partial" ? charge.status : charge.dueDate < DEMO_SEED_REFERENCE_DATE ? "overdue" : "pending");
           expect(new Set(states)).toEqual(new Set(["paid", "partial", "overdue", "pending"]));
           expect(rows.find((row) => row.status === "paid")?.amountPaidMinor).toBe(rows.find((row) => row.status === "paid")?.amountMinor);
+          await expect(
+            ownerDatabase
+              .select({
+                notes: expenses.notes,
+                paidDate: expenses.paidDate,
+                paymentMethod: expenses.paymentMethod,
+                status: expenses.status,
+              })
+              .from(expenses)
+              .where(eq(expenses.id, vercelOccurrence!.id)),
+          ).resolves.toEqual([
+            {
+              notes: "Pago confirmado después del seed inicial",
+              paidDate: "2026-09-04",
+              paymentMethod: "credit_card",
+              status: "paid",
+            },
+          ]);
           expect(await ownerDatabase.select({ id: clients.id }).from(clients).where(and(eq(clients.ownerId, otherOwnerId), eq(clients.id, otherClientId)))).toEqual([]);
         });
         throw rollback;
