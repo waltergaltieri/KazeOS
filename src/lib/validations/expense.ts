@@ -58,14 +58,28 @@ const positiveMoney = z.string().trim().superRefine((value, context) => {
 }).transform((value) => parseMoneyInput(value));
 
 const billingDay = z.preprocess(
-  (value) => typeof value === "string" && value.trim() !== ""
-    ? Number(value)
-    : value,
+  (value) => {
+    if (typeof value !== "string") return value;
+    const normalized = value.trim();
+    return /^\d+$/.test(normalized) ? Number(normalized) : value;
+  },
   z.number().int().min(1).max(31),
 );
 
+function normalizeCheckboxValue(value: unknown): unknown {
+  if (value === true || value === "true" || value === "on") return true;
+  if (
+    value === false ||
+    value === "false" ||
+    value === "off" ||
+    value === null ||
+    value === undefined
+  ) return false;
+  return value;
+}
+
 const checkbox = z.preprocess(
-  (value) => value === true || value === "true" || value === "on",
+  normalizeCheckboxValue,
   z.boolean(),
 );
 
@@ -133,13 +147,29 @@ export const expenseFormSchema = z.preprocess(
     }
 
     const input = value as Record<string, unknown>;
-    return {
+    const recurring = normalizeCheckboxValue(input.recurring);
+    const normalized: Record<string, unknown> = {
       ...input,
-      recurring:
-        input.recurring === true ||
-        input.recurring === "true" ||
-        input.recurring === "on",
+      recurring,
     };
+
+    if (recurring === false) {
+      for (const field of ["frequency", "billingDay", "startDate", "endDate"] as const) {
+        const fieldValue = normalized[field];
+        if (
+          fieldValue == null ||
+          (typeof fieldValue === "string" && fieldValue.trim() === "")
+        ) {
+          delete normalized[field];
+        }
+      }
+
+      if (normalizeCheckboxValue(normalized.automaticGeneration) === false) {
+        delete normalized.automaticGeneration;
+      }
+    }
+
+    return normalized;
   },
   z.discriminatedUnion("recurring", [
     oneOffExpenseSchema,

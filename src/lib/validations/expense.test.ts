@@ -78,6 +78,30 @@ describe("expense validation", () => {
     });
   });
 
+  it.each(["banana", 1])(
+    "rejects an unknown recurrence boolean value %j",
+    (recurring) => {
+      expect(expenseFormSchema.safeParse({
+        ...baseExpense,
+        recurring,
+      }).success).toBe(false);
+    },
+  );
+
+  it.each(["banana", 1])(
+    "rejects an unknown automatic generation boolean value %j",
+    (automaticGeneration) => {
+      expect(expenseFormSchema.safeParse({
+        ...baseExpense,
+        recurring: "on",
+        frequency: "monthly",
+        billingDay: "5",
+        startDate: "2026-09-05",
+        automaticGeneration,
+      }).success).toBe(false);
+    },
+  );
+
   it.each([
     ["currency", "EUR"],
     ["scope", "company"],
@@ -118,6 +142,47 @@ describe("expense validation", () => {
   it("does not require recurrence fields for a one-off expense", () => {
     expect(expenseFormSchema.safeParse(baseExpense).success).toBe(true);
   });
+
+  it("drops empty FormData-shaped recurrence fields for a one-off expense", () => {
+    const parsed = expenseFormSchema.parse({
+      ...baseExpense,
+      recurring: false,
+      frequency: null,
+      billingDay: "",
+      startDate: "",
+      endDate: null,
+      automaticGeneration: null,
+    });
+
+    expect(parsed).toMatchObject({ recurring: false });
+    expect(parsed).not.toHaveProperty("frequency");
+    expect(parsed).not.toHaveProperty("billingDay");
+    expect(parsed).not.toHaveProperty("startDate");
+    expect(parsed).not.toHaveProperty("endDate");
+    expect(parsed).not.toHaveProperty("automaticGeneration");
+  });
+
+  it.each([
+    ["frequency", "monthly"],
+    ["billingDay", "5"],
+    ["startDate", "2026-09-05"],
+    ["endDate", "2027-09-05"],
+    ["automaticGeneration", "on"],
+  ])(
+    "does not hide substantive one-off recurrence input in %s",
+    (field, value) => {
+      expect(expenseFormSchema.safeParse({
+        ...baseExpense,
+        recurring: false,
+        frequency: null,
+        billingDay: "",
+        startDate: "",
+        endDate: null,
+        automaticGeneration: null,
+        [field]: value,
+      }).success).toBe(false);
+    },
+  );
 
   it.each(["frequency", "billingDay", "startDate"] as const)(
     "requires %s for a recurring expense",
@@ -179,6 +244,32 @@ describe("expense validation", () => {
       endDate: "2026-09-04",
     }).success).toBe(false);
   });
+
+  it.each([
+    [" 1 ", 1],
+    ["31", 31],
+  ])("accepts billing day boundary %j", (billingDay, expected) => {
+    expect(expenseFormSchema.parse({
+      ...baseExpense,
+      recurring: "on",
+      frequency: "monthly",
+      billingDay,
+      startDate: "2026-09-05",
+    })).toMatchObject({ billingDay: expected });
+  });
+
+  it.each(["0", "32", "1e1", "0x10", "1.5", "1,5"])(
+    "rejects non-decimal or out-of-range billing day %j",
+    (billingDay) => {
+      expect(expenseFormSchema.safeParse({
+        ...baseExpense,
+        recurring: "on",
+        frequency: "monthly",
+        billingDay,
+        startDate: "2026-09-05",
+      }).success).toBe(false);
+    },
+  );
 
   it("validates expense and recurring expense identifiers", () => {
     expect(expenseIdSchema.parse(expenseId)).toBe(expenseId);
