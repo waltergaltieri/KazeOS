@@ -67,6 +67,9 @@ export function ExpensePaymentDialog({
   );
   const titleId = useId();
   const descriptionId = useId();
+  const amountId = useId();
+  const amountErrorId = useId();
+  const paidDateId = useId();
   const paidDateErrorId = useId();
 
   useEffect(() => {
@@ -126,17 +129,17 @@ export function ExpensePaymentDialog({
       </header>
       <form action={action} className="expense-payment-form">
         <input type="hidden" name="expenseId" value={expense.id} />
-        <label className="field-stack">
-          <span>Monto final</span>
-          <input autoFocus className="form-control money-data" name="amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} aria-invalid={Boolean(state.fieldErrors?.amount) || undefined} />
-          {state.fieldErrors?.amount?.[0] ? <small className="field-error">{state.fieldErrors.amount[0]}</small> : null}
-        </label>
+        <div className="field-stack">
+          <label htmlFor={amountId}>Monto final</label>
+          <input id={amountId} autoFocus className="form-control money-data" name="amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} aria-invalid={Boolean(state.fieldErrors?.amount) || undefined} aria-describedby={state.fieldErrors?.amount?.[0] ? amountErrorId : undefined} />
+          {state.fieldErrors?.amount?.[0] ? <small id={amountErrorId} className="field-error">{state.fieldErrors.amount[0]}</small> : null}
+        </div>
         <div className="form-grid form-grid--two">
-          <label className="field-stack">
-            <span>Fecha de pago</span>
-            <input className="form-control" name="paidDate" inputMode="numeric" placeholder="AAAA-MM-DD" defaultValue={expense.paidDate ?? today} aria-invalid={Boolean(state.fieldErrors?.paidDate) || undefined} aria-describedby={state.fieldErrors?.paidDate?.[0] ? paidDateErrorId : undefined} />
+          <div className="field-stack">
+            <label htmlFor={paidDateId}>Fecha de pago</label>
+            <input id={paidDateId} className="form-control" name="paidDate" inputMode="numeric" placeholder="AAAA-MM-DD" defaultValue={expense.paidDate ?? today} aria-invalid={Boolean(state.fieldErrors?.paidDate) || undefined} aria-describedby={state.fieldErrors?.paidDate?.[0] ? paidDateErrorId : undefined} />
             {state.fieldErrors?.paidDate?.[0] ? <small id={paidDateErrorId} className="field-error">{state.fieldErrors.paidDate[0]}</small> : null}
-          </label>
+          </div>
           <label className="field-stack">
             <span>Método</span>
             <LedgerSelect name="paymentMethod" label="Método de pago" defaultValue={expense.paymentMethod ?? "bank_transfer"} options={methods} error={state.fieldErrors?.paymentMethod?.[0]} />

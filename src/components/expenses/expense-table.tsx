@@ -77,7 +77,7 @@ export function ExpenseTable({ expenses, today }: { expenses: ExpenseListItem[];
               const canCommand = operational(expense);
               return <tr key={expense.id} className={`expense-row expense-row--${expense.status}`}>
                 <td><strong>{expense.title}</strong><small>{expense.vendor ?? expense.description ?? "Sin proveedor"}</small></td>
-                <td><span className="expense-category">{expense.category.icon ? <span aria-hidden="true">{expense.category.icon}</span> : null}{expense.category.name}</span></td>
+                <td><div className="expense-table-classification"><span className="expense-category">{expense.category.icon ? <span aria-hidden="true">{expense.category.icon}</span> : null}{expense.category.name}</span>{expense.recurringExpense ? <span className="expense-dimension expense-dimension--recurring">Recurrente</span> : null}</div></td>
                 <td><span className="expense-dimension expense-dimension--scope">{scopeLabels[expense.scope]}</span></td>
                 <td><span className="expense-dimension expense-dimension--type">{costTypeLabels[expense.costType]}</span></td>
                 <td><time dateTime={expense.dueDate}>{shortDate(expense.dueDate)}</time></td>

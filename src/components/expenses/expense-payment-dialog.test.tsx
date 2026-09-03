@@ -62,14 +62,21 @@ describe("ExpensePaymentDialog", () => {
 
   it("preserves card methods and presents paid-date errors inline", async () => {
     const user = userEvent.setup();
-    mocks.correct.mockResolvedValue({ status: "error", message: "Revisá los campos indicados.", fieldErrors: { paidDate: ["Ingresá una fecha válida."] } });
+    mocks.correct.mockResolvedValue({ status: "error", message: "Revisá los campos indicados.", fieldErrors: { amount: ["Ingresá un monto válido."], paidDate: ["Ingresá una fecha válida."] } });
     render(<><ExpensePaymentDialog expense={{ ...expense, paidDate: "2026-09-02", paymentMethod: "credit_card" }} today="2026-09-10" correction open onClose={() => {}} /></>);
 
     expect(screen.getByRole("combobox", { name: "Método de pago" })).toHaveTextContent("Tarjeta de crédito");
     await user.click(screen.getByRole("button", { name: "Guardar corrección" }));
 
+    expect(await screen.findByText("Ingresá un monto válido.")).toBeInTheDocument();
     expect(await screen.findByText("Ingresá una fecha válida.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Fecha de pago")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Fecha de pago")).toHaveAccessibleDescription("Ingresá una fecha válida.");
+    const amount = screen.getByLabelText("Monto final");
+    const paidDate = screen.getByLabelText("Fecha de pago");
+    expect(amount).toHaveAttribute("aria-invalid", "true");
+    expect(amount).toHaveAccessibleDescription("Ingresá un monto válido.");
+    expect(paidDate).toHaveAttribute("aria-invalid", "true");
+    expect(paidDate).toHaveAccessibleDescription("Ingresá una fecha válida.");
+    expect(screen.getByText("Monto final").closest("label")).toHaveAttribute("for", amount.id);
+    expect(screen.getByText("Fecha de pago").closest("label")).toHaveAttribute("for", paidDate.id);
   });
 });
