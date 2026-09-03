@@ -1,0 +1,18 @@
+export const DEFAULT_EXPENSE_CATEGORIES = [
+  "Servicios",
+  "Software",
+  "Comida",
+  "Transporte",
+  "Ropa",
+  "Equipamiento",
+  "Hogar",
+  "Salud",
+  "Educación",
+  "Entretenimiento",
+  "Impuestos",
+  "Marketing",
+  "Viajes",
+  "Suscripciones",
+  "Honorarios",
+  "Otros",
+] as const;
