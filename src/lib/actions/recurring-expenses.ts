@@ -32,15 +32,19 @@ export interface RecurringExpenseActionState {
 }
 
 function expenseInputFromFormData(formData: FormData) {
+  const dueDate = formData.get("dueDate");
+  const billingDay = typeof dueDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)
+    ? dueDate.slice(8, 10)
+    : null;
   return {
     amount: formData.get("amount"),
     automaticGeneration: formData.get("automaticGeneration"),
-    billingDay: formData.get("billingDay"),
+    billingDay,
     categoryId: formData.get("categoryId"),
     costType: formData.get("costType"),
     currency: formData.get("currency"),
     description: formData.get("description"),
-    dueDate: formData.get("dueDate"),
+    dueDate,
     endDate: formData.get("endDate"),
     frequency: formData.get("frequency"),
     notes: formData.get("notes"),
@@ -48,7 +52,7 @@ function expenseInputFromFormData(formData: FormData) {
     paymentMethod: formData.get("paymentMethod"),
     recurring: formData.get("recurring"),
     scope: formData.get("scope"),
-    startDate: formData.get("startDate"),
+    startDate: dueDate,
     status: formData.get("status") || undefined,
     title: formData.get("title"),
     vendor: formData.get("vendor"),

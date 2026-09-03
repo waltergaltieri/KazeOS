@@ -122,7 +122,7 @@ describe("expense validation", () => {
     },
   );
 
-  it("requires a paid date exactly when status is paid", () => {
+  it("requires a paid date and payment method exactly when status is paid", () => {
     expect(expenseFormSchema.safeParse({
       ...baseExpense,
       status: "paid",
@@ -132,10 +132,29 @@ describe("expense validation", () => {
       ...baseExpense,
       status: "paid",
       paidDate: "2026-09-06",
+    }).success).toBe(false);
+    expect(expenseFormSchema.safeParse({
+      ...baseExpense,
+      status: "paid",
+      paidDate: "2026-09-06",
+      paymentMethod: "credit_card",
     }).success).toBe(true);
     expect(expenseFormSchema.safeParse({
       ...baseExpense,
       paidDate: "2026-09-06",
+    }).success).toBe(false);
+  });
+
+  it("rejects paid state for recurring templates", () => {
+    expect(expenseFormSchema.safeParse({
+      ...baseExpense,
+      recurring: "on",
+      frequency: "monthly",
+      billingDay: "5",
+      startDate: "2026-09-05",
+      status: "paid",
+      paidDate: "2026-09-05",
+      paymentMethod: "credit_card",
     }).success).toBe(false);
   });
 

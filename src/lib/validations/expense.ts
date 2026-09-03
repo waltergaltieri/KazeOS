@@ -183,6 +183,22 @@ export const expenseFormSchema = z.preprocess(
       });
     }
 
+    if (expense.status === "paid" && expense.paymentMethod === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["paymentMethod"],
+        message: "Elegí el método usado para el pago.",
+      });
+    }
+
+    if (expense.recurring && expense.status === "paid") {
+      context.addIssue({
+        code: "custom",
+        path: ["status"],
+        message: "Una recurrencia genera obligaciones pendientes, no pagos históricos.",
+      });
+    }
+
     if (
       expense.recurring &&
       expense.endDate !== null &&

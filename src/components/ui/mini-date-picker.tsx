@@ -15,21 +15,34 @@ import {
 } from "date-fns";
 import { es } from "date-fns/locale";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 
 export function MiniDatePicker({
+  name = "dueDate",
+  label = "Vencimiento",
   defaultValue = "",
   error,
+  required = true,
+  onValueChange,
 }: {
+  name?: string;
+  label?: string;
   defaultValue?: string;
   error?: string;
+  required?: boolean;
+  onValueChange?: (value: string) => void;
 }) {
   const initialDate = defaultValue ? parseISO(defaultValue) : null;
   const [selected, setSelected] = useState(defaultValue);
   const [month, setMonth] = useState(initialDate ?? new Date());
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const errorId = "due-date-error";
+  const id = useId();
+  const errorId = `${id}-error`;
+  const requiredId = `${id}-required`;
+  const describedBy = [required ? requiredId : null, error ? errorId : null]
+    .filter(Boolean)
+    .join(" ") || undefined;
   const days = useMemo(
     () => eachDayOfInterval({
       start: startOfWeek(startOfMonth(month), { weekStartsOn: 1 }),
@@ -52,20 +65,19 @@ export function MiniDatePicker({
       <button
         className="form-control mini-date-picker__trigger"
         type="button"
-        aria-label={`Vencimiento: ${selected ? format(parseISO(selected), "dd/MM/yyyy") : "sin fecha"}`}
+        aria-label={`${label}: ${selected ? format(parseISO(selected), "dd/MM/yyyy") : "sin fecha"}`}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-required="true"
-        aria-invalid={Boolean(error)}
-        aria-describedby={error ? errorId : undefined}
+        aria-describedby={describedBy}
         onClick={() => setOpen((value) => !value)}
       >
         <span>{selected ? format(parseISO(selected), "dd/MM/yyyy") : "dd/mm/aaaa"}</span>
         <CalendarDays size={17} aria-hidden="true" />
       </button>
-      <input type="hidden" name="dueDate" value={selected} />
+      <input type="hidden" name={name} value={selected} />
+      {required ? <span id={requiredId} className="sr-only">Campo obligatorio.</span> : null}
       {open ? (
-        <div className="mini-calendar" role="dialog" aria-label="Seleccionar vencimiento">
+        <div className="mini-calendar" role="dialog" aria-label={`Seleccionar ${label.toLowerCase()}`}>
           <header>
             <button type="button" className="icon-button" aria-label="Mes anterior" onClick={() => setMonth((value) => subMonths(value, 1))}>
               <ChevronLeft size={16} aria-hidden="true" />
@@ -91,6 +103,7 @@ export function MiniDatePicker({
                   className={`${isSameMonth(day, month) ? "" : "is-outside"}${active ? " is-selected" : ""}`.trim()}
                   onClick={() => {
                     setSelected(iso);
+                    onValueChange?.(iso);
                     setOpen(false);
                   }}
                 >
@@ -100,6 +113,19 @@ export function MiniDatePicker({
             })}
           </div>
         </div>
+      ) : null}
+      {!required && selected ? (
+        <button
+          type="button"
+          className="quiet-button"
+          aria-label={`Quitar fecha de ${label.toLowerCase()}`}
+          onClick={() => {
+            setSelected("");
+            onValueChange?.("");
+          }}
+        >
+          Sin fecha
+        </button>
       ) : null}
       {error ? <small id={errorId} className="field-error">{error}</small> : null}
     </div>

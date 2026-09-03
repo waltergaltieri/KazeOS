@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { ExpenseForm, type ExpenseFormDefaults } from "@/components/expenses/expense-form";
 import { updateRecurringExpenseAction } from "@/lib/actions/recurring-expenses";
+import { buildRecurringPeriods } from "@/lib/domain/recurrence";
 import { getExpenseFormOptions, getRecurringExpenseById } from "@/lib/queries/expenses";
 
 export default async function EditRecurringExpensePage({ params }: { params: Promise<{ id: string }> }) {
@@ -12,6 +13,17 @@ export default async function EditRecurringExpensePage({ params }: { params: Pro
   ]);
   if (!recurringExpense || recurringExpense.status === "cancelled") notFound();
 
+  const firstDueDate = recurringExpense.frequency === "one_time"
+    ? recurringExpense.startDate
+    : buildRecurringPeriods({
+        amountMinor: recurringExpense.amountMinor,
+        billingDay: recurringExpense.billingDay,
+        endDate: recurringExpense.endDate,
+        frequency: recurringExpense.frequency,
+        label: recurringExpense.title,
+        startDate: recurringExpense.startDate,
+      }, recurringExpense.startDate, 13)[0]?.dueDate ?? recurringExpense.startDate;
+
   const defaults: ExpenseFormDefaults = {
     recurringExpenseId: recurringExpense.id,
     title: recurringExpense.title,
@@ -21,7 +33,7 @@ export default async function EditRecurringExpensePage({ params }: { params: Pro
     categoryId: recurringExpense.category.id,
     scope: recurringExpense.scope,
     costType: recurringExpense.costType,
-    dueDate: recurringExpense.startDate,
+    dueDate: firstDueDate,
     status: "pending",
     paymentMethod: recurringExpense.paymentMethod,
     vendor: recurringExpense.vendor,

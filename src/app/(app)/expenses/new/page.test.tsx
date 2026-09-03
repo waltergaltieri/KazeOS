@@ -15,9 +15,9 @@ vi.mock("@/lib/queries/settings", () => ({ getPrimaryCurrency: mocks.getPrimaryC
 vi.mock("@/lib/actions/expenses", () => ({ createExpenseAction: vi.fn() }));
 vi.mock("@/lib/actions/recurring-expenses", () => ({ createRecurringExpenseAction: vi.fn() }));
 vi.mock("@/components/expenses/expense-form", () => ({
-  ExpenseForm: ({ defaults, defaultCurrency }: { defaults?: Record<string, unknown>; defaultCurrency: string }) => (
+  ExpenseForm: ({ defaults, defaultCurrency, forceRecurring }: { defaults?: Record<string, unknown>; defaultCurrency: string; forceRecurring?: boolean }) => (
     <output aria-label="Configuración del formulario">
-      {JSON.stringify({ defaults, defaultCurrency })}
+      {JSON.stringify({ defaults, defaultCurrency, forceRecurring })}
     </output>
   ),
 }));
@@ -51,6 +51,14 @@ describe("NewExpensePage", () => {
     expect(mocks.getExpenseById).not.toHaveBeenCalled();
     const configuration = JSON.parse(screen.getByLabelText("Configuración del formulario").textContent!);
     expect(configuration.defaults).toBeUndefined();
+  });
+
+  it("opens the dedicated recurring creation route with recurrence forced", async () => {
+    render(await NewExpensePage({ searchParams: Promise.resolve({ recurring: "true" }) }));
+
+    const configuration = JSON.parse(screen.getByLabelText("Configuración del formulario").textContent!);
+    expect(configuration.forceRecurring).toBe(true);
+    expect(screen.getByRole("heading", { name: "Nueva recurrencia" })).toBeVisible();
   });
 
   it("prefills duplicate-safe values without identity, recurrence, generated or paid metadata", async () => {

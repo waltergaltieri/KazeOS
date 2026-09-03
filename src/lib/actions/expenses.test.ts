@@ -127,6 +127,42 @@ describe("expense actions", () => {
     ]);
   });
 
+  it("creates a paid expense as pending and marks it paid in the same authenticated transaction", async () => {
+    const result = await createExpenseAction(
+      { status: "idle" },
+      expenseForm({
+        status: "paid",
+        paidDate: "2026-09-21",
+        paymentMethod: "credit_card",
+      }),
+    );
+
+    expect(result).toEqual({ status: "success", expenseId });
+    expect(mocks.withAuthenticatedDb).toHaveBeenCalledOnce();
+    expect(mocks.createManualExpense).toHaveBeenCalledWith(expect.anything(), {
+      ownerId,
+      values: expect.objectContaining({
+        amountMinor: 125_050,
+        paidDate: null,
+        recurring: false,
+        status: "pending",
+      }),
+    });
+    expect(mocks.markExpensePaid).toHaveBeenCalledWith(expect.anything(), {
+      expenseId,
+      ownerId,
+      values: {
+        amountMinor: 125_050,
+        expenseId,
+        paidDate: "2026-09-21",
+        paymentMethod: "credit_card",
+      },
+    });
+    expect(mocks.createManualExpense.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.markExpensePaid.mock.invocationCallOrder[0]!,
+    );
+  });
+
   it("authenticates before returning structured validation errors", async () => {
     const result = await createExpenseAction(
       { status: "idle" },

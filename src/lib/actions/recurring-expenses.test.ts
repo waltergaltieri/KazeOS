@@ -52,8 +52,7 @@ function recurringFormData() {
   data.set("notes", " Renovación ");
   data.set("recurring", "on");
   data.set("frequency", "monthly");
-  data.set("billingDay", "10");
-  data.set("startDate", "2026-09-01");
+  data.set("billingDay", "31");
   data.set("endDate", "");
   data.set("automaticGeneration", "on");
   return data;
@@ -110,7 +109,7 @@ describe("recurring expense actions", () => {
           notes: "Renovación",
           paymentMethod: "credit_card",
           scope: "business",
-          startDate: "2026-09-01",
+          startDate: "2026-09-10",
           title: "Vercel",
           vendor: "Vercel Inc.",
         },
@@ -130,6 +129,20 @@ describe("recurring expense actions", () => {
     );
 
     expect(result.status).toBe("error");
+    expect(mocks.withAuthenticatedDb).not.toHaveBeenCalled();
+  });
+
+  it("rejects paid state for recurring templates before opening the database", async () => {
+    const data = recurringFormData();
+    data.set("status", "paid");
+    data.set("paidDate", "2026-09-10");
+
+    const result = await createRecurringExpenseAction({ status: "idle" }, data);
+
+    expect(result).toMatchObject({
+      fieldErrors: { status: expect.any(Array) },
+      status: "error",
+    });
     expect(mocks.withAuthenticatedDb).not.toHaveBeenCalled();
   });
 

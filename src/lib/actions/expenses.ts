@@ -130,11 +130,42 @@ export async function createExpenseAction(
   const user = await requireUser();
   const parsed = expenseFormSchema.safeParse(expenseValuesFromFormData(formData));
   if (!parsed.success) return invalid(parsed.error);
+  if (parsed.data.recurring) {
+    return {
+      fieldErrors: { recurring: ["Usá el flujo recurrente para crear esta regla."] },
+      message: "El gasto manual no puede contener una recurrencia.",
+      status: "error",
+    };
+  }
 
   try {
-    const created = await withAuthenticatedDb(user.id, (database) =>
-      createManualExpense(database, { ownerId: user.id, values: parsed.data }),
-    );
+    const created = await withAuthenticatedDb(user.id, async (database) => {
+      const values = parsed.data;
+      if (values.status !== "paid") {
+        return createManualExpense(database, { ownerId: user.id, values });
+      }
+
+      const paidDate = values.paidDate;
+      const paymentMethod = values.paymentMethod;
+      if (!paidDate || !paymentMethod) {
+        throw new Error("Paid expense metadata was not validated");
+      }
+
+      const draft = await createManualExpense(database, {
+        ownerId: user.id,
+        values: { ...values, paidDate: null, status: "pending" },
+      });
+      return markExpensePaid(database, {
+        expenseId: draft.id,
+        ownerId: user.id,
+        values: {
+          amountMinor: values.amountMinor,
+          expenseId: draft.id,
+          paidDate,
+          paymentMethod,
+        },
+      });
+    });
     revalidateExpensePaths();
     return { expenseId: created.id, status: "success" };
   } catch (error) {

@@ -62,6 +62,10 @@ function amountInputValue(amountMinor?: number) {
   return `${Math.floor(amountMinor / 100)},${String(amountMinor % 100).padStart(2, "0")}`;
 }
 
+function billingDayFromDate(date: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? String(Number(date.slice(8, 10))) : "";
+}
+
 function FieldError({ id, message }: { id: string; message?: string }) {
   return message ? <small id={id} className="field-error">{message}</small> : null;
 }
@@ -94,13 +98,26 @@ export function ExpenseForm({
   );
   const [recurringChoice, setRecurringChoice] = useState(forceRecurring);
   const [currency, setCurrency] = useState(defaults.currency ?? defaultCurrency);
-  const [status, setStatus] = useState(defaults.status ?? "pending");
+  const [status, setStatus] = useState(forceRecurring ? "pending" : defaults.status ?? "pending");
+  const [title, setTitle] = useState(defaults.title ?? "");
+  const [description, setDescription] = useState(defaults.description ?? "");
+  const [vendor, setVendor] = useState(defaults.vendor ?? "");
+  const [notes, setNotes] = useState(defaults.notes ?? "");
+  const [dueDate, setDueDate] = useState(defaults.dueDate ?? "");
+  const [paidDate, setPaidDate] = useState(defaults.paidDate ?? "");
+  const [endDate, setEndDate] = useState(defaults.endDate ?? "");
+  const [automaticGeneration, setAutomaticGeneration] = useState(
+    defaults.automaticGeneration ?? true,
+  );
   const recurring = forceRecurring || recurringChoice;
   const state = recurring ? recurringState : oneOffState;
   const pending = recurring ? recurringPending : oneOffPending;
   const formAction = recurring ? recurringFormAction : oneOffFormAction;
   const editing = mode !== "create";
   const error = (field: string) => state.fieldErrors?.[field]?.[0];
+  const dueDateError = error("dueDate") ?? (
+    recurring ? error("startDate") ?? error("billingDay") : undefined
+  );
 
   useEffect(() => {
     if (state.status === "success") router.replace("/expenses");
@@ -145,7 +162,8 @@ export function ExpenseForm({
               required
               autoFocus
               maxLength={200}
-              defaultValue={defaults.title ?? ""}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
               aria-invalid={Boolean(error("title")) || undefined}
               aria-describedby={error("title") ? "expense-title-error" : undefined}
             />
@@ -229,7 +247,14 @@ export function ExpenseForm({
 
           <div className="field-stack">
             <span>Vencimiento *</span>
-            <MiniDatePicker defaultValue={defaults.dueDate} error={error("dueDate")} />
+            <MiniDatePicker
+              name="dueDate"
+              label="Vencimiento"
+              required
+              defaultValue={dueDate}
+              error={dueDateError}
+              onValueChange={setDueDate}
+            />
           </div>
         </div>
       </section>
@@ -249,7 +274,10 @@ export function ExpenseForm({
                 type="checkbox"
                 name="recurring"
                 checked={recurringChoice}
-                onChange={(event) => setRecurringChoice(event.target.checked)}
+                onChange={(event) => {
+                  setRecurringChoice(event.target.checked);
+                  if (event.target.checked) setStatus("pending");
+                }}
                 aria-label="Repetir este gasto"
               />
               <span>
@@ -277,50 +305,24 @@ export function ExpenseForm({
                 />
                 <FieldError id="expense-frequency-error" message={error("frequency")} />
               </div>
-              <label className="field-stack">
-                <span>Día de vencimiento *</span>
-                <input
-                  className="form-control"
-                  name="billingDay"
-                  type="number"
-                  min={1}
-                  max={31}
-                  required
-                  defaultValue={defaults.billingDay ?? 1}
-                  aria-invalid={Boolean(error("billingDay")) || undefined}
-                />
-                <FieldError id="expense-billing-day-error" message={error("billingDay")} />
-              </label>
-              <label className="field-stack">
-                <span>Inicio *</span>
-                <input
-                  className="form-control"
-                  name="startDate"
-                  inputMode="numeric"
-                  placeholder="AAAA-MM-DD"
-                  required
-                  defaultValue={defaults.startDate ?? defaults.dueDate ?? ""}
-                  aria-invalid={Boolean(error("startDate")) || undefined}
-                />
-                <FieldError id="expense-start-date-error" message={error("startDate")} />
-              </label>
-              <label className="field-stack">
+              <input type="hidden" name="billingDay" value={billingDayFromDate(dueDate)} />
+              <div className="field-stack">
                 <span>Fin opcional</span>
-                <input
-                  className="form-control"
+                <MiniDatePicker
                   name="endDate"
-                  inputMode="numeric"
-                  placeholder="AAAA-MM-DD"
-                  defaultValue={defaults.endDate ?? ""}
-                  aria-invalid={Boolean(error("endDate")) || undefined}
+                  label="Fin"
+                  required={false}
+                  defaultValue={endDate}
+                  error={error("endDate")}
+                  onValueChange={setEndDate}
                 />
-                <FieldError id="expense-end-date-error" message={error("endDate")} />
-              </label>
+              </div>
               <label className="automation-switch">
                 <input
                   type="checkbox"
                   name="automaticGeneration"
-                  defaultChecked={defaults.automaticGeneration ?? true}
+                  checked={automaticGeneration}
+                  onChange={(event) => setAutomaticGeneration(event.target.checked)}
                   aria-label="Generar vencimientos automáticamente"
                 />
                 <span>
@@ -338,15 +340,16 @@ export function ExpenseForm({
         <div className="form-grid form-grid--two">
           <label className="field-stack">
             <span>Descripción</span>
-            <textarea className="form-control" name="description" rows={3} maxLength={2_000} defaultValue={defaults.description ?? ""} />
+            <textarea className="form-control" name="description" rows={3} maxLength={2_000} value={description} onChange={(event) => setDescription(event.target.value)} />
           </label>
           <label className="field-stack">
             <span>Proveedor</span>
-            <input className="form-control" name="vendor" maxLength={200} defaultValue={defaults.vendor ?? ""} />
+            <input className="form-control" name="vendor" maxLength={200} value={vendor} onChange={(event) => setVendor(event.target.value)} />
           </label>
           <div className="field-stack">
             <span>Estado</span>
             <LedgerSelect
+              key={recurring ? "recurring-status" : "one-off-status"}
               name="status"
               label="Estado"
               defaultValue={status}
@@ -355,30 +358,29 @@ export function ExpenseForm({
               options={[
                 { value: "pending", label: "Pendiente" },
                 { value: "planned", label: "Planificado" },
-                { value: "paid", label: "Pagado" },
+                ...(recurring ? [] : [{ value: "paid", label: "Pagado" }]),
               ]}
             />
           </div>
           {status === "paid" ? (
             <>
-              <label className="field-stack">
-                <span>Fecha de pago *</span>
-                <input
-                  className="form-control"
-                  name="paidDate"
-                  inputMode="numeric"
-                  placeholder="AAAA-MM-DD"
-                  required
-                  defaultValue={defaults.paidDate ?? ""}
-                  aria-invalid={Boolean(error("paidDate")) || undefined}
-                />
-                <FieldError id="expense-paid-date-error" message={error("paidDate")} />
-              </label>
               <div className="field-stack">
-                <span>Método de pago</span>
+                <span>Fecha de pago *</span>
+                <MiniDatePicker
+                  name="paidDate"
+                  label="Fecha de pago"
+                  required
+                  defaultValue={paidDate}
+                  error={error("paidDate")}
+                  onValueChange={setPaidDate}
+                />
+              </div>
+              <div className="field-stack">
+                <span>Método de pago *</span>
                 <LedgerSelect
                   name="paymentMethod"
                   label="Método de pago"
+                  required
                   defaultValue={defaults.paymentMethod ?? ""}
                   error={error("paymentMethod")}
                   options={[
@@ -400,7 +402,7 @@ export function ExpenseForm({
           ) : <input type="hidden" name="paidDate" value="" />}
           <label className="field-stack">
             <span>Notas</span>
-            <textarea className="form-control" name="notes" rows={3} maxLength={2_000} defaultValue={defaults.notes ?? ""} />
+            <textarea className="form-control" name="notes" rows={3} maxLength={2_000} value={notes} onChange={(event) => setNotes(event.target.value)} />
           </label>
         </div>
       </details>
