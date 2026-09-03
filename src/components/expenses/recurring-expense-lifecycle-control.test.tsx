@@ -22,6 +22,17 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function simulateBrowserFocusRules(element: HTMLElement) {
+  const nativeFocus = HTMLElement.prototype.focus;
+  const focusWhileVisible: boolean[] = [];
+  vi.spyOn(element, "focus").mockImplementation(() => {
+    const visible = element.isConnected && element.closest("[hidden]") === null;
+    focusWhileVisible.push(visible);
+    if (visible) nativeFocus.call(element);
+  });
+  return focusWhileVisible;
+}
+
 const props = {
   recurringExpenseId: "11111111-1111-4111-8111-111111111111",
   title: "Coworking",
@@ -49,7 +60,9 @@ describe("RecurringExpenseLifecycleControl", () => {
     render(<RecurringExpenseLifecycleControl {...props} status="active" />);
 
     const opener = screen.getByRole("button", { name: "Cancelar recurrencia Coworking" });
+    const focusWhileVisible = simulateBrowserFocusRules(opener);
     await user.click(opener);
+    focusWhileVisible.length = 0;
 
     expect(screen.getByRole("group", { name: "Confirmar cancelación de Coworking" })).toHaveTextContent(
       "La cancelación es definitiva. Conserva el historial y detiene futuras proyecciones.",
@@ -58,6 +71,7 @@ describe("RecurringExpenseLifecycleControl", () => {
 
     await user.click(screen.getByRole("button", { name: "Volver" }));
     await waitFor(() => expect(opener).toHaveFocus());
+    expect(focusWhileVisible).toEqual([true]);
     expect(mocks.cancel).not.toHaveBeenCalled();
   });
 
@@ -84,11 +98,31 @@ describe("RecurringExpenseLifecycleControl", () => {
     render(<RecurringExpenseLifecycleControl {...props} status="paused" />);
 
     const opener = screen.getByRole("button", { name: "Cancelar recurrencia Coworking" });
+    const focusWhileVisible = simulateBrowserFocusRules(opener);
     await user.click(opener);
+    focusWhileVisible.length = 0;
     await user.click(screen.getByRole("button", { name: "Confirmar cancelación" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo cancelar.");
     await waitFor(() => expect(opener).toHaveFocus());
+    expect(focusWhileVisible).toEqual([true]);
     expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
+  it("restores focus after a successful cancellation before refreshing", async () => {
+    const user = userEvent.setup();
+    mocks.cancel.mockResolvedValue({ status: "success", recurringExpenseId: props.recurringExpenseId });
+    render(<RecurringExpenseLifecycleControl {...props} status="active" />);
+
+    const opener = screen.getByRole("button", { name: "Cancelar recurrencia Coworking" });
+    const focusWhileVisible = simulateBrowserFocusRules(opener);
+    await user.click(opener);
+    focusWhileVisible.length = 0;
+    await user.click(screen.getByRole("button", { name: "Confirmar cancelación" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Recurrencia cancelada.");
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(focusWhileVisible).toEqual([true]);
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
   });
 });

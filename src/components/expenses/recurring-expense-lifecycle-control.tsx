@@ -33,10 +33,18 @@ export function RecurringExpenseLifecycleControl({
   const cancelSubmitted = useRef(false);
   const cancelOpener = useRef<HTMLButtonElement>(null);
   const cancelConfirmation = useRef<HTMLButtonElement>(null);
+  const restoreCancelFocus = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
-    if (confirmingCancellation) cancelConfirmation.current?.focus();
+    if (confirmingCancellation) {
+      cancelConfirmation.current?.focus();
+      return;
+    }
+    if (restoreCancelFocus.current) {
+      restoreCancelFocus.current = false;
+      cancelOpener.current?.focus();
+    }
   }, [confirmingCancellation]);
 
   useEffect(() => {
@@ -59,8 +67,8 @@ export function RecurringExpenseLifecycleControl({
     if (!cancelSubmitted.current || cancelling || cancelState.status === "idle") return;
     requestAnimationFrame(() => {
       cancelSubmitted.current = false;
+      restoreCancelFocus.current = true;
       setConfirmingCancellation(false);
-      cancelOpener.current?.focus();
       if (cancelState.status === "success") {
         setFeedback({ kind: "success", message: "Recurrencia cancelada." });
         router.refresh();
@@ -76,8 +84,8 @@ export function RecurringExpenseLifecycleControl({
   if (status === "cancelled") return null;
 
   function dismissCancellation() {
+    restoreCancelFocus.current = true;
     setConfirmingCancellation(false);
-    requestAnimationFrame(() => cancelOpener.current?.focus());
   }
 
   return (
