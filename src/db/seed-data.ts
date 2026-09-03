@@ -37,6 +37,7 @@ function stableUuid(ownerId: string, key: string): string {
 }
 
 export function createDemoSeedData(ownerId: string) {
+  ownerId = ownerId.toLowerCase();
   const id = (key: string) => stableUuid(ownerId, key);
   const clientIds = {
     norte: id("client-estudio-norte"), demo: id("client-empresa-demo"), global: id("client-global"),
@@ -292,72 +293,68 @@ type SeedDatabase = PostgresJsDatabase<typeof schema>;
 
 export async function seedDemoData(database: SeedDatabase, ownerId: string) {
   const data = createDemoSeedData(ownerId);
+  const canonicalOwnerId = data.clients[0]!.ownerId;
   for (const row of data.clients) await database.insert(clients).values(row).onConflictDoUpdate({ target: clients.id, set: row });
   for (const row of data.services) await database.insert(services).values(row).onConflictDoUpdate({ target: services.id, set: row });
   for (const row of data.charges) {
-    const updated = await database.update(charges).set(row).where(and(eq(charges.id, row.id), eq(charges.ownerId, ownerId))).returning({ id: charges.id });
+    const updated = await database.update(charges).set(row).where(and(eq(charges.id, row.id), eq(charges.ownerId, canonicalOwnerId))).returning({ id: charges.id });
     if (updated.length === 0) await database.insert(charges).values(row);
   }
   for (const row of data.payments) await database.insert(payments).values(row).onConflictDoUpdate({ target: payments.id, set: row });
   for (const row of data.tasks) await database.insert(tasks).values(row).onConflictDoUpdate({ target: tasks.id, set: row });
   for (const row of data.notes) await database.insert(clientNotes).values(row).onConflictDoUpdate({ target: clientNotes.id, set: row });
-  await database.insert(expenseCategories).values(data.expenseCategories).onConflictDoUpdate({
-    target: expenseCategories.id,
-    set: {
-      active: sql`excluded.active`,
-      icon: sql`excluded.icon`,
-      name: sql`excluded.name`,
-      updatedAt: sql`excluded.updated_at`,
-    },
-  });
-  await database.insert(recurringExpenses).values(data.recurringExpenses).onConflictDoUpdate({
-    target: recurringExpenses.id,
-    set: {
-      amountMinor: sql`excluded.amount_minor`,
-      automaticGeneration: sql`excluded.automatic_generation`,
-      billingDay: sql`excluded.billing_day`,
-      categoryId: sql`excluded.category_id`,
-      costType: sql`excluded.cost_type`,
-      currency: sql`excluded.currency`,
-      description: sql`excluded.description`,
-      endDate: sql`excluded.end_date`,
-      frequency: sql`excluded.frequency`,
-      notes: sql`excluded.notes`,
-      paymentMethod: sql`excluded.payment_method`,
-      scope: sql`excluded.scope`,
-      startDate: sql`excluded.start_date`,
-      status: sql`excluded.status`,
-      title: sql`excluded.title`,
-      updatedAt: sql`excluded.updated_at`,
-      vendor: sql`excluded.vendor`,
-    },
-  });
-  const manualExpenses = data.expenses.filter(
+  await database
+    .insert(expenseCategories)
+    .values(data.expenseCategories)
+    .onConflictDoNothing();
+  const persistedCategories = await database
+    .select({ id: expenseCategories.id, name: expenseCategories.name })
+    .from(expenseCategories)
+    .where(eq(expenseCategories.ownerId, canonicalOwnerId));
+  const categoryIdById = new Map(
+    persistedCategories.map(({ id }) => [id, id]),
+  );
+  const categoryIdByName = new Map(
+    persistedCategories.map(({ id, name }) => [name.toLowerCase(), id]),
+  );
+  const resolvedCategoryIdBySeedId = new Map(
+    data.expenseCategories.map((category) => [
+      category.id,
+      categoryIdByName.get(category.name.toLowerCase()) ??
+        categoryIdById.get(category.id),
+    ]),
+  );
+  const resolveCategoryId = (seedCategoryId: string): string => {
+    const resolved = resolvedCategoryIdBySeedId.get(seedCategoryId);
+
+    if (resolved === undefined) {
+      throw new Error("Failed to resolve a seeded expense category.");
+    }
+
+    return resolved;
+  };
+  const recurringExpensesData = data.recurringExpenses.map((row) => ({
+    ...row,
+    categoryId: resolveCategoryId(row.categoryId),
+  }));
+  const expensesData = data.expenses.map((row) => ({
+    ...row,
+    categoryId: resolveCategoryId(row.categoryId),
+  }));
+  await database
+    .insert(recurringExpenses)
+    .values(recurringExpensesData)
+    .onConflictDoNothing({ target: recurringExpenses.id });
+  const manualExpenses = expensesData.filter(
     (row) => row.recurringExpenseId === null,
   );
-  const recurringExpenseOccurrences = data.expenses.filter(
+  const recurringExpenseOccurrences = expensesData.filter(
     (row) => row.recurringExpenseId !== null,
   );
-  await database.insert(expenses).values(manualExpenses).onConflictDoUpdate({
-    target: expenses.id,
-    set: {
-      amountMinor: sql`excluded.amount_minor`,
-      categoryId: sql`excluded.category_id`,
-      costType: sql`excluded.cost_type`,
-      currency: sql`excluded.currency`,
-      description: sql`excluded.description`,
-      dueDate: sql`excluded.due_date`,
-      generatedAutomatically: sql`excluded.generated_automatically`,
-      notes: sql`excluded.notes`,
-      paidDate: sql`excluded.paid_date`,
-      paymentMethod: sql`excluded.payment_method`,
-      scope: sql`excluded.scope`,
-      status: sql`excluded.status`,
-      title: sql`excluded.title`,
-      updatedAt: sql`excluded.updated_at`,
-      vendor: sql`excluded.vendor`,
-    },
-  });
+  await database
+    .insert(expenses)
+    .values(manualExpenses)
+    .onConflictDoNothing({ target: expenses.id });
   await database
     .insert(expenses)
     .values(recurringExpenseOccurrences)

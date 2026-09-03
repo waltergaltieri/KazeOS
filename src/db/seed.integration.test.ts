@@ -47,10 +47,20 @@ describeDatabase("safe idempotent demo seed through RLS", () => {
         const ownerId = randomUUID();
         const otherOwnerId = randomUUID();
         const otherClientId = randomUUID();
+        const preexistingSoftwareCategoryId = randomUUID();
         await transaction.execute(sql`insert into auth.users (id, email) values (${ownerId}, ${`seed-${ownerId}@example.invalid`}), (${otherOwnerId}, ${`seed-${otherOwnerId}@example.invalid`})`);
         await transaction.insert(clients).values({ id: otherClientId, ownerId: otherOwnerId, firstName: "No visible" });
 
         const runAsOwner = createAuthenticatedDrizzleRunner(transaction);
+        await runAsOwner(ownerId, (ownerDatabase) =>
+          ownerDatabase.insert(expenseCategories).values({
+            active: false,
+            icon: "existing-icon",
+            id: preexistingSoftwareCategoryId,
+            name: "sOfTwArE",
+            ownerId,
+          }),
+        );
         const first = await runAsOwner(ownerId, (ownerDatabase) => seedDemoData(ownerDatabase, ownerId));
         const expected = createDemoSeedData(ownerId);
         const vercelTemplate = expected.recurringExpenses.find(
@@ -59,9 +69,28 @@ describeDatabase("safe idempotent demo seed through RLS", () => {
         const [vercelOccurrence] = expected.expenses.filter(
           ({ recurringExpenseId }) => recurringExpenseId === vercelTemplate.id,
         );
+        const dinnerExpense = expected.expenses.find(
+          ({ title }) => title === "Cena",
+        )!;
 
-        await runAsOwner(ownerId, (ownerDatabase) =>
-          ownerDatabase
+        await runAsOwner(ownerId, async (ownerDatabase) => {
+          await ownerDatabase
+            .update(recurringExpenses)
+            .set({
+              amountMinor: 2_500,
+              notes: "Plantilla pausada después del seed inicial",
+              status: "paused",
+            })
+            .where(eq(recurringExpenses.id, vercelTemplate.id));
+          await ownerDatabase
+            .update(expenses)
+            .set({
+              amountMinor: 4_250_000,
+              notes: "Cena corregida después del seed inicial",
+              paidDate: "2026-08-29",
+            })
+            .where(eq(expenses.id, dinnerExpense.id));
+          await ownerDatabase
             .update(expenses)
             .set({
               notes: "Pago confirmado después del seed inicial",
@@ -69,10 +98,10 @@ describeDatabase("safe idempotent demo seed through RLS", () => {
               paymentMethod: "credit_card",
               status: "paid",
             })
-            .where(eq(expenses.id, vercelOccurrence!.id)),
-        );
+            .where(eq(expenses.id, vercelOccurrence!.id));
+        });
 
-        const second = await runAsOwner(ownerId, (ownerDatabase) => seedDemoData(ownerDatabase, ownerId));
+        const second = await runAsOwner(ownerId, (ownerDatabase) => seedDemoData(ownerDatabase, ownerId.toUpperCase()));
         expect(second).toEqual(first);
 
         await runAsOwner(ownerId, async (ownerDatabase) => {
@@ -91,6 +120,71 @@ describeDatabase("safe idempotent demo seed through RLS", () => {
           const states = rows.map((charge) => charge.status === "paid" || charge.status === "partial" ? charge.status : charge.dueDate < DEMO_SEED_REFERENCE_DATE ? "overdue" : "pending");
           expect(new Set(states)).toEqual(new Set(["paid", "partial", "overdue", "pending"]));
           expect(rows.find((row) => row.status === "paid")?.amountPaidMinor).toBe(rows.find((row) => row.status === "paid")?.amountMinor);
+          await expect(
+            ownerDatabase
+              .select({
+                active: expenseCategories.active,
+                icon: expenseCategories.icon,
+                id: expenseCategories.id,
+                name: expenseCategories.name,
+              })
+              .from(expenseCategories)
+              .where(eq(expenseCategories.id, preexistingSoftwareCategoryId)),
+          ).resolves.toEqual([
+            {
+              active: false,
+              icon: "existing-icon",
+              id: preexistingSoftwareCategoryId,
+              name: "sOfTwArE",
+            },
+          ]);
+          await expect(
+            ownerDatabase
+              .select({ categoryId: recurringExpenses.categoryId })
+              .from(recurringExpenses)
+              .where(eq(recurringExpenses.id, vercelTemplate.id)),
+          ).resolves.toEqual([
+            { categoryId: preexistingSoftwareCategoryId },
+          ]);
+          const vercelCategoryReferences = await ownerDatabase
+            .select({ categoryId: expenses.categoryId })
+            .from(expenses)
+            .where(eq(expenses.recurringExpenseId, vercelTemplate.id));
+          expect(new Set(vercelCategoryReferences.map(({ categoryId }) => categoryId))).toEqual(
+            new Set([preexistingSoftwareCategoryId]),
+          );
+          await expect(
+            ownerDatabase
+              .select({
+                amountMinor: recurringExpenses.amountMinor,
+                notes: recurringExpenses.notes,
+                status: recurringExpenses.status,
+              })
+              .from(recurringExpenses)
+              .where(eq(recurringExpenses.id, vercelTemplate.id)),
+          ).resolves.toEqual([
+            {
+              amountMinor: 2_500,
+              notes: "Plantilla pausada después del seed inicial",
+              status: "paused",
+            },
+          ]);
+          await expect(
+            ownerDatabase
+              .select({
+                amountMinor: expenses.amountMinor,
+                notes: expenses.notes,
+                paidDate: expenses.paidDate,
+              })
+              .from(expenses)
+              .where(eq(expenses.id, dinnerExpense.id)),
+          ).resolves.toEqual([
+            {
+              amountMinor: 4_250_000,
+              notes: "Cena corregida después del seed inicial",
+              paidDate: "2026-08-29",
+            },
+          ]);
           await expect(
             ownerDatabase
               .select({
