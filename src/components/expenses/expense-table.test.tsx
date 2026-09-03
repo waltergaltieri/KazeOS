@@ -53,7 +53,9 @@ describe("ExpenseTable", () => {
     expect(screen.getAllByText("Vencido")).toHaveLength(2);
     expect(screen.getAllByText("Negocio")).toHaveLength(2);
     expect(screen.getAllByText("Fijo")).toHaveLength(2);
-    expect(screen.getAllByText("Recurrente")).toHaveLength(2);
+    const recurringBadges = screen.getAllByText("Recurrente");
+    expect(recurringBadges).toHaveLength(2);
+    expect(recurringBadges.every((badge) => badge.classList.contains("expense-classification--recurring"))).toBe(true);
     expect(container.querySelectorAll(".money-data")).toHaveLength(2);
     expect([...container.querySelectorAll(".money-data")].every((node) => node.textContent === "USD 125,00")).toBe(true);
   });
