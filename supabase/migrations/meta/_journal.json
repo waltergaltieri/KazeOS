@@ -50,6 +50,13 @@
       "when": 1788402229403,
       "tag": "20260903022349_allow_backend_projection_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788405795099,
+      "tag": "20260903032315_index_paid_expenses",
+      "breakpoints": true
     }
   ]
 }

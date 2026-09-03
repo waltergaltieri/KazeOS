@@ -177,6 +177,34 @@ interface ParsedExpenseQuery {
   pageSize: number;
 }
 
+interface RawExpensePageRow extends Record<string, unknown> {
+  id: string | null;
+  title: string | null;
+  description: string | null;
+  amount_minor: number | null;
+  currency: Currency | null;
+  scope: ExpenseScope | null;
+  cost_type: ExpenseCostType | null;
+  due_date: string | null;
+  paid_date: string | null;
+  display_status: ExpenseStatus | null;
+  persisted_status: PersistedExpenseStatus | null;
+  payment_method: typeof expenses.$inferSelect.paymentMethod;
+  vendor: string | null;
+  notes: string | null;
+  period_key: string | null;
+  generated_automatically: boolean | null;
+  category_id: string | null;
+  category_name: string | null;
+  category_icon: string | null;
+  category_active: boolean | null;
+  recurring_expense_id: string | null;
+  recurring_expense_title: string | null;
+  recurring_expense_status: RecurringExpenseStatus | null;
+  recurring_expense_frequency: typeof recurringExpenses.$inferSelect.frequency;
+  total_count: number;
+}
+
 function parsePositiveInteger(
   value: unknown,
   fallback: number,
@@ -316,47 +344,114 @@ export async function queryExpenses(
   const { filters, page, pageSize } = parseExpenseQuery(input);
   const today = validateCommercialDate(asOfInput);
   const offset = (page - 1) * pageSize;
-  const rows = await database
-    .select({
-      ...expenseSelection(today),
-      totalCount: sql<number>`count(*) over()::int`,
-    })
-    .from(expenses)
-    .innerJoin(
-      expenseCategories,
-      and(
-        eq(expenseCategories.ownerId, expenses.ownerId),
-        eq(expenseCategories.id, expenses.categoryId),
-      ),
-    )
-    .leftJoin(
-      recurringExpenses,
-      and(
-        eq(recurringExpenses.ownerId, expenses.ownerId),
-        eq(recurringExpenses.id, expenses.recurringExpenseId),
-      ),
-    )
-    .where(and(eq(expenses.ownerId, ownerId), ...filterConditions(filters, today)))
-    .orderBy(asc(expenses.dueDate), asc(expenses.id))
-    .limit(pageSize)
-    .offset(offset);
-
-  let total = rows[0]?.totalCount ?? 0;
-  if (rows.length === 0 && page > 1) {
-    const [countRow] = await database
-      .select({ total: sql<number>`count(*)::int` })
-      .from(expenses)
-      .where(and(
+  const rows = await database.execute<RawExpensePageRow>(sql`
+    with filtered_expenses as (
+      select
+        ${expenses.id}::text as id,
+        ${expenses.title} as title,
+        ${expenses.description} as description,
+        ${expenses.amountMinor}::float8 as amount_minor,
+        ${expenses.currency}::text as currency,
+        ${expenses.scope}::text as scope,
+        ${expenses.costType}::text as cost_type,
+        ${expenses.dueDate}::text as due_date,
+        ${expenses.paidDate}::text as paid_date,
+        ${displayStatus(today)} as display_status,
+        ${expenses.status}::text as persisted_status,
+        ${expenses.paymentMethod}::text as payment_method,
+        ${expenses.vendor} as vendor,
+        ${expenses.notes} as notes,
+        ${expenses.periodKey} as period_key,
+        ${expenses.generatedAutomatically} as generated_automatically,
+        ${expenseCategories.id}::text as category_id,
+        ${expenseCategories.name} as category_name,
+        ${expenseCategories.icon} as category_icon,
+        ${expenseCategories.active} as category_active,
+        ${recurringExpenses.id}::text as recurring_expense_id,
+        ${recurringExpenses.title} as recurring_expense_title,
+        ${recurringExpenses.status}::text as recurring_expense_status,
+        ${recurringExpenses.frequency}::text as recurring_expense_frequency
+      from ${expenses}
+      inner join ${expenseCategories}
+        on ${expenseCategories.ownerId} = ${expenses.ownerId}
+        and ${expenseCategories.id} = ${expenses.categoryId}
+      left join ${recurringExpenses}
+        on ${recurringExpenses.ownerId} = ${expenses.ownerId}
+        and ${recurringExpenses.id} = ${expenses.recurringExpenseId}
+      where ${and(
         eq(expenses.ownerId, ownerId),
         ...filterConditions(filters, today),
-      ));
-    total = countRow?.total ?? 0;
-  }
+      )}
+    ), expense_page as (
+      select *
+      from filtered_expenses
+      order by due_date, id
+      limit ${pageSize}
+      offset ${offset}
+    ), expense_total as (
+      select count(*)::int as total_count
+      from filtered_expenses
+    )
+    select expense_page.*, expense_total.total_count
+    from expense_total
+    left join expense_page on true
+    order by expense_page.due_date, expense_page.id
+  `);
+
+  const total = rows[0]?.total_count ?? 0;
+  const items = rows.flatMap((row): ExpenseListItem[] => {
+    if (
+      row.id === null ||
+      row.title === null ||
+      row.amount_minor === null ||
+      row.currency === null ||
+      row.scope === null ||
+      row.cost_type === null ||
+      row.due_date === null ||
+      row.display_status === null ||
+      row.persisted_status === null ||
+      row.generated_automatically === null ||
+      row.category_id === null ||
+      row.category_name === null ||
+      row.category_active === null
+    ) {
+      return [];
+    }
+    return [{
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      amountMinor: row.amount_minor,
+      currency: row.currency,
+      scope: row.scope,
+      costType: row.cost_type,
+      dueDate: row.due_date,
+      paidDate: row.paid_date,
+      status: row.display_status,
+      persistedStatus: row.persisted_status,
+      paymentMethod: row.payment_method,
+      vendor: row.vendor,
+      notes: row.notes,
+      periodKey: row.period_key,
+      generatedAutomatically: row.generated_automatically,
+      category: {
+        id: row.category_id,
+        name: row.category_name,
+        icon: row.category_icon,
+        active: row.category_active,
+      },
+      recurringExpense: row.recurring_expense_id === null
+        ? null
+        : {
+            id: row.recurring_expense_id,
+            title: row.recurring_expense_title!,
+            status: row.recurring_expense_status!,
+            frequency: row.recurring_expense_frequency!,
+          },
+    }];
+  });
   return {
-    items: rows.map(({ totalCount, ...expense }) => {
-      void totalCount;
-      return expense;
-    }),
+    items,
     pagination: {
       page,
       pageSize,
@@ -482,6 +577,11 @@ export async function queryExpenseSummary(
       where ${recurringExpenses.ownerId} = ${ownerId}
         and ${recurringExpenses.status} = 'active'
         and ${recurringExpenses.costType} = 'fixed'
+        and ${recurringExpenses.startDate} < ${end}
+        and (
+          ${recurringExpenses.endDate} is null
+          or ${recurringExpenses.endDate} >= ${start}
+        )
     )
     select * from expense_totals cross join recurring_totals
   `);

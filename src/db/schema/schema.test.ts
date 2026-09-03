@@ -513,6 +513,7 @@ describe("database schema contract", () => {
         "expenses_owner_id_category_id_idx",
         "expenses_owner_id_scope_idx",
         "expenses_owner_id_currency_idx",
+        "expenses_owner_id_paid_date_paid_idx",
         "expenses_recurring_expense_id_owner_id_idx",
         "expenses_recurring_period_unique",
       ]),
@@ -524,6 +525,14 @@ describe("database schema contract", () => {
     expect(renderSql(recurringPeriodIndex?.config.where)).toContain(
       "recurring_expense_id is not null and period_key is not null",
     );
+    const paidDateIndex = configOf(expensesTable).indexes.find(
+      (entry) => entry.config.name === "expenses_owner_id_paid_date_paid_idx",
+    );
+    expect(
+      paidDateIndex?.config.columns.map((column) =>
+        "name" in column ? column.name : renderSql(column as SQL)),
+    ).toEqual(["owner_id", "paid_date"]);
+    expect(renderSql(paidDateIndex?.config.where)).toContain("status = 'paid'");
   });
 
   it("keeps related rows in the same owner boundary", () => {

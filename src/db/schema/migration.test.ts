@@ -25,6 +25,73 @@ const recurringExpenseProjectionMigration = readdirSync(migrationDirectory).find
 const expenseBackendMigration = readdirSync(migrationDirectory).find(
   (name) => name.endsWith("_restrict_expense_writes_to_backend.sql"),
 );
+const paidExpenseIndexMigration = readdirSync(migrationDirectory).find(
+  (name) => name.endsWith("_index_paid_expenses.sql"),
+);
+
+describe("paid expense date index migration", () => {
+  it("adds the owner-scoped partial index in a generated forward-only migration", () => {
+    expect(paidExpenseIndexMigration).toMatch(
+      /^\d{14}_index_paid_expenses\.sql$/,
+    );
+    const sql = readFileSync(
+      resolve(migrationDirectory, paidExpenseIndexMigration!),
+      "utf8",
+    ).toLowerCase().replaceAll('"', "").replace(/\s+/g, " ");
+
+    expect(sql).toContain(
+      "create index expenses_owner_id_paid_date_paid_idx on expenses using btree (owner_id,paid_date)",
+    );
+    expect(sql).toContain("where expenses.status = 'paid'");
+    expect(sql).not.toMatch(/drop\s+(?:table|type)|truncate/);
+    expect(sql).not.toMatch(
+      /(?:alter|create|drop|truncate)\s+table\s+(?:auth\.)/,
+    );
+
+    const journal = JSON.parse(
+      readFileSync(resolve(migrationMetaDirectory, "_journal.json"), "utf8"),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const entry = journal.entries.at(-1);
+    expect(entry).toEqual({
+      idx: 7,
+      version: "7",
+      when: expect.any(Number),
+      tag: paidExpenseIndexMigration!.replace(/\.sql$/, ""),
+      breakpoints: true,
+    });
+
+    const snapshot = JSON.parse(readFileSync(
+      resolve(
+        migrationMetaDirectory,
+        `${entry!.tag.slice(0, 14)}_snapshot.json`,
+      ),
+      "utf8",
+    )) as {
+      prevId: string;
+      tables: Record<string, {
+        indexes: Record<string, {
+          columns: Array<{ expression: string }>;
+          where?: string;
+        }>;
+      }>;
+    };
+    const previousSnapshot = JSON.parse(readFileSync(
+      resolve(migrationMetaDirectory, "20260903022349_snapshot.json"),
+      "utf8",
+    )) as { id: string };
+    expect(snapshot.prevId).toBe(previousSnapshot.id);
+    expect(
+      snapshot.tables["public.expenses"].indexes
+        .expenses_owner_id_paid_date_paid_idx,
+    ).toMatchObject({
+      columns: [
+        { expression: "owner_id" },
+        { expression: "paid_date" },
+      ],
+      where: `"expenses"."status" = 'paid'`,
+    });
+  });
+});
 
 describe("expense backend authorization migration", () => {
   it("creates a forward-only private role and removes direct authenticated writes", () => {
@@ -214,7 +281,9 @@ describe("recurring expense projection restoration migration", () => {
     ) as {
       entries: Array<{ idx: number; tag: string }>;
     };
-    const entry = journal.entries.at(-1);
+    const entry = journal.entries.find((candidate) =>
+      candidate.tag.endsWith("_allow_backend_projection_cleanup"),
+    );
 
     expect(entry).toMatchObject({
       idx: 6,

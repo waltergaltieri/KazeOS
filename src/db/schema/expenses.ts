@@ -110,6 +110,9 @@ export const expenses = pgTable(
     ),
     index("expenses_owner_id_scope_idx").on(table.ownerId, table.scope),
     index("expenses_owner_id_currency_idx").on(table.ownerId, table.currency),
+    index("expenses_owner_id_paid_date_paid_idx")
+      .on(table.ownerId, table.paidDate)
+      .where(sql`${table.status} = 'paid'`),
     index("expenses_recurring_expense_id_owner_id_idx").on(
       table.recurringExpenseId,
       table.ownerId,

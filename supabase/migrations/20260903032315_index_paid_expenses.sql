@@ -1,0 +1,1 @@
+CREATE INDEX "expenses_owner_id_paid_date_paid_idx" ON "expenses" USING btree ("owner_id","paid_date") WHERE "expenses"."status" = 'paid';

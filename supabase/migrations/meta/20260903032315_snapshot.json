@@ -1,0 +1,2770 @@
+{
+  "id": "255ca507-e84e-4431-823b-eeb5632862db",
+  "prevId": "08e83c47-4d9e-45df-845f-42e76a636014",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.charges": {
+      "name": "charges",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_key": {
+          "name": "period_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "currency",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "due_date": {
+          "name": "due_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "charge_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "amount_paid_minor": {
+          "name": "amount_paid_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "generated_automatically": {
+          "name": "generated_automatically",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "charges_owner_id_client_id_idx": {
+          "name": "charges_owner_id_client_id_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "charges_service_owner_client_idx": {
+          "name": "charges_service_owner_client_idx",
+          "columns": [
+            {
+              "expression": "service_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "charges_owner_id_due_date_idx": {
+          "name": "charges_owner_id_due_date_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "charges_owner_id_status_due_date_idx": {
+          "name": "charges_owner_id_status_due_date_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "charges_service_id_period_key_unique": {
+          "name": "charges_service_id_period_key_unique",
+          "columns": [
+            {
+              "expression": "service_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "period_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"charges\".\"service_id\" is not null and \"charges\".\"period_key\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "charges_owner_id_users_id_fk": {
+          "name": "charges_owner_id_users_id_fk",
+          "tableFrom": "charges",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "charges_owner_id_client_id_clients_owner_id_id_fk": {
+          "name": "charges_owner_id_client_id_clients_owner_id_id_fk",
+          "tableFrom": "charges",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "owner_id",
+            "client_id"
+          ],
+          "columnsTo": [
+            "owner_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "charges_service_owner_client_services_id_owner_client_fk": {
+          "name": "charges_service_owner_client_services_id_owner_client_fk",
+          "tableFrom": "charges",
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_id",
+            "owner_id",
+            "client_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id",
+            "client_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "charges_owner_id_id_unique": {
+          "name": "charges_owner_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "id"
+          ]
+        },
+        "charges_id_owner_client_currency_unique": {
+          "name": "charges_id_owner_client_currency_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "owner_id",
+            "client_id",
+            "currency"
+          ]
+        }
+      },
+      "policies": {
+        "charges_authenticated_select": {
+          "name": "charges_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"charges\".\"owner_id\""
+        },
+        "charges_authenticated_insert": {
+          "name": "charges_authenticated_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"charges\".\"owner_id\""
+        },
+        "charges_authenticated_update": {
+          "name": "charges_authenticated_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"charges\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"charges\".\"owner_id\""
+        }
+      },
+      "checkConstraints": {
+        "charges_description_not_blank": {
+          "name": "charges_description_not_blank",
+          "value": "btrim(\"charges\".\"description\") <> ''"
+        },
+        "charges_amount_minor_positive": {
+          "name": "charges_amount_minor_positive",
+          "value": "\"charges\".\"amount_minor\" > 0"
+        },
+        "charges_amount_minor_js_safe": {
+          "name": "charges_amount_minor_js_safe",
+          "value": "\"charges\".\"amount_minor\" <= 9007199254740991"
+        },
+        "charges_amount_paid_minor_valid": {
+          "name": "charges_amount_paid_minor_valid",
+          "value": "\"charges\".\"amount_paid_minor\" >= 0 and \"charges\".\"amount_paid_minor\" <= 9007199254740991"
+        },
+        "charges_status_amount_paid_consistency": {
+          "name": "charges_status_amount_paid_consistency",
+          "value": "(\n        \"charges\".\"status\" = 'cancelled'\n        or (\"charges\".\"status\" = 'pending' and \"charges\".\"amount_paid_minor\" = 0)\n        or (\"charges\".\"status\" = 'partial' and \"charges\".\"amount_paid_minor\" > 0 and \"charges\".\"amount_paid_minor\" < \"charges\".\"amount_minor\")\n        or (\"charges\".\"status\" = 'paid' and \"charges\".\"amount_paid_minor\" >= \"charges\".\"amount_minor\")\n      )"
+        },
+        "charges_period_key_consistency": {
+          "name": "charges_period_key_consistency",
+          "value": "(\n        (\"charges\".\"period_key\" is null or (\"charges\".\"service_id\" is not null and btrim(\"charges\".\"period_key\") <> ''))\n        and\n        (\"charges\".\"generated_automatically\" = false or (\"charges\".\"service_id\" is not null and \"charges\".\"period_key\" is not null))\n      )"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.client_notes": {
+      "name": "client_notes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "client_notes_owner_client_created_idx": {
+          "name": "client_notes_owner_client_created_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "client_notes_owner_id_users_id_fk": {
+          "name": "client_notes_owner_id_users_id_fk",
+          "tableFrom": "client_notes",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "client_notes_owner_id_client_id_clients_owner_id_id_fk": {
+          "name": "client_notes_owner_id_client_id_clients_owner_id_id_fk",
+          "tableFrom": "client_notes",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "owner_id",
+            "client_id"
+          ],
+          "columnsTo": [
+            "owner_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "client_notes_authenticated_select": {
+          "name": "client_notes_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"client_notes\".\"owner_id\""
+        },
+        "client_notes_authenticated_insert": {
+          "name": "client_notes_authenticated_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"client_notes\".\"owner_id\""
+        },
+        "client_notes_authenticated_update": {
+          "name": "client_notes_authenticated_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"client_notes\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"client_notes\".\"owner_id\""
+        },
+        "client_notes_authenticated_delete": {
+          "name": "client_notes_authenticated_delete",
+          "as": "PERMISSIVE",
+          "for": "DELETE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"client_notes\".\"owner_id\""
+        }
+      },
+      "checkConstraints": {
+        "client_notes_content_not_blank": {
+          "name": "client_notes_content_not_blank",
+          "value": "btrim(\"client_notes\".\"content\") <> ''"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.clients": {
+      "name": "clients",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_name": {
+          "name": "first_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_name": {
+          "name": "last_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "company": {
+          "name": "company",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "whatsapp": {
+          "name": "whatsapp",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tax_id": {
+          "name": "tax_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "website": {
+          "name": "website",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "client_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "joined_at": {
+          "name": "joined_at",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "(now() at time zone 'America/Argentina/Buenos_Aires')::date"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "clients_owner_id_status_idx": {
+          "name": "clients_owner_id_status_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "clients_owner_id_users_id_fk": {
+          "name": "clients_owner_id_users_id_fk",
+          "tableFrom": "clients",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "clients_owner_id_id_unique": {
+          "name": "clients_owner_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "clients_authenticated_select": {
+          "name": "clients_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"clients\".\"owner_id\""
+        },
+        "clients_authenticated_insert": {
+          "name": "clients_authenticated_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"clients\".\"owner_id\""
+        },
+        "clients_authenticated_update": {
+          "name": "clients_authenticated_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"clients\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"clients\".\"owner_id\""
+        }
+      },
+      "checkConstraints": {
+        "clients_first_name_not_blank": {
+          "name": "clients_first_name_not_blank",
+          "value": "btrim(\"clients\".\"first_name\") <> ''"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.expense_categories": {
+      "name": "expense_categories",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "icon": {
+          "name": "icon",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "expense_categories_owner_name_unique": {
+          "name": "expense_categories_owner_name_unique",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "expense_categories_owner_id_users_id_fk": {
+          "name": "expense_categories_owner_id_users_id_fk",
+          "tableFrom": "expense_categories",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "expense_categories_owner_id_id_unique": {
+          "name": "expense_categories_owner_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "expense_categories_authenticated_select": {
+          "name": "expense_categories_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"expense_categories\".\"owner_id\""
+        },
+        "expense_categories_backend_insert": {
+          "name": "expense_categories_backend_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "kazeos_backend"
+          ],
+          "withCheck": "(select auth.uid()) = \"expense_categories\".\"owner_id\""
+        },
+        "expense_categories_backend_update": {
+          "name": "expense_categories_backend_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "kazeos_backend"
+          ],
+          "using": "(select auth.uid()) = \"expense_categories\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"expense_categories\".\"owner_id\""
+        }
+      },
+      "checkConstraints": {
+        "expense_categories_name_not_blank": {
+          "name": "expense_categories_name_not_blank",
+          "value": "btrim(\"expense_categories\".\"name\") <> ''"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.expenses": {
+      "name": "expenses",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "currency",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category_id": {
+          "name": "category_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "expense_scope",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cost_type": {
+          "name": "cost_type",
+          "type": "expense_cost_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recurring_expense_id": {
+          "name": "recurring_expense_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "period_key": {
+          "name": "period_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "due_date": {
+          "name": "due_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "paid_date": {
+          "name": "paid_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "expense_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "payment_method": {
+          "name": "payment_method",
+          "type": "payment_method",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vendor": {
+          "name": "vendor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "generated_automatically": {
+          "name": "generated_automatically",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "expenses_owner_id_due_date_idx": {
+          "name": "expenses_owner_id_due_date_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "expenses_owner_id_status_due_date_idx": {
+          "name": "expenses_owner_id_status_due_date_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "expenses_owner_id_category_id_idx": {
+          "name": "expenses_owner_id_category_id_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "category_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "expenses_owner_id_scope_idx": {
+          "name": "expenses_owner_id_scope_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scope",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "expenses_owner_id_currency_idx": {
+          "name": "expenses_owner_id_currency_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "currency",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "expenses_owner_id_paid_date_paid_idx": {
+          "name": "expenses_owner_id_paid_date_paid_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "paid_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"expenses\".\"status\" = 'paid'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "expenses_recurring_expense_id_owner_id_idx": {
+          "name": "expenses_recurring_expense_id_owner_id_idx",
+          "columns": [
+            {
+              "expression": "recurring_expense_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "expenses_recurring_period_unique": {
+          "name": "expenses_recurring_period_unique",
+          "columns": [
+            {
+              "expression": "recurring_expense_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "period_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"expenses\".\"recurring_expense_id\" is not null and \"expenses\".\"period_key\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "expenses_owner_id_users_id_fk": {
+          "name": "expenses_owner_id_users_id_fk",
+          "tableFrom": "expenses",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "expenses_owner_id_category_id_expense_categories_owner_id_id_fk": {
+          "name": "expenses_owner_id_category_id_expense_categories_owner_id_id_fk",
+          "tableFrom": "expenses",
+          "tableTo": "expense_categories",
+          "columnsFrom": [
+            "owner_id",
+            "category_id"
+          ],
+          "columnsTo": [
+            "owner_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "expenses_recurring_expense_id_owner_id_recurring_expenses_id_owner_id_fk": {
+          "name": "expenses_recurring_expense_id_owner_id_recurring_expenses_id_owner_id_fk",
+          "tableFrom": "expenses",
+          "tableTo": "recurring_expenses",
+          "columnsFrom": [
+            "recurring_expense_id",
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "expenses_owner_id_id_unique": {
+          "name": "expenses_owner_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "expenses_authenticated_select": {
+          "name": "expenses_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"expenses\".\"owner_id\""
+        },
+        "expenses_backend_insert": {
+          "name": "expenses_backend_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "kazeos_backend"
+          ],
+          "withCheck": "(select auth.uid()) = \"expenses\".\"owner_id\""
+        },
+        "expenses_backend_update": {
+          "name": "expenses_backend_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "kazeos_backend"
+          ],
+          "using": "(select auth.uid()) = \"expenses\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"expenses\".\"owner_id\""
+        },
+        "expenses_backend_delete": {
+          "name": "expenses_backend_delete",
+          "as": "PERMISSIVE",
+          "for": "DELETE",
+          "to": [
+            "kazeos_backend"
+          ],
+          "using": "(select auth.uid()) = \"expenses\".\"owner_id\"\n        and \"expenses\".\"status\" in ('planned', 'pending')\n        and (\n          (\"expenses\".\"recurring_expense_id\" is null and \"expenses\".\"generated_automatically\" = false)\n          or\n          (\"expenses\".\"recurring_expense_id\" is not null and \"expenses\".\"generated_automatically\" = true)\n        )"
+        }
+      },
+      "checkConstraints": {
+        "expenses_title_not_blank": {
+          "name": "expenses_title_not_blank",
+          "value": "btrim(\"expenses\".\"title\") <> ''"
+        },
+        "expenses_amount_minor_positive": {
+          "name": "expenses_amount_minor_positive",
+          "value": "\"expenses\".\"amount_minor\" > 0"
+        },
+        "expenses_amount_minor_js_safe": {
+          "name": "expenses_amount_minor_js_safe",
+          "value": "\"expenses\".\"amount_minor\" <= 9007199254740991"
+        },
+        "expenses_paid_date_status_consistency": {
+          "name": "expenses_paid_date_status_consistency",
+          "value": "(\n        (\"expenses\".\"status\" = 'paid' and \"expenses\".\"paid_date\" is not null)\n        or\n        (\"expenses\".\"status\" <> 'paid' and \"expenses\".\"paid_date\" is null)\n      )"
+        },
+        "expenses_paid_payment_method_consistency": {
+          "name": "expenses_paid_payment_method_consistency",
+          "value": "\"expenses\".\"status\" <> 'paid' or \"expenses\".\"payment_method\" is not null"
+        },
+        "expenses_recurrence_consistency": {
+          "name": "expenses_recurrence_consistency",
+          "value": "(\n        (\"expenses\".\"recurring_expense_id\" is null and \"expenses\".\"period_key\" is null and \"expenses\".\"generated_automatically\" = false)\n        or\n        (\"expenses\".\"recurring_expense_id\" is not null and \"expenses\".\"period_key\" is not null and btrim(\"expenses\".\"period_key\") <> '')\n      )"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.payments": {
+      "name": "payments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "charge_id": {
+          "name": "charge_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "currency",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payment_date": {
+          "name": "payment_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payment_method": {
+          "name": "payment_method",
+          "type": "payment_method",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reference": {
+          "name": "reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "payments_owner_id_client_id_idx": {
+          "name": "payments_owner_id_client_id_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payments_charge_owner_client_currency_idx": {
+          "name": "payments_charge_owner_client_currency_idx",
+          "columns": [
+            {
+              "expression": "charge_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "currency",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payments_owner_id_payment_date_idx": {
+          "name": "payments_owner_id_payment_date_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "payment_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "payments_owner_id_users_id_fk": {
+          "name": "payments_owner_id_users_id_fk",
+          "tableFrom": "payments",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "payments_owner_id_client_id_clients_owner_id_id_fk": {
+          "name": "payments_owner_id_client_id_clients_owner_id_id_fk",
+          "tableFrom": "payments",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "owner_id",
+            "client_id"
+          ],
+          "columnsTo": [
+            "owner_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "payments_charge_owner_client_currency_charges_fk": {
+          "name": "payments_charge_owner_client_currency_charges_fk",
+          "tableFrom": "payments",
+          "tableTo": "charges",
+          "columnsFrom": [
+            "charge_id",
+            "owner_id",
+            "client_id",
+            "currency"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id",
+            "client_id",
+            "currency"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "payments_authenticated_select": {
+          "name": "payments_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"payments\".\"owner_id\""
+        },
+        "payments_authenticated_insert": {
+          "name": "payments_authenticated_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"payments\".\"owner_id\""
+        },
+        "payments_authenticated_update": {
+          "name": "payments_authenticated_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"payments\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"payments\".\"owner_id\""
+        }
+      },
+      "checkConstraints": {
+        "payments_amount_minor_positive": {
+          "name": "payments_amount_minor_positive",
+          "value": "\"payments\".\"amount_minor\" > 0"
+        },
+        "payments_amount_minor_js_safe": {
+          "name": "payments_amount_minor_js_safe",
+          "value": "\"payments\".\"amount_minor\" <= 9007199254740991"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.profiles": {
+      "name": "profiles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "profiles_id_users_id_fk": {
+          "name": "profiles_id_users_id_fk",
+          "tableFrom": "profiles",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "profiles_authenticated_select": {
+          "name": "profiles_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"profiles\".\"id\""
+        },
+        "profiles_authenticated_insert": {
+          "name": "profiles_authenticated_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"profiles\".\"id\""
+        },
+        "profiles_authenticated_update": {
+          "name": "profiles_authenticated_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"profiles\".\"id\"",
+          "withCheck": "(select auth.uid()) = \"profiles\".\"id\""
+        }
+      },
+      "checkConstraints": {
+        "profiles_full_name_not_blank": {
+          "name": "profiles_full_name_not_blank",
+          "value": "btrim(\"profiles\".\"full_name\") <> ''"
+        },
+        "profiles_email_not_blank": {
+          "name": "profiles_email_not_blank",
+          "value": "btrim(\"profiles\".\"email\") <> ''"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.recurring_expenses": {
+      "name": "recurring_expenses",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "currency",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category_id": {
+          "name": "category_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "expense_scope",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cost_type": {
+          "name": "cost_type",
+          "type": "expense_cost_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "frequency": {
+          "name": "frequency",
+          "type": "billing_frequency",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "billing_day": {
+          "name": "billing_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_date": {
+          "name": "start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_date": {
+          "name": "end_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "recurring_expense_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "payment_method": {
+          "name": "payment_method",
+          "type": "payment_method",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vendor": {
+          "name": "vendor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "automatic_generation": {
+          "name": "automatic_generation",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "recurring_expenses_owner_id_status_idx": {
+          "name": "recurring_expenses_owner_id_status_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "recurring_expenses_owner_id_category_id_idx": {
+          "name": "recurring_expenses_owner_id_category_id_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "category_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "recurring_expenses_owner_id_users_id_fk": {
+          "name": "recurring_expenses_owner_id_users_id_fk",
+          "tableFrom": "recurring_expenses",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "recurring_expenses_owner_id_category_id_expense_categories_owner_id_id_fk": {
+          "name": "recurring_expenses_owner_id_category_id_expense_categories_owner_id_id_fk",
+          "tableFrom": "recurring_expenses",
+          "tableTo": "expense_categories",
+          "columnsFrom": [
+            "owner_id",
+            "category_id"
+          ],
+          "columnsTo": [
+            "owner_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "recurring_expenses_owner_id_id_unique": {
+          "name": "recurring_expenses_owner_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "id"
+          ]
+        },
+        "recurring_expenses_id_owner_id_unique": {
+          "name": "recurring_expenses_id_owner_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "owner_id"
+          ]
+        }
+      },
+      "policies": {
+        "recurring_expenses_authenticated_select": {
+          "name": "recurring_expenses_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"recurring_expenses\".\"owner_id\""
+        },
+        "recurring_expenses_backend_insert": {
+          "name": "recurring_expenses_backend_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "kazeos_backend"
+          ],
+          "withCheck": "(select auth.uid()) = \"recurring_expenses\".\"owner_id\""
+        },
+        "recurring_expenses_backend_update": {
+          "name": "recurring_expenses_backend_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "kazeos_backend"
+          ],
+          "using": "(select auth.uid()) = \"recurring_expenses\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"recurring_expenses\".\"owner_id\""
+        }
+      },
+      "checkConstraints": {
+        "recurring_expenses_title_not_blank": {
+          "name": "recurring_expenses_title_not_blank",
+          "value": "btrim(\"recurring_expenses\".\"title\") <> ''"
+        },
+        "recurring_expenses_amount_minor_positive": {
+          "name": "recurring_expenses_amount_minor_positive",
+          "value": "\"recurring_expenses\".\"amount_minor\" > 0"
+        },
+        "recurring_expenses_amount_minor_js_safe": {
+          "name": "recurring_expenses_amount_minor_js_safe",
+          "value": "\"recurring_expenses\".\"amount_minor\" <= 9007199254740991"
+        },
+        "recurring_expenses_frequency_recurring": {
+          "name": "recurring_expenses_frequency_recurring",
+          "value": "\"recurring_expenses\".\"frequency\" <> 'one_time'"
+        },
+        "recurring_expenses_billing_day_range": {
+          "name": "recurring_expenses_billing_day_range",
+          "value": "\"recurring_expenses\".\"billing_day\" between 1 and 31"
+        },
+        "recurring_expenses_end_date_valid": {
+          "name": "recurring_expenses_end_date_valid",
+          "value": "\"recurring_expenses\".\"end_date\" is null or \"recurring_expenses\".\"end_date\" >= \"recurring_expenses\".\"start_date\""
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.services": {
+      "name": "services",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "billing_type": {
+          "name": "billing_type",
+          "type": "billing_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "currency",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "billing_frequency": {
+          "name": "billing_frequency",
+          "type": "billing_frequency",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "billing_day": {
+          "name": "billing_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start_date": {
+          "name": "start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_date": {
+          "name": "end_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "service_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "automatic_charge_generation": {
+          "name": "automatic_charge_generation",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "services_owner_id_client_id_idx": {
+          "name": "services_owner_id_client_id_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "services_owner_id_status_idx": {
+          "name": "services_owner_id_status_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "services_owner_id_users_id_fk": {
+          "name": "services_owner_id_users_id_fk",
+          "tableFrom": "services",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "services_owner_id_client_id_clients_owner_id_id_fk": {
+          "name": "services_owner_id_client_id_clients_owner_id_id_fk",
+          "tableFrom": "services",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "owner_id",
+            "client_id"
+          ],
+          "columnsTo": [
+            "owner_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "services_owner_id_id_unique": {
+          "name": "services_owner_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "id"
+          ]
+        },
+        "services_id_owner_id_client_id_unique": {
+          "name": "services_id_owner_id_client_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "owner_id",
+            "client_id"
+          ]
+        }
+      },
+      "policies": {
+        "services_authenticated_select": {
+          "name": "services_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"services\".\"owner_id\""
+        },
+        "services_authenticated_insert": {
+          "name": "services_authenticated_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"services\".\"owner_id\""
+        },
+        "services_authenticated_update": {
+          "name": "services_authenticated_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"services\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"services\".\"owner_id\""
+        }
+      },
+      "checkConstraints": {
+        "services_name_not_blank": {
+          "name": "services_name_not_blank",
+          "value": "btrim(\"services\".\"name\") <> ''"
+        },
+        "services_amount_minor_positive": {
+          "name": "services_amount_minor_positive",
+          "value": "\"services\".\"amount_minor\" > 0"
+        },
+        "services_amount_minor_js_safe": {
+          "name": "services_amount_minor_js_safe",
+          "value": "\"services\".\"amount_minor\" <= 9007199254740991"
+        },
+        "services_billing_day_range": {
+          "name": "services_billing_day_range",
+          "value": "\"services\".\"billing_day\" is null or \"services\".\"billing_day\" between 1 and 31"
+        },
+        "services_end_date_valid": {
+          "name": "services_end_date_valid",
+          "value": "\"services\".\"end_date\" is null or \"services\".\"end_date\" >= \"services\".\"start_date\""
+        },
+        "services_billing_consistency": {
+          "name": "services_billing_consistency",
+          "value": "(\n        (\"services\".\"billing_type\" = 'one_time' and \"services\".\"billing_frequency\" = 'one_time' and \"services\".\"billing_day\" is null and \"services\".\"automatic_charge_generation\" = false)\n        or\n        (\"services\".\"billing_type\" = 'recurring' and \"services\".\"billing_frequency\" <> 'one_time' and \"services\".\"billing_day\" is not null)\n      )"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.settings": {
+      "name": "settings",
+      "schema": "",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "primary_currency": {
+          "name": "primary_currency",
+          "type": "currency",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'America/Argentina/Buenos_Aires'"
+        },
+        "locale": {
+          "name": "locale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'es-AR'"
+        },
+        "date_format": {
+          "name": "date_format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'dd/MM/yyyy'"
+        },
+        "business_name": {
+          "name": "business_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "business_info": {
+          "name": "business_info",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "settings_owner_id_users_id_fk": {
+          "name": "settings_owner_id_users_id_fk",
+          "tableFrom": "settings",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "settings_authenticated_select": {
+          "name": "settings_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"settings\".\"owner_id\""
+        },
+        "settings_authenticated_insert": {
+          "name": "settings_authenticated_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"settings\".\"owner_id\""
+        },
+        "settings_authenticated_update": {
+          "name": "settings_authenticated_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"settings\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"settings\".\"owner_id\""
+        }
+      },
+      "checkConstraints": {
+        "settings_timezone_not_blank": {
+          "name": "settings_timezone_not_blank",
+          "value": "btrim(\"settings\".\"timezone\") <> ''"
+        },
+        "settings_locale_not_blank": {
+          "name": "settings_locale_not_blank",
+          "value": "btrim(\"settings\".\"locale\") <> ''"
+        },
+        "settings_date_format_not_blank": {
+          "name": "settings_date_format_not_blank",
+          "value": "btrim(\"settings\".\"date_format\") <> ''"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.tasks": {
+      "name": "tasks",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "due_date": {
+          "name": "due_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priority": {
+          "name": "priority",
+          "type": "task_priority",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'medium'"
+        },
+        "status": {
+          "name": "status",
+          "type": "task_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "recurring": {
+          "name": "recurring",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "recurrence": {
+          "name": "recurrence",
+          "type": "task_recurrence",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recurrence_key": {
+          "name": "recurrence_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "tasks_owner_id_client_id_idx": {
+          "name": "tasks_owner_id_client_id_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tasks_owner_id_parent_id_idx": {
+          "name": "tasks_owner_id_parent_id_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tasks_owner_id_status_due_date_idx": {
+          "name": "tasks_owner_id_status_due_date_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tasks_parent_id_recurrence_key_unique": {
+          "name": "tasks_parent_id_recurrence_key_unique",
+          "columns": [
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "recurrence_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"tasks\".\"parent_id\" is not null and \"tasks\".\"recurrence_key\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "tasks_owner_id_users_id_fk": {
+          "name": "tasks_owner_id_users_id_fk",
+          "tableFrom": "tasks",
+          "tableTo": "users",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "tasks_owner_id_client_id_clients_owner_id_id_fk": {
+          "name": "tasks_owner_id_client_id_clients_owner_id_id_fk",
+          "tableFrom": "tasks",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "owner_id",
+            "client_id"
+          ],
+          "columnsTo": [
+            "owner_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "tasks_owner_id_parent_id_tasks_owner_id_id_fk": {
+          "name": "tasks_owner_id_parent_id_tasks_owner_id_id_fk",
+          "tableFrom": "tasks",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "owner_id",
+            "parent_id"
+          ],
+          "columnsTo": [
+            "owner_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "tasks_owner_id_id_unique": {
+          "name": "tasks_owner_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {
+        "tasks_authenticated_select": {
+          "name": "tasks_authenticated_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"tasks\".\"owner_id\""
+        },
+        "tasks_authenticated_insert": {
+          "name": "tasks_authenticated_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "authenticated"
+          ],
+          "withCheck": "(select auth.uid()) = \"tasks\".\"owner_id\""
+        },
+        "tasks_authenticated_update": {
+          "name": "tasks_authenticated_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"tasks\".\"owner_id\"",
+          "withCheck": "(select auth.uid()) = \"tasks\".\"owner_id\""
+        },
+        "tasks_authenticated_delete": {
+          "name": "tasks_authenticated_delete",
+          "as": "PERMISSIVE",
+          "for": "DELETE",
+          "to": [
+            "authenticated"
+          ],
+          "using": "(select auth.uid()) = \"tasks\".\"owner_id\""
+        }
+      },
+      "checkConstraints": {
+        "tasks_title_not_blank": {
+          "name": "tasks_title_not_blank",
+          "value": "btrim(\"tasks\".\"title\") <> ''"
+        },
+        "tasks_recurrence_consistency": {
+          "name": "tasks_recurrence_consistency",
+          "value": "(\n        (\"tasks\".\"recurring\" = true and \"tasks\".\"recurrence\" is not null and \"tasks\".\"parent_id\" is null and \"tasks\".\"recurrence_key\" is null)\n        or\n        (\"tasks\".\"recurring\" = false and \"tasks\".\"recurrence\" is null and \"tasks\".\"parent_id\" is null and \"tasks\".\"recurrence_key\" is null)\n        or\n        (\"tasks\".\"recurring\" = false and \"tasks\".\"recurrence\" is null and \"tasks\".\"parent_id\" is not null and \"tasks\".\"recurrence_key\" is not null and btrim(\"tasks\".\"recurrence_key\") <> '')\n      )"
+        },
+        "tasks_completion_consistency": {
+          "name": "tasks_completion_consistency",
+          "value": "(\n        (\"tasks\".\"status\" = 'pending' and \"tasks\".\"completed_at\" is null)\n        or\n        (\"tasks\".\"status\" = 'completed' and \"tasks\".\"completed_at\" is not null)\n      )"
+        }
+      },
+      "isRLSEnabled": true
+    }
+  },
+  "enums": {
+    "public.billing_frequency": {
+      "name": "billing_frequency",
+      "schema": "public",
+      "values": [
+        "monthly",
+        "quarterly",
+        "yearly",
+        "one_time"
+      ]
+    },
+    "public.billing_type": {
+      "name": "billing_type",
+      "schema": "public",
+      "values": [
+        "recurring",
+        "one_time"
+      ]
+    },
+    "public.charge_status": {
+      "name": "charge_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "partial",
+        "paid",
+        "cancelled"
+      ]
+    },
+    "public.client_status": {
+      "name": "client_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "paused",
+        "archived"
+      ]
+    },
+    "public.currency": {
+      "name": "currency",
+      "schema": "public",
+      "values": [
+        "USD",
+        "ARS"
+      ]
+    },
+    "public.expense_cost_type": {
+      "name": "expense_cost_type",
+      "schema": "public",
+      "values": [
+        "fixed",
+        "variable"
+      ]
+    },
+    "public.expense_scope": {
+      "name": "expense_scope",
+      "schema": "public",
+      "values": [
+        "personal",
+        "business",
+        "family",
+        "friends",
+        "partner",
+        "other"
+      ]
+    },
+    "public.expense_status": {
+      "name": "expense_status",
+      "schema": "public",
+      "values": [
+        "planned",
+        "pending",
+        "paid",
+        "cancelled"
+      ]
+    },
+    "public.payment_method": {
+      "name": "payment_method",
+      "schema": "public",
+      "values": [
+        "bank_transfer",
+        "cash",
+        "mercadopago",
+        "paypal",
+        "payoneer",
+        "stripe",
+        "crypto",
+        "other",
+        "debit_card",
+        "credit_card"
+      ]
+    },
+    "public.recurring_expense_status": {
+      "name": "recurring_expense_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "paused",
+        "cancelled"
+      ]
+    },
+    "public.service_status": {
+      "name": "service_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "paused",
+        "cancelled"
+      ]
+    },
+    "public.task_priority": {
+      "name": "task_priority",
+      "schema": "public",
+      "values": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "public.task_recurrence": {
+      "name": "task_recurrence",
+      "schema": "public",
+      "values": [
+        "monthly"
+      ]
+    },
+    "public.task_status": {
+      "name": "task_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "completed"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {
+    "kazeos_backend": {
+      "name": "kazeos_backend",
+      "createDb": false,
+      "createRole": false,
+      "inherit": true
+    }
+  },
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

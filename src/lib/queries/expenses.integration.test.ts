@@ -1,9 +1,6 @@
 // @vitest-environment node
 
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
-
-import { config } from "dotenv";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -18,8 +15,9 @@ import {
   expenses,
   recurringExpenses,
 } from "@/db/schema";
+import { loadDatabaseTestEnvironment } from "@/test/database-env";
 
-config({ path: resolve(process.cwd(), "../..", ".env.local"), quiet: true });
+const databaseUrl = loadDatabaseTestEnvironment();
 process.env.APP_ORIGIN = "http://localhost:3000";
 const {
   queryExpenseById,
@@ -34,7 +32,6 @@ const {
   queryUpcomingExpenses,
 } = await import("./expenses");
 
-const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
 const observedQueries: string[] = [];
 const databaseClient = databaseUrl
@@ -74,6 +71,10 @@ describeDatabase("expense query matrix", () => {
       const travelCategoryId = randomUUID();
       const otherCategoryId = randomUUID();
       const recurringExpenseId = randomUUID();
+      const futureRecurringExpenseId = randomUUID();
+      const expiredRecurringExpenseId = randomUUID();
+      const startsInsidePeriodId = randomUUID();
+      const endsAtPeriodStartId = randomUUID();
       const otherRecurringExpenseId = randomUUID();
       const ids = {
         overdue: randomUUID(),
@@ -123,6 +124,64 @@ describeDatabase("expense query matrix", () => {
           startDate: "2026-01-01",
           status: "active",
           title: "Foreign plan",
+        },
+        {
+          amountMinor: 1_000,
+          billingDay: 1,
+          categoryId: softwareCategoryId,
+          costType: "fixed",
+          currency: "USD",
+          frequency: "monthly",
+          id: futureRecurringExpenseId,
+          ownerId,
+          scope: "business",
+          startDate: "2026-10-01",
+          status: "active",
+          title: "Future commitment",
+        },
+        {
+          amountMinor: 2_000,
+          billingDay: 1,
+          categoryId: softwareCategoryId,
+          costType: "fixed",
+          currency: "USD",
+          endDate: "2026-08-31",
+          frequency: "monthly",
+          id: expiredRecurringExpenseId,
+          ownerId,
+          scope: "business",
+          startDate: "2026-01-01",
+          status: "active",
+          title: "Expired commitment",
+        },
+        {
+          amountMinor: 3_000,
+          billingDay: 30,
+          categoryId: softwareCategoryId,
+          costType: "fixed",
+          currency: "USD",
+          frequency: "monthly",
+          id: startsInsidePeriodId,
+          ownerId,
+          scope: "business",
+          startDate: "2026-09-30",
+          status: "active",
+          title: "Starts inside period",
+        },
+        {
+          amountMinor: 4_000,
+          billingDay: 1,
+          categoryId: softwareCategoryId,
+          costType: "fixed",
+          currency: "USD",
+          endDate: "2026-09-01",
+          frequency: "monthly",
+          id: endsAtPeriodStartId,
+          ownerId,
+          scope: "business",
+          startDate: "2026-01-01",
+          status: "active",
+          title: "Ends at period start",
         },
       ]);
       await transaction.insert(expenses).values([
@@ -292,9 +351,16 @@ describeDatabase("expense query matrix", () => {
       const secondPage = await list({ page: 2, pageSize: 2, period: "all" });
       expect(secondPage.pagination).toEqual({ page: 2, pageSize: 2, total: 7, totalPages: 4 });
       expect(secondPage.items).toHaveLength(2);
-      const emptyPage = await list({ page: 99, pageSize: 2, period: "all" });
+      observedQueries.length = 0;
+      const emptyPage = await queryExpenses(
+        transaction,
+        ownerId,
+        { page: 99, pageSize: 2, period: "all" },
+        "2026-09-10",
+      );
       expect(emptyPage.items).toEqual([]);
       expect(emptyPage.pagination).toEqual({ page: 99, pageSize: 2, total: 7, totalPages: 4 });
+      expect(observedQueries).toHaveLength(1);
 
       observedQueries.length = 0;
       const joinedPage = await queryExpenses(
@@ -316,7 +382,7 @@ describeDatabase("expense query matrix", () => {
         USD: {
           actual: "30000",
           fixed: "40000",
-          monthlyFixedCommitments: "0",
+          monthlyFixedCommitments: "7000",
           overdue: "10000",
           pending: "20000",
           projected: "60000",
@@ -392,12 +458,14 @@ describeDatabase("expense query matrix", () => {
       ]);
       expect(options.recurringExpenses).toEqual([
         expect.objectContaining({ id: recurringExpenseId, title: "Cloud plan" }),
+        expect.objectContaining({ id: endsAtPeriodStartId, title: "Ends at period start" }),
+        expect.objectContaining({ id: expiredRecurringExpenseId, title: "Expired commitment" }),
+        expect.objectContaining({ id: futureRecurringExpenseId, title: "Future commitment" }),
+        expect.objectContaining({ id: startsInsidePeriodId, title: "Starts inside period" }),
       ]);
       expect(await runAsOwner(ownerId, (ownerDb) =>
         queryRecurringExpenses(ownerDb, ownerId),
-      )).toEqual([
-        expect.objectContaining({ category: expect.objectContaining({ id: softwareCategoryId }) }),
-      ]);
+      )).toHaveLength(5);
       expect(await runAsOwner(ownerId, (ownerDb) =>
         queryRecurringExpenseById(ownerDb, ownerId, recurringExpenseId),
       )).toMatchObject({ id: recurringExpenseId, category: { id: softwareCategoryId } });

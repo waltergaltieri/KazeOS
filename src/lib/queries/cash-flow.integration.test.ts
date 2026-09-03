@@ -1,9 +1,6 @@
 // @vitest-environment node
 
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
-
-import { config } from "dotenv";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -20,12 +17,11 @@ import {
   expenses,
   payments,
 } from "@/db/schema";
+import { loadDatabaseTestEnvironment } from "@/test/database-env";
 
-config({ path: resolve(process.cwd(), "../..", ".env.local"), quiet: true });
+const databaseUrl = loadDatabaseTestEnvironment();
 process.env.APP_ORIGIN = "http://localhost:3000";
 const { queryMonthlyCashFlow } = await import("./cash-flow");
-
-const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
 const observedQueries: string[] = [];
 const databaseClient = databaseUrl
