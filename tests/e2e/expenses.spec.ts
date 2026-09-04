@@ -162,7 +162,10 @@ test.describe("authenticated expense acceptance flow", () => {
     page,
     request,
   }) => {
-    test.setTimeout(300_000);
+    // This remote-database acceptance flow intentionally exercises the whole
+    // module through the UI. Keep assertion timeouts bounded, but allow the
+    // end-to-end journey to finish on a cold Supabase connection.
+    test.setTimeout(900_000);
     const marker = randomUUID();
     const categoryName = `Aceptación E2E ${marker}`;
     const plannedTitle = `Planificado E2E ${marker}`;
