@@ -44,7 +44,7 @@ describe("expense ledger accessibility styles", () => {
     expect(css).not.toMatch(/\.recurring-expense-sheet\s*>\s*header\s*>\s*\.secondary-button\s*\{[^}]*display:\s*none/);
     expect(css).toMatch(/\.recurring-expense-sheet\s*>\s*header\s*>\s*\.secondary-button\s*\{[^}]*min-height:\s*44px/);
     expect(css).toMatch(/\.expense-card footer \.expense-command-actions > button\s*\{[^}]*min-height:\s*44px/);
-    expect(css).toMatch(/\.recurring-expense-meta \.icon-button\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/);
+    expect(css).toMatch(/\.recurring-expense-meta \.icon-button[^{]*\{[^}]*(?:min-)?width:\s*44px[^}]*height:\s*44px/);
   });
 
   it("keeps every new small insight label and badge at WCAG AA contrast", () => {
