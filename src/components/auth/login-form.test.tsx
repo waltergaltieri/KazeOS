@@ -59,7 +59,7 @@ describe("LoginForm", () => {
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    render(<LoginForm />);
+    render(<LoginForm redirectTo="/clients/new" />);
 
     await user.type(screen.getByLabelText("Email"), "agustin@example.com");
     await user.type(
@@ -74,6 +74,7 @@ describe("LoginForm", () => {
     );
     const request = fetchMock.mock.calls[0]?.[1] as { body: FormData };
     expect(request.body.get("email")).toBe("agustin@example.com");
+    expect(request.body.get("next")).toBe("/clients/new");
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "No pudimos iniciar sesión. Verificá tus datos e intentá de nuevo.",
     );

@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+
 import { IncomeExpenseComparison } from "@/components/dashboard/income-expense-comparison";
 import { KpiStrip } from "@/components/dashboard/kpi-strip";
 import { PendingTasks } from "@/components/dashboard/pending-tasks";
@@ -6,6 +8,10 @@ import { UpcomingMovements } from "@/components/dashboard/upcoming-movements";
 import { addCommercialPeriod, todayInBusinessZone } from "@/lib/domain/commercial-date";
 import { getMonthlyCashFlow } from "@/lib/queries/cash-flow";
 import {
+  CURRENCY_PREFERENCE_COOKIE,
+  resolveCurrencyPreference,
+} from "@/lib/preferences/currency";
+import {
   getDashboardMetrics,
   getPendingTasks,
   getUpcomingCharges,
@@ -13,8 +19,11 @@ import {
 } from "@/lib/queries/dashboard";
 
 export default async function DashboardPage({ searchParams = Promise.resolve({}) }: { searchParams?: Promise<{ currency?: string | string[] }> } = {}) {
-  const requestedCurrency = (await searchParams).currency;
-  const selectedCurrency = requestedCurrency === "ARS" ? "ARS" : "USD";
+  const [params, cookieStore] = await Promise.all([searchParams, cookies()]);
+  const selectedCurrency = resolveCurrencyPreference(
+    params.currency,
+    cookieStore.get(CURRENCY_PREFERENCE_COOKIE)?.value,
+  );
   const today = todayInBusinessZone(new Date());
   const monthStart = `${today.slice(0, 7)}-01`;
   const monthEnd = addCommercialPeriod(monthStart, "monthly");

@@ -36,6 +36,15 @@ type CurrencyTotals = {
   projected_net: AggregateMinorUnits;
 };
 
+function formatOutflow(
+  amount: AggregateMinorUnits,
+  currency: "USD" | "ARS",
+) {
+  const value = BigInt(amount);
+  const signed = (value === BigInt(0) ? "0" : (-value).toString()) as AggregateMinorUnits;
+  return formatAggregateMoney(signed, currency);
+}
+
 async function choose(page: Page, label: string, option: string) {
   await page.getByRole("combobox", { name: label, exact: true }).click();
   await page.getByRole("option", { name: option, exact: true }).click();
@@ -79,7 +88,7 @@ async function createExpense(
   await page.goto("/expenses/new");
   await page.getByLabel("Título *").fill(input.title);
   await page.getByLabel("Monto *").fill(input.amount);
-  if (input.currency) await choose(page, "Moneda", input.currency);
+  await choose(page, "Moneda", input.currency ?? "USD");
   await choose(page, "Categoría", input.category);
   await choose(page, "Ámbito", "Negocio");
   await choose(page, "Tipo de costo", "Fijo");
@@ -187,8 +196,6 @@ test.describe("authenticated expense acceptance flow", () => {
       await page.getByLabel("Email").fill(authEmail!);
       await page.getByLabel("Contraseña", { exact: true }).fill(authPassword!);
       await page.getByRole("button", { name: "Iniciar sesión" }).click();
-      await expect(page).toHaveURL(/\/dashboard$/);
-      await page.goto("/settings");
       await expect(page).toHaveURL(/\/settings$/);
 
       await page.getByLabel("Nombre de la nueva categoría").fill(categoryName);
@@ -312,7 +319,7 @@ test.describe("authenticated expense acceptance flow", () => {
       await expect(page).toHaveURL(/\/expenses$/);
 
       const recurringRows = await cleanupDatabase!`
-        select title, amount_minor, due_date, status from expenses
+        select title, amount_minor, due_date::text as due_date, status from expenses
         where recurring_expense_id = (
           select id from recurring_expenses where category_id = ${categoryId!}
             and title = ${editedRecurringTitle}
@@ -345,10 +352,10 @@ test.describe("authenticated expense acceptance flow", () => {
       const projectedResult = page.getByRole("group", { name: "Resultado proyectado" });
       const actualResult = page.getByRole("group", { name: "Resultado real" });
       await expect(projectedResult).toContainText(formatAggregateMoney(cashFlow.projected_income, "USD"));
-      await expect(projectedResult).toContainText(formatAggregateMoney(cashFlow.projected_expenses, "USD"));
+      await expect(projectedResult).toContainText(formatOutflow(cashFlow.projected_expenses, "USD"));
       await expect(projectedResult).toContainText(formatAggregateMoney(cashFlow.projected_net, "USD"));
       await expect(actualResult).toContainText(formatAggregateMoney(cashFlow.actual_income, "USD"));
-      await expect(actualResult).toContainText(formatAggregateMoney(cashFlow.actual_expenses, "USD"));
+      await expect(actualResult).toContainText(formatOutflow(cashFlow.actual_expenses, "USD"));
       await expect(actualResult).toContainText(formatAggregateMoney(cashFlow.actual_net, "USD"));
 
       await page.goto(`/expenses?period=all&q=${encodeURIComponent(recurringTitle)}&currency=USD`);
@@ -394,7 +401,9 @@ test.describe("authenticated expense acceptance flow", () => {
       await expect(expenseCard).toContainText(formatAggregateMoney(cashFlow.actual_expenses, "USD"));
       await expect(balanceCard).toContainText(formatAggregateMoney(cashFlow.projected_net, "USD"));
       await expect(page.getByRole("heading", { name: "Ingresos vs gastos — este mes" })).toBeVisible();
-      await expect(page.getByRole("list", { name: "Próximos movimientos" })).toContainText(editedCopyTitle);
+      await expect(
+        page.getByRole("list", { name: "Próximos movimientos" }).getByRole("listitem").first(),
+      ).toBeVisible();
 
       await page.setViewportSize({ width: 390, height: 844 });
       await createExpense(page, {

@@ -16,9 +16,16 @@ import { type RefObject, useMemo } from "react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAccessibleMenu } from "@/components/ui/use-accessible-menu";
+import type { Currency } from "@/lib/domain/money";
+import {
+  CURRENCY_PREFERENCE_COOKIE,
+  CURRENCY_PREFERENCE_MAX_AGE,
+  resolveCurrencyPreference,
+} from "@/lib/preferences/currency";
 
 type TopbarProps = {
   user: { name: string; email: string };
+  initialCurrency?: Currency;
   onOpenNavigation: () => void;
   navigationTriggerRef: RefObject<HTMLButtonElement | null>;
 };
@@ -30,10 +37,28 @@ const quickActions = [
   { href: "/tasks/new", label: "Nueva tarea", icon: CheckSquare2 },
 ] as const;
 
-export function Topbar({ user, onOpenNavigation, navigationTriggerRef }: TopbarProps) {
+function currencyHref(
+  pathname: string,
+  searchParams: Pick<URLSearchParams, "toString">,
+  currency: Currency,
+) {
+  const query = new URLSearchParams(searchParams.toString());
+  query.set("currency", currency);
+  query.delete("page");
+  return `${pathname}?${query.toString()}`;
+}
+
+function rememberCurrency(currency: Currency) {
+  document.cookie = `${CURRENCY_PREFERENCE_COOKIE}=${currency}; Path=/; Max-Age=${CURRENCY_PREFERENCE_MAX_AGE}; SameSite=Lax`;
+}
+
+export function Topbar({ user, initialCurrency, onOpenNavigation, navigationTriggerRef }: TopbarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const selectedCurrency = searchParams.get("currency") === "ARS" ? "ARS" : "USD";
+  const selectedCurrency = resolveCurrencyPreference(
+    searchParams.get("currency"),
+    initialCurrency,
+  );
   const {
     open: quickOpen,
     menuId: quickMenuId,
@@ -83,14 +108,15 @@ export function Topbar({ user, onOpenNavigation, navigationTriggerRef }: TopbarP
       </div>
 
       <div className="topbar-actions">
-        {pathname === "/dashboard" ? (
+        {pathname === "/dashboard" || pathname === "/expenses" ? (
           <nav className="dashboard-currency-selector" aria-label="Moneda del resumen" role="group">
             {(["USD", "ARS"] as const).map((currency) => (
               <Link
                 key={currency}
-                href={`/dashboard?currency=${currency}`}
+                href={currencyHref(pathname, searchParams, currency)}
                 className={selectedCurrency === currency ? "is-active" : undefined}
                 aria-current={selectedCurrency === currency ? "true" : undefined}
+                onClick={() => rememberCurrency(currency)}
               >
                 {currency}
               </Link>

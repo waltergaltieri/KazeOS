@@ -11,6 +11,29 @@ const options = [
 ];
 
 describe("LedgerSelect", () => {
+  it("closes after selecting an option with the pointer", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <label>
+          <span>Método</span>
+          <LedgerSelect
+            name="paymentMethod"
+            label="Método de pago"
+            options={options}
+          />
+        </label>
+        <button type="button">Registrar pago</button>
+      </div>,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Método de pago" }));
+    await user.click(screen.getByRole("option", { name: "Pesos" }));
+
+    expect(screen.queryByRole("listbox", { name: "Método de pago" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Registrar pago" })).toBeEnabled();
+  });
+
   it("opens as a coherent listbox and selects the active keyboard option", async () => {
     const user = userEvent.setup();
     render(

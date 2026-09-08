@@ -157,7 +157,11 @@ export function LedgerSelect({
               aria-selected={option.value === value}
               className={index === activeIndex ? "is-active" : undefined}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => choose(index)}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                choose(index);
+              }}
             >
               <span>{option.label}</span>
               {option.value === value ? <Check size={14} /> : null}

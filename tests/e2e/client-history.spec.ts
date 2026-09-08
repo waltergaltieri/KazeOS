@@ -33,7 +33,7 @@ test.describe("authenticated client history", () => {
       await page.getByLabel("Contraseña", { exact: true }).fill(authPassword!);
       await page.getByRole("button", { name: "Iniciar sesión" }).click();
       await expect(page).toHaveURL(/\/clients\/new$/);
-      await page.getByLabel("Nombre *").fill(clientName);
+      await page.getByLabel("Nombre de la persona de contacto *").fill(clientName);
       await page.getByLabel("Empresa").fill(marker);
       await page.getByLabel("Email", { exact: true }).fill(clientEmail);
       await page.getByRole("button", { name: "Guardar cliente" }).click();
@@ -46,8 +46,11 @@ test.describe("authenticated client history", () => {
       await page.getByRole("textbox", { name: "Nueva nota" }).fill(firstNote);
       await page.getByRole("button", { name: "Agregar nota" }).click();
       await expect(page.getByText(firstNote, { exact: true })).toBeVisible();
-      await page.getByRole("button", { name: `Editar ${firstNote}` }).click();
-      await page.getByRole("textbox", { name: `Editar nota ${firstNote}` }).fill(editedNote);
+      const firstNoteRow = page.locator(".note-entry").filter({
+        has: page.getByText(firstNote, { exact: true }),
+      });
+      await firstNoteRow.getByRole("button", { name: /^Editar / }).click();
+      await firstNoteRow.getByRole("textbox").fill(editedNote);
       await page.getByRole("button", { name: "Guardar", exact: true }).click();
       await expect(page.getByText(editedNote, { exact: true })).toBeVisible();
 
@@ -71,9 +74,11 @@ test.describe("authenticated client history", () => {
 
       await page.getByRole("link", { name: "Servicios" }).click();
       await expect(page).toHaveURL(new RegExp(`/clients/${clientId}/services$`));
-      await page.getByRole("link", { name: "Cobros" }).click();
-      await expect(page.getByRole("link", { name: "Nuevo cobro" }).first()).toHaveAttribute("href", `/charges/new?clientId=${clientId}`);
-      await page.getByRole("link", { name: "Tareas" }).click();
+      await page.locator(".client-tabs").getByRole("link", { name: "Cobros" }).click();
+      await expect(
+        page.locator(".service-page-heading").getByRole("link", { name: "Nuevo cobro" }),
+      ).toHaveAttribute("href", `/charges/new?clientId=${clientId}`);
+      await page.locator(".client-tabs").getByRole("link", { name: "Tareas" }).click();
       await expect(page).toHaveURL(new RegExp(`/clients/${clientId}/tasks`));
     } finally {
       if (cleanupDatabase) {

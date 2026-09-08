@@ -2,7 +2,13 @@ import { ArrowRight, CheckCircle2, CircleDollarSign } from "lucide-react";
 
 import { LoginForm } from "@/components/auth/login-form";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+
   return (
     <main className="login-page">
       <section className="login-context" aria-labelledby="login-context-title">
@@ -50,7 +56,7 @@ export default function LoginPage() {
             <h2 id="login-title">Bienvenido de nuevo</h2>
             <p>Usá el email y la contraseña de tu cuenta.</p>
           </div>
-          <LoginForm />
+          <LoginForm redirectTo={next} />
           <p className="login-help">
             Tu sesión se mantiene de forma segura en este dispositivo.
           </p>

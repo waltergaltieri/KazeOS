@@ -1010,9 +1010,6 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
   display: grid; max-width: 1240px; gap: 14px; margin: 0 auto;
 }
 .expense-heading-actions { display: flex; align-items: center; gap: 8px; }
-.expense-currency-switch { display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--ledger-rule); border-radius: 9px; background: var(--paper-inset); }
-.expense-currency-switch a { display: inline-grid; min-width: 46px; min-height: 44px; place-items: center; border-radius: 6px; color: var(--ink-secondary); font-size: 10px; font-weight: 760; letter-spacing: .05em; transition: background-color 140ms ease, color 140ms ease; }
-.expense-currency-switch a:hover { color: var(--ink-primary); }.expense-currency-switch a[aria-current="page"] { background: var(--action-violet-soft); color: var(--expense-action-text); }
 .expense-insight-warning { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--reminder-amber) 30%, var(--ledger-rule)); border-radius: 10px; background: var(--reminder-amber-soft); color: var(--ink-secondary); }
 .expense-insight-warning > svg { flex: 0 0 auto; color: var(--reminder-amber); }.expense-insight-warning p { margin: 0; font-size: 11px; }.expense-insight-warning strong { color: var(--ink-primary); }
 .expense-insight-unavailable { display: flex; min-height: 116px; align-items: center; gap: 10px; padding: 18px; border: 1px solid var(--ledger-rule); border-radius: 12px; background: var(--paper-sheet); color: var(--ink-secondary); }
@@ -1129,7 +1126,7 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 
 @media (max-width: 720px) {
   .expenses-page .page-heading--actions { flex-direction: column; align-items: stretch; }
-  .expense-heading-actions { display: grid; grid-template-columns: 1fr; }.expense-currency-switch { width: 100%; }.expense-currency-switch a { min-height: 44px; flex: 1 1 0; }.expenses-page .page-heading--actions .primary-button { width: 100%; min-height: 44px; }
+  .expense-heading-actions { display: grid; grid-template-columns: 1fr; }.expenses-page .page-heading--actions .primary-button { width: 100%; min-height: 44px; }
   .expense-summary-strip { grid-template-columns: repeat(2, minmax(0,1fr)); }.expense-summary-metric:nth-child(3) { border-right: 1px solid var(--ledger-rule-soft); }.expense-summary-metric:nth-child(2n) { border-right: 0; }.expense-summary-metric:nth-child(-n+4) { border-bottom: 1px solid var(--ledger-rule-soft); }
   .expense-results-heading { align-items: start; padding: 14px; }.expense-results-heading > div:last-child { justify-items: end; text-align: right; }.expense-results-grid { grid-template-columns: 1fr; }.expense-result-column { padding: 14px; }.expense-result-column + .expense-result-column { border-top: 1px solid var(--ledger-rule); border-left: 0; }
   .expense-breakdown-grid { grid-template-columns: 1fr; }.expense-breakdown-sheet + .expense-breakdown-sheet { border-top: 1px solid var(--ledger-rule); border-left: 0; }

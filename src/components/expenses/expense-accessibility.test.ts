@@ -71,8 +71,11 @@ describe("expense ledger accessibility styles", () => {
   });
 
   it("keeps all new mobile insight actions at least 44px tall", () => {
-    expect(css).toMatch(/\.expense-currency-switch a\s*\{[^}]*min-height:\s*44px/);
     expect(css).toMatch(/\.upcoming-expense-sheet > header > a\s*\{[^}]*min-height:\s*44px/);
     expect(css).toMatch(/\.upcoming-expense-empty \.secondary-button\s*\{[^}]*min-height:\s*44px/);
+  });
+
+  it("does not retain styles for the removed local currency selector", () => {
+    expect(css).not.toContain(".expense-currency-switch");
   });
 });

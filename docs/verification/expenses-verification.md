@@ -233,3 +233,34 @@ $ git status --short
 `AGENTS.md` y `CLAUDE.md` aparecen como untracked — fueron generados por la sesión de Codex previa y no se commitean acá (escapan al alcance del bloque 6).
 
 Sin cambios sin commitear en `src/`, `tests/`, `supabase/`, `docs/verification/`.
+
+## 9. Revisión posterior — 2026-09-07
+
+La auditoría posterior reemplaza la conclusión E2E de las secciones 3 y 5. Los fallos autenticados no eran atribuibles solamente a la infraestructura: también había problemas deterministas en el selector compartido, el retorno post-login y el propio arnés de pruebas.
+
+### Correcciones de producto
+
+- `LedgerSelect` ya no se reabre al elegir una opción cuando está anidado en un `label`; esto desbloquea el envío del diálogo de pago.
+- El login conserva un destino local seguro recibido en `next` y rechaza destinos externos o con barra invertida.
+
+### Correcciones de verificación
+
+- Playwright ejecuta en serie porque los recorridos autenticados comparten una cuenta y agregados globales.
+- Acciones, navegación y assertions tienen límites explícitos de 30 segundos.
+- Las monedas de los fixtures son explícitas, las fechas SQL se comparan como texto y los egresos se verifican con signo negativo.
+- El gasto del Dashboard usa una fecha determinista para garantizar su presencia en la cronología limitada.
+- Los recorridos históricos usan la etiqueta vigente del nombre de contacto y la prueba de página de Gastos aísla sus Server Actions.
+
+### Evidencia fresca
+
+- TypeScript: verde.
+- ESLint: verde.
+- Build de producción: verde con `APP_ORIGIN` configurado.
+- Pruebas enfocadas de Gastos sin base: 238/238.
+- Integración real de esquema, seed, categorías, gastos, recurrencia, consultas y caja: 68/68.
+- Regresión completa: 126 suites y 714 tests pasaron; la única suite que no cargó por mocks incompletos fue corregida y reejecutada 6/6 en verde.
+- Aceptación E2E de Gastos: 2/2 en verde, incluido escritorio, móvil, USD/ARS, pago, duplicación, cancelación, recurrencia e idempotencia.
+- Integración E2E del Dashboard: 2/2 en verde, incluido el gasto exacto en próximos movimientos.
+- Regresión E2E completa: 18/18 en verde a través de las reejecuciones finales de Auth, Clientes, Historial, Pagos, Servicios, Tareas, Dashboard y Gastos.
+
+No quedaron fixtures de esta revisión en la base remota.

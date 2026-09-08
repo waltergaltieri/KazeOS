@@ -9,17 +9,9 @@ import {
   LOGIN_VALIDATION_MESSAGE,
   type LoginError,
 } from "@/lib/auth/contracts";
+import { safeLocalPath } from "@/lib/auth/safe-local-path";
 
-function safeLocalPath(value: unknown) {
-  return typeof value === "string" &&
-    value.startsWith("/") &&
-    !value.startsWith("//") &&
-    !value.includes("\\")
-    ? value
-    : "/dashboard";
-}
-
-export function LoginForm() {
+export function LoginForm({ redirectTo }: { redirectTo?: string }) {
   const router = useRouter();
   const [state, setState] = useState<LoginError>();
   const [pending, setPending] = useState(false);
@@ -85,6 +77,7 @@ export function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit} className="login-form" noValidate>
+      {redirectTo ? <input type="hidden" name="next" value={redirectTo} /> : null}
       <div className="field-stack">
         <label htmlFor="email">Email</label>
         <div className="inset-control">

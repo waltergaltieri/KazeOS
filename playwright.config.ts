@@ -2,11 +2,15 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  fullyParallel: true,
+  fullyParallel: false,
+  timeout: 180_000,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
+  expect: { timeout: 30_000 },
   use: {
+    actionTimeout: 30_000,
     baseURL: "http://127.0.0.1:3000",
+    navigationTimeout: 30_000,
     trace: "on-first-retry",
   },
   webServer: {

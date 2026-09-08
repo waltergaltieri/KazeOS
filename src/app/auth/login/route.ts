@@ -7,6 +7,7 @@ import {
   type LoginError,
   type LoginSuccess,
 } from "@/lib/auth/contracts";
+import { safeLocalPath } from "@/lib/auth/safe-local-path";
 import { rejectUntrustedOrigin } from "@/lib/auth/same-origin";
 import { createResponseClient } from "@/lib/supabase/response";
 
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
     }
 
     return responseClient.applyTo(
-      jsonResponse({ redirectTo: "/dashboard" }, 200),
+      jsonResponse({ redirectTo: safeLocalPath(formData.get("next")) }, 200),
     );
   } catch {
     return responseClient.applyTo(

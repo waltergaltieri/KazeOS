@@ -47,9 +47,10 @@ describe("AppShell", () => {
   beforeEach(() => {
     usePathnameMock.mockReturnValue("/dashboard");
     useSearchParamsMock.mockReturnValue(new URLSearchParams("currency=USD"));
+    document.cookie = "kazeos_currency=; Max-Age=0; Path=/";
   });
 
-  it("shows the topbar currency selector only on the dashboard", () => {
+  it("shows the topbar currency selector on dashboard and expenses index routes", () => {
     useThemeMock.mockReturnValue({ theme: "system", setTheme: vi.fn() });
     const { rerender } = render(
       <AppShell user={{ name: "Agustín", email: "agustin@example.com" }}>
@@ -67,7 +68,7 @@ describe("AppShell", () => {
         Contenido
       </AppShell>,
     );
-    expect(screen.queryByRole("group", { name: "Moneda del resumen" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Moneda del resumen" })).toBeVisible();
 
     usePathnameMock.mockReturnValue("/expenses/recurring");
     rerender(
@@ -84,6 +85,39 @@ describe("AppShell", () => {
       </AppShell>,
     );
     expect(screen.queryByRole("group", { name: "Moneda del resumen" })).not.toBeInTheDocument();
+  });
+
+  it("uses the remembered currency and preserves expense filters when switching", async () => {
+    const user = userEvent.setup();
+    usePathnameMock.mockReturnValue("/expenses");
+    useSearchParamsMock.mockReturnValue(
+      new URLSearchParams("q=nube&status=pending&page=3"),
+    );
+    useThemeMock.mockReturnValue({ theme: "system", setTheme: vi.fn() });
+
+    render(
+      <AppShell
+        user={{ name: "Agustín", email: "agustin@example.com" }}
+        initialCurrency="ARS"
+      >
+        Contenido
+      </AppShell>,
+    );
+
+    expect(screen.getByRole("link", { name: "ARS" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    const usd = screen.getByRole("link", { name: "USD" });
+    expect(usd).toHaveAttribute(
+      "href",
+      "/expenses?q=nube&status=pending&currency=USD",
+    );
+
+    usd.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    await user.click(usd);
+
+    expect(document.cookie).toContain("kazeos_currency=USD");
   });
 
   it("orders the expense workspace in navigation without a reports dead link", () => {

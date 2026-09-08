@@ -1,4 +1,5 @@
 import { CalendarClock, Plus, TriangleAlert } from "lucide-react";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -10,6 +11,10 @@ import { RecurringExpenseList } from "@/components/expenses/recurring-expense-li
 import { UpcomingExpenses } from "@/components/expenses/upcoming-expenses";
 import { addCommercialPeriod, todayInBusinessZone, validateCommercialDate } from "@/lib/domain/commercial-date";
 import type { Currency } from "@/lib/domain/money";
+import {
+  CURRENCY_PREFERENCE_COOKIE,
+  resolveCurrencyPreference,
+} from "@/lib/preferences/currency";
 import { getExpensePageData } from "@/lib/queries/expense-page";
 import type { ExpensePeriod, ExpenseQueryInput } from "@/lib/queries/expenses";
 
@@ -114,19 +119,14 @@ function insightPeriod(params: SanitizedSearchParams, today: string): ExpensePer
   return { start, end: addCommercialPeriod(start, "monthly") };
 }
 
-function currencyHref(params: SanitizedSearchParams, currency: Currency) {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (key !== "page" && key !== "currency" && value) query.set(key, value);
-  }
-  query.set("currency", currency);
-  return `/expenses?${query}`;
-}
-
 export default async function ExpensesPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
-  const params = sanitizeSearchParams(await searchParams);
+  const [rawParams, cookieStore] = await Promise.all([searchParams, cookies()]);
+  const params = sanitizeSearchParams(rawParams);
   const today = todayInBusinessZone(new Date());
-  const selectedCurrency: Currency = params.currency ?? "USD";
+  const selectedCurrency: Currency = resolveCurrencyPreference(
+    params.currency,
+    cookieStore.get(CURRENCY_PREFERENCE_COOKIE)?.value,
+  );
   const period = insightPeriod(params, today);
   const filters: ExpenseFilterParams = {
     q: params.q,
@@ -171,7 +171,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
   }
 
   return <main className="expenses-page">
-    <header className="page-heading page-heading--actions"><div><p className="eyebrow">Libro de obligaciones</p><h1>Gastos</h1><p>Detectá qué vence y resolvelo sin perder contexto.</p></div><div className="expense-heading-actions"><nav className="expense-currency-switch" aria-label="Moneda de lectura">{(["USD", "ARS"] as const).map((currency) => <Link key={currency} href={currencyHref(params, currency)} aria-current={selectedCurrency === currency ? "page" : undefined}>{currency}</Link>)}</nav><Link className="primary-button" href="/expenses/new"><Plus size={17} /> Nuevo gasto</Link></div></header>
+    <header className="page-heading page-heading--actions"><div><p className="eyebrow">Libro de obligaciones</p><h1>Gastos</h1><p>Detectá qué vence y resolvelo sin perder contexto.</p></div><div className="expense-heading-actions"><Link className="primary-button" href="/expenses/new"><Plus size={17} /> Nuevo gasto</Link></div></header>
     {insights.status === "unavailable" ? <div className="expense-insight-warning" role="status" aria-live="polite"><TriangleAlert aria-hidden="true" size={18} /><p><strong>El análisis no está disponible.</strong> El libro y sus acciones siguen operativos.</p></div> : null}
     {insights.status === "available" ? <ExpenseSummary summary={insights.summary} cashFlow={insights.cashFlow} currency={selectedCurrency} /> : <ExpenseSummary currency={selectedCurrency} unavailable />}
     <ExpenseFilters params={filters} categories={options.categories.map((category) => ({ id: category.id, label: category.name }))} />

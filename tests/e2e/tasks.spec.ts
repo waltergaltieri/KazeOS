@@ -37,7 +37,7 @@ test.describe("authenticated task lifecycle", () => {
       await page.getByRole("button", { name: "Iniciar sesión" }).click();
       await expect(page).toHaveURL(/\/clients\/new$/);
 
-      await page.getByLabel("Nombre *").fill(clientName);
+      await page.getByLabel("Nombre de la persona de contacto *").fill(clientName);
       await page.getByLabel("Empresa").fill(marker);
       await page.getByLabel("Email", { exact: true }).fill(clientEmail);
       await page.getByRole("button", { name: "Guardar cliente" }).click();

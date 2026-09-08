@@ -47,7 +47,7 @@ test.describe("authenticated service lifecycle", () => {
       await expect(page).toHaveURL(/\/clients$/);
 
       await page.getByRole("link", { name: "Nuevo cliente" }).click();
-      await page.getByLabel("Nombre *").fill(clientName);
+      await page.getByLabel("Nombre de la persona de contacto *").fill(clientName);
       await page.getByLabel("Email").fill(clientEmail);
       await page.getByRole("button", { name: "Guardar cliente" }).click();
       await expect(page).toHaveURL(/\/clients\/[0-9a-f-]+$/);

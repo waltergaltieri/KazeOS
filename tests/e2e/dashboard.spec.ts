@@ -30,6 +30,7 @@ test.describe("authenticated dashboard summary", () => {
   );
 
   test("renders its own exact client, receivable, payment and task fixture", async ({ page }) => {
+    test.setTimeout(180_000);
     const marker = randomUUID();
     const clientName = `Dashboard E2E ${marker}`;
     const clientEmail = `dashboard-${marker}@example.invalid`;
@@ -39,6 +40,7 @@ test.describe("authenticated dashboard summary", () => {
     const expenseCategoryId = randomUUID();
     const expenseId = randomUUID();
     const expenseTitle = `Gasto dashboard ${marker}`;
+    const expenseDueDate = "1900-01-01";
     const today = todayInBusinessZone(new Date());
     let clientId: string | undefined;
 
@@ -49,7 +51,7 @@ test.describe("authenticated dashboard summary", () => {
       await page.getByRole("button", { name: "Iniciar sesión" }).click();
       await expect(page).toHaveURL(/\/clients\/new$/);
 
-      await page.getByLabel("Nombre *").fill(clientName);
+      await page.getByLabel("Nombre de la persona de contacto *").fill(clientName);
       await page.getByLabel("Empresa").fill(marker);
       await page.getByLabel("Email", { exact: true }).fill(clientEmail);
       await page.getByRole("button", { name: "Guardar cliente" }).click();
@@ -83,7 +85,7 @@ test.describe("authenticated dashboard summary", () => {
           scope, cost_type, due_date, status
         ) values (
           ${expenseId}, ${ownerId}, ${expenseCategoryId}, ${expenseTitle}, 1234,
-          'USD', 'business', 'fixed', ${today}, 'pending'
+          'USD', 'business', 'fixed', ${expenseDueDate}, 'pending'
         )
       `;
 

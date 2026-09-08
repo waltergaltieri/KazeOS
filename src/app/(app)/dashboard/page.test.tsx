@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DashboardPage from "./page";
 
-const { cashFlowMocks, dashboardMocks } = vi.hoisted(() => ({
+const { cashFlowMocks, dashboardMocks, headerMocks } = vi.hoisted(() => ({
   cashFlowMocks: { getMonthlyCashFlow: vi.fn() },
+  headerMocks: { getCookie: vi.fn() },
   dashboardMocks: {
   getDashboardMetrics: vi.fn(),
   getPendingTasks: vi.fn(),
@@ -17,6 +18,9 @@ vi.mock("@/lib/queries/dashboard", () => dashboardMocks);
 vi.mock("@/lib/queries/cash-flow", () => cashFlowMocks);
 vi.mock("@/lib/actions/payments", () => ({ createPaymentAction: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: headerMocks.getCookie }),
+}));
 
 const zeroMoney = { USD: "0", ARS: "0" } as const;
 
@@ -32,6 +36,7 @@ describe("the authenticated dashboard", () => {
       USD: { projectedIncome: "0", actualIncome: "0", projectedExpenses: "0", actualExpenses: "0", projectedNet: "0", actualNet: "0" },
       ARS: { projectedIncome: "0", actualIncome: "0", projectedExpenses: "0", actualExpenses: "0", projectedNet: "0", actualNet: "0" },
     });
+    headerMocks.getCookie.mockReturnValue(undefined);
   });
 
   afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
@@ -63,5 +68,25 @@ describe("the authenticated dashboard", () => {
     expect(screen.getByText("Sin movimientos próximos")).toBeVisible();
     expect(screen.getByRole("link", { name: "Crear primer cobro" })).toHaveAttribute("href", "/charges/new");
     expect(screen.queryByText(/Empresa Demo/i)).not.toBeInTheDocument();
+  });
+
+  it("uses the remembered currency unless a valid URL currency overrides it", async () => {
+    headerMocks.getCookie.mockReturnValue({ value: "ARS" });
+    const remembered = render(await DashboardPage());
+
+    expect(screen.getAllByText(/^ARS\s0,00$/)).not.toHaveLength(0);
+
+    remembered.unmount();
+    render(await DashboardPage({ searchParams: Promise.resolve({ currency: "USD" }) }));
+
+    expect(screen.getAllByText(/^USD\s0,00$/)).not.toHaveLength(0);
+  });
+
+  it("ignores an invalid remembered currency", async () => {
+    headerMocks.getCookie.mockReturnValue({ value: "EUR" });
+
+    render(await DashboardPage());
+
+    expect(screen.getAllByText(/^USD\s0,00$/)).not.toHaveLength(0);
   });
 });

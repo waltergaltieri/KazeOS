@@ -1,14 +1,19 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getPageData: vi.fn(), redirect: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getPageData: vi.fn(), getCookie: vi.fn(), redirect: vi.fn() }));
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/queries/expense-page", () => ({ getExpensePageData: mocks.getPageData }));
 vi.mock("@/lib/domain/commercial-date", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/domain/commercial-date")>(),
   todayInBusinessZone: () => "2026-09-03",
 }));
 vi.mock("@/lib/actions/expenses", () => ({ cancelExpenseAction: vi.fn(), correctPaidExpenseAction: vi.fn(), deleteExpenseAction: vi.fn(), markExpensePaidAction: vi.fn() }));
+vi.mock("@/lib/actions/recurring-expenses", () => ({ cancelRecurringExpenseAction: vi.fn(), pauseRecurringExpenseAction: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect, useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: mocks.getCookie }),
+}));
 
 import ExpensesPage from "./page";
 
@@ -43,12 +48,13 @@ describe("ExpensesPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getPageData.mockResolvedValue(pageData());
+    mocks.getCookie.mockReturnValue(undefined);
   });
 
-  it("normalizes a missing currency to USD for the selector, ledger and projections", async () => {
+  it("normalizes a missing currency to USD for the ledger and projections", async () => {
     render(await ExpensesPage({ searchParams: Promise.resolve({}) }));
 
-    expect(screen.getByRole("link", { name: "USD" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("navigation", { name: "Moneda de lectura" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Resumen de gastos USD" })).toBeInTheDocument();
     expect(mocks.getPageData).toHaveBeenCalledWith({
       currency: "USD",
@@ -70,7 +76,7 @@ describe("ExpensesPage", () => {
     });
   });
 
-  it("loads the selected URL-backed ledger period and preserves currency navigation", async () => {
+  it("loads the selected URL-backed ledger period without a local currency selector", async () => {
     mocks.getPageData.mockResolvedValue(pageData({
       options: { categories: [{ id: "11111111-1111-4111-8111-111111111111", name: "Software", icon: null, active: true }], recurringExpenses: [] },
     }));
@@ -85,7 +91,34 @@ describe("ExpensesPage", () => {
       period: { start: "2026-11-01", end: "2026-12-01" },
       expenseQuery: expect.objectContaining({ search: "nube", status: "overdue", currency: "USD" }),
     }));
-    expect(screen.getByRole("link", { name: "ARS" })).toHaveAttribute("href", expect.stringContaining("currency=ARS"));
+    expect(screen.queryByRole("navigation", { name: "Moneda de lectura" })).not.toBeInTheDocument();
+  });
+
+  it("uses the remembered currency unless a valid URL currency overrides it", async () => {
+    mocks.getCookie.mockReturnValue({ value: "ARS" });
+
+    const remembered = render(await ExpensesPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByRole("region", { name: "Resumen de gastos ARS" })).toBeInTheDocument();
+    expect(mocks.getPageData).toHaveBeenLastCalledWith(expect.objectContaining({
+      currency: "ARS",
+      expenseQuery: expect.objectContaining({ currency: "ARS" }),
+    }));
+
+    remembered.unmount();
+    render(await ExpensesPage({ searchParams: Promise.resolve({ currency: "USD" }) }));
+    expect(screen.getByRole("region", { name: "Resumen de gastos USD" })).toBeInTheDocument();
+    expect(mocks.getPageData).toHaveBeenLastCalledWith(expect.objectContaining({
+      currency: "USD",
+      expenseQuery: expect.objectContaining({ currency: "USD" }),
+    }));
+  });
+
+  it("ignores an invalid remembered currency", async () => {
+    mocks.getCookie.mockReturnValue({ value: "EUR" });
+
+    render(await ExpensesPage({ searchParams: Promise.resolve({}) }));
+
+    expect(screen.getByRole("region", { name: "Resumen de gastos USD" })).toBeInTheDocument();
   });
 
   it("keeps every expense reachable through URL-preserving pagination", async () => {

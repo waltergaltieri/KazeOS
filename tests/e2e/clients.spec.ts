@@ -43,7 +43,7 @@ test.describe("authenticated client lifecycle", () => {
       await expect(page).toHaveURL(/\/clients$/);
 
       await page.getByRole("link", { name: "Nuevo cliente" }).click();
-      await page.getByLabel("Nombre *").fill(uniqueName);
+      await page.getByLabel("Nombre de la persona de contacto *").fill(uniqueName);
       await page.getByLabel("Empresa").fill("Verificación KazeOS");
       await page.getByLabel("Email").fill(fixtureEmail);
       await page.getByRole("button", { name: "Guardar cliente" }).click();
@@ -59,7 +59,7 @@ test.describe("authenticated client lifecycle", () => {
         .toBe(uniqueName);
       const searchResult = page
         .locator(".client-table-wrap")
-        .getByRole("link", { name: uniqueName, exact: true });
+        .getByRole("link", { name: "Verificación KazeOS", exact: true });
       await expect(searchResult).toBeVisible();
       await searchResult.click();
       await expect(page).toHaveURL(new RegExp(`/clients/${createdClientId}$`));
@@ -76,7 +76,7 @@ test.describe("authenticated client lifecycle", () => {
       await expect(page).toHaveURL(/\/clients\?filter=archived$/);
       await expect(
         page.locator(".client-table-wrap").getByRole("link", {
-          name: uniqueName,
+          name: "Verificación actualizada",
           exact: true,
         }),
       ).toBeVisible();

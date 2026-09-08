@@ -41,7 +41,7 @@ test.describe("authenticated payment lifecycle", () => {
       await page.getByRole("button", { name: "Iniciar sesión" }).click();
       await expect(page).toHaveURL(/\/clients\/new$/);
 
-      await page.getByLabel("Nombre *").fill(clientName);
+      await page.getByLabel("Nombre de la persona de contacto *").fill(clientName);
       await page.getByLabel("Empresa").fill(marker);
       await page.getByLabel("Email", { exact: true }).fill(clientEmail);
       await page.getByRole("button", { name: "Guardar cliente" }).click();
@@ -54,7 +54,8 @@ test.describe("authenticated payment lifecycle", () => {
       await expect(page.getByText(clientName, { exact: false })).toBeVisible();
       await page.getByLabel("Concepto *").fill(description);
       await page.getByLabel("Monto *").fill("100,00");
-      await page.getByLabel("Vencimiento *").fill("2026-09-15");
+      await page.getByRole("combobox", { name: /^Vencimiento:/ }).click();
+      await page.getByRole("button", { name: "15/09/2026", exact: true }).click();
       await page.getByRole("button", { name: "Guardar cobro" }).click();
       await expect(page).toHaveURL(new RegExp(`/clients/${createdClientId}/charges$`));
 

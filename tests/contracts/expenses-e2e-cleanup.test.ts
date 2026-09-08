@@ -39,4 +39,39 @@ describe("expense E2E cleanup contract", () => {
     expect(source).not.toContain("insert into auth.users");
     expect(source).not.toMatch(/delete from (expenses|recurring_expenses|expense_categories)\s*`?\s*$/m);
   });
+
+  it("pins the acceptance fixtures to explicit currencies", () => {
+    const source = readFileSync(
+      new URL("../e2e/expenses.spec.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'await choose(page, "Moneda", input.currency ?? "USD")',
+    );
+  });
+
+  it("serializes browser tests that share the authenticated fixture account", () => {
+    const config = readFileSync(
+      new URL("../../playwright.config.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(config).toMatch(/workers:\s*1[,\n]/);
+    expect(config).toContain("fullyParallel: false");
+    expect(config).toContain("timeout: 180_000");
+    expect(config).toContain("actionTimeout: 30_000");
+    expect(config).toContain("navigationTimeout: 30_000");
+    expect(config).toContain("expect: { timeout: 30_000 }");
+  });
+
+  it("gives the dashboard expense fixture a deterministic movement rank", () => {
+    const source = readFileSync(
+      new URL("../e2e/dashboard.spec.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain('const expenseDueDate = "1900-01-01"');
+    expect(source).toContain("${expenseDueDate}, 'pending'");
+  });
 });

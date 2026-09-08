@@ -30,10 +30,12 @@ function requestWith(
   email: string,
   password: string,
   origin: string | null = "https://app.local",
+  redirectTo?: string,
 ) {
   const form = new FormData();
   form.set("email", email);
   form.set("password", password);
+  if (redirectTo) form.set("next", redirectTo);
   return new NextRequest("https://app.local/auth/login", {
     method: "POST",
     body: form,
@@ -149,6 +151,24 @@ describe("POST /auth/login", () => {
     expect(response.headers.get("expires")).toBe("0");
     expect(response.headers.get("pragma")).toBe("no-cache");
     expect(response.headers.get("x-supabase-auth")).toBe("login");
+  });
+
+  it.each([
+    ["a safe local destination", "/clients/new", "/clients/new"],
+    ["a protocol-relative destination", "//evil.example", "/dashboard"],
+    ["a backslash destination", "/\\evil.example", "/dashboard"],
+  ])("uses %s after successful login", async (_label, requested, expected) => {
+    const response = await POST(
+      requestWith(
+        "agustin@example.com",
+        "valid-password",
+        "https://app.local",
+        requested,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ redirectTo: expected });
   });
 
   it("returns a safe no-store response when the provider rejects login", async () => {
