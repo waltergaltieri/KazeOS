@@ -32,6 +32,20 @@ const observationBase = {
 
 export const maximumWebsiteAuditObservations = 100;
 
+const reachabilityResponseObservationSchema = z.object({
+  ...observationBase,
+  type: z.literal("reachability"),
+  result: z.literal("response"),
+  statusCode: z.number().int().min(100).max(599),
+}).strict();
+
+const reachabilityFailureObservationSchema = z.object({
+  ...observationBase,
+  type: z.literal("reachability"),
+  result: z.literal("failure"),
+  error: z.enum(["timeout", "dns", "connection", "tls"]),
+}).strict();
+
 const websiteAuditObservationSchema = z.union([
   z.object({
     ...observationBase,
@@ -52,35 +66,8 @@ const websiteAuditObservationSchema = z.union([
     type: z.literal("active_commercial_presence"),
     active: z.boolean().nullable(),
   }).strict(),
-  z.object({
-    ...observationBase,
-    type: z.literal("reachability"),
-    state: z.enum(["reachable", "unreachable", "unknown"]),
-    statusCode: z.number().int().min(100).max(599).nullable(),
-    error: z.enum(["timeout", "connection", "dns", "http"]).nullable(),
-  }).strict().superRefine((value, context) => {
-    if (value.state === "reachable" && (value.statusCode === null || value.error !== null)) {
-      context.addIssue({
-        code: "custom",
-        path: ["state"],
-        message: "A reachable result requires an HTTP status and no transport error",
-      });
-    }
-    if (value.state === "unreachable" && value.statusCode === null && value.error === null) {
-      context.addIssue({
-        code: "custom",
-        path: ["state"],
-        message: "An unreachable result requires an HTTP failure or transport error",
-      });
-    }
-    if (value.state === "unknown" && (value.statusCode !== null || value.error !== null)) {
-      context.addIssue({
-        code: "custom",
-        path: ["state"],
-        message: "An unknown result cannot carry a terminal measurement",
-      });
-    }
-  }),
+  reachabilityResponseObservationSchema,
+  reachabilityFailureObservationSchema,
   z.object({
     ...observationBase,
     type: z.literal("secure_transport"),
@@ -440,17 +427,25 @@ export function deriveWebsiteAuditObservations(
       continue;
     }
     if (observation.type === "reachability") {
-      const outcome = observation.state === "reachable"
-        ? "pass" : observation.state === "unreachable" ? "fail" : "unknown";
+      const outcome = observation.result === "failure"
+        ? "fail"
+        : observation.statusCode >= 200 && observation.statusCode <= 399
+          ? "pass"
+          : observation.statusCode >= 400
+            ? "fail"
+            : "unknown";
+      const value = observation.result === "response"
+        ? { result: observation.result, statusCode: observation.statusCode }
+        : { result: observation.result, error: observation.error };
       const row = observationEvidence(
         context.namespace, observation, "website_reachable",
-        { state: observation.state, statusCode: observation.statusCode, error: observation.error },
+        value,
         outcome === "unknown" ? 0 : 95,
       );
       evidence.set(row.id, row);
       checks.push(derivedCheck(row, {
         key: "reachable", category: "reliability", outcome,
-        severity: outcome === "fail" ? "critical" : "material",
+        severity: "material",
       }));
       continue;
     }

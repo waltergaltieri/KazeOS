@@ -485,7 +485,50 @@ export async function persistWebsiteAuditResultInTransaction(
       };
     }
 
-    await lockAuditForOwner(transaction, input.ownerId, job);
+    const canonicalAudit = await lockAuditForOwner(transaction, input.ownerId, job);
+    if (canonicalAudit) {
+      // Derived evidence IDs intentionally include the producing job ID. Keep
+      // canonical reuse ahead of envelope parsing and derivation so a second
+      // job can never introduce a competing evidence namespace or payload.
+      const canonical = storedAuditForQualification(canonicalAudit);
+      if (!canonical) throw new Error("Stored website audit is invalid");
+      const result = {
+        kind: "audit_website",
+        output: { auditId: canonicalAudit.id, gateResult: canonical.gateResult },
+      } as const;
+      await recordActivity(transaction, {
+        id: stableUuid([input.ownerId, input.jobId, "website_audit", "reused"]),
+        ownerId: input.ownerId,
+        campaignId: job.campaignId,
+        leadId: job.leadId,
+        eventType: "website_audit.reused",
+        detail: {
+          jobId: input.jobId,
+          auditId: canonicalAudit.id,
+          gateResult: canonical.gateResult,
+          confidence: canonical.confidence,
+          evidenceIds: canonical.evidenceIds,
+        },
+      });
+      await transaction.execute(sql`
+        update ${leadHunterJobs}
+        set
+          state = 'succeeded',
+          result = ${JSON.stringify(result)}::jsonb,
+          lease_owner = null,
+          lease_expires_at = null,
+          last_error = null
+        where ${leadHunterJobs.ownerId} = ${input.ownerId}
+          and ${leadHunterJobs.id} = ${input.jobId}
+          and ${leadHunterJobs.state} = 'leased'
+      `);
+      await settleLeadHunterRun(transaction, job.runId, input.now);
+      return {
+        status: "processed",
+        auditId: canonicalAudit.id,
+        gateResult: canonical.gateResult,
+      };
+    }
     if (!provenanceIsCurrent(job)) {
       await rejectOutput(transaction, input, job, "stale_or_invalid_provenance");
       return { status: "rejected", auditId: null, gateResult: null };

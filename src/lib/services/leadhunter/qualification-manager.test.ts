@@ -22,6 +22,7 @@ const leadId = "00000000-0000-4000-8000-000000000005";
 const campaignId = "00000000-0000-4000-8000-000000000006";
 const evidenceId = "00000000-0000-5000-8000-000000000007";
 const auditId = "00000000-0000-5000-8000-000000000009";
+const secondJobId = "00000000-0000-4000-8000-000000000010";
 const leaseToken = "task8-qualification-lease-token";
 const now = new Date("2026-09-30T12:01:00.000Z");
 const observedAt = "2026-09-30T12:00:00.000Z";
@@ -252,6 +253,44 @@ describe("LeadHunter qualification manager", () => {
     });
   });
 
+  it.each([
+    {
+      type: "reachability",
+      result: "response",
+      statusCode: 200,
+      error: "timeout",
+      observedAt,
+      source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+    },
+    {
+      type: "reachability",
+      result: "failure",
+      error: "dns",
+      statusCode: 200,
+      observedAt,
+      source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+    },
+  ])("rejects contradictory reachability observation %# before writes", async (observation) => {
+    const statements: string[] = [];
+    const row = lockedJob("audit_website", {
+      payload: { leadId, website: "https://example.com" },
+    });
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered.sql);
+      const context = lockedContextResult(rendered.sql, row);
+      if (context !== undefined) return context;
+      if (rendered.sql.includes('from "lh_website_audits"')) return [];
+      return [];
+    });
+    const { value } = database(execute);
+
+    await expect(persistWebsiteAuditResult(value, input({ observations: [observation] })))
+      .resolves.toMatchObject({ status: "rejected" });
+    expect(statements.some((sql) => sql.includes('insert into "lh_evidence"'))).toBe(false);
+    expect(statements.some((sql) => sql.includes('insert into "lh_website_audits"'))).toBe(false);
+  });
+
   it("rejects a redirect not bound to the trusted target", async () => {
     const statements: Array<{ sql: string; params: unknown[] }> = [];
     const row = lockedJob("audit_website", {
@@ -274,6 +313,70 @@ describe("LeadHunter qualification manager", () => {
     const activity = statements.find(({ sql }) => sql.includes('insert into "lh_activity"'));
     expect(JSON.parse(String(activity?.params.at(-1)))).toMatchObject({
       rejectionCode: "invalid_observation_provenance",
+    });
+  });
+
+  it("reuses the canonical audit before parsing a different duplicate job payload", async () => {
+    let currentJobId = jobId;
+    let canonicalAudit: Record<string, unknown> | null = null;
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      const row = lockedJob("audit_website", { id: currentJobId });
+      const context = lockedContextResult(rendered.sql, row);
+      if (context !== undefined) return context;
+      if (rendered.sql.includes('from "lh_website_audits"')) {
+        return canonicalAudit ? [canonicalAudit] : [];
+      }
+      if (rendered.sql.includes('insert into "lh_website_audits"')) {
+        const jsonArrays = rendered.params.filter((parameter): parameter is string => (
+          typeof parameter === "string" && parameter.startsWith("[")
+        ));
+        canonicalAudit = {
+          id: auditId,
+          gateResult: "NO_WEBSITE",
+          checks: JSON.parse(jsonArrays[0] ?? "[]"),
+          summary: "No verified official website",
+          confidence: 90,
+          evidenceIds: JSON.parse(jsonArrays.at(-1) ?? "[]"),
+        };
+        return [{ id: auditId }];
+      }
+      return [];
+    });
+    const { value } = database(execute);
+
+    const first = await persistWebsiteAuditResult(value, input(noWebsiteObservations()));
+    currentJobId = secondJobId;
+    const conflictingPayload = { observations: [{
+      type: "official_site",
+      state: "present",
+      targetUrl: "https://discarded.example",
+      observedAt,
+      source: { sourceType: "official_site", sourceUrl: "https://discarded.example" },
+    }] };
+    const second = await persistWebsiteAuditResult(value, {
+      ...input(conflictingPayload),
+      jobId: secondJobId,
+    });
+
+    expect(first).toEqual({ status: "processed", auditId, gateResult: "NO_WEBSITE" });
+    expect(second).toEqual({ status: "processed", auditId, gateResult: "NO_WEBSITE" });
+    expect(statements.filter(({ sql }) => sql.includes('insert into "lh_evidence"')))
+      .toHaveLength(2);
+    expect(statements.filter(({ sql }) => sql.includes('insert into "lh_website_audits"')))
+      .toHaveLength(1);
+    expect(JSON.stringify(statements)).not.toContain("discarded.example");
+    const reusedActivities = statements.filter(({ sql, params }) => (
+      sql.includes('insert into "lh_activity"') && params.includes("website_audit.reused")
+    ));
+    expect(reusedActivities).toHaveLength(1);
+    expect(JSON.parse(String(reusedActivities[0]?.params.at(-1)))).toMatchObject({
+      jobId: secondJobId,
+      auditId,
+      gateResult: "NO_WEBSITE",
+      confidence: 90,
     });
   });
 

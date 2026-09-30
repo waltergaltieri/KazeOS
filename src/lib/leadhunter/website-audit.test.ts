@@ -81,6 +81,99 @@ function redirectObservations(count: number): WebsiteAuditObservation[] {
 }
 
 describe("LeadHunter website audit", () => {
+  it.each([200, 204, 301])(
+    "accepts measurable HTTP response %i without caller-selected state",
+    (statusCode) => {
+      expect(websiteAuditEnvelopeSchema.safeParse({ observations: [{
+        type: "reachability",
+        result: "response",
+        statusCode,
+        observedAt,
+        source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+      }] }).success).toBe(true);
+    },
+  );
+
+  it.each(["timeout", "dns"])(
+    "accepts a measurable %s transport failure without an HTTP status",
+    (error) => {
+      expect(websiteAuditEnvelopeSchema.safeParse({ observations: [{
+        type: "reachability",
+        result: "failure",
+        error,
+        observedAt,
+        source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+      }] }).success).toBe(true);
+    },
+  );
+
+  it.each([
+    [100, "unknown"],
+    [199, "unknown"],
+    [200, "pass"],
+    [204, "pass"],
+    [301, "pass"],
+    [404, "fail"],
+    [500, "fail"],
+  ] as const)("derives HTTP %i as %s", (statusCode, outcome) => {
+    const derived = deriveWebsiteAuditObservations([observation({
+      type: "reachability",
+      result: "response",
+      statusCode,
+      source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+    })], { namespace: `http-${statusCode}`, website: "https://example.com" });
+
+    expect(derived.checks).toEqual([
+      expect.objectContaining({
+        key: "reachable",
+        outcome,
+        severity: "material",
+        confidence: outcome === "unknown" ? 0 : 95,
+      }),
+    ]);
+  });
+
+  it.each(["timeout", "dns"] as const)("derives %s failure as material", (error) => {
+    const derived = deriveWebsiteAuditObservations([observation({
+      type: "reachability",
+      result: "failure",
+      error,
+      source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+    })], { namespace: `failure-${error}`, website: "https://example.com" });
+
+    expect(derived.checks[0]).toMatchObject({
+      key: "reachable", outcome: "fail", severity: "material", confidence: 95,
+    });
+  });
+
+  it.each([404, 500, 100])("never treats HTTP %i as good enough", (statusCode) => {
+    const observations: WebsiteAuditObservation[] = [
+      observation({
+        type: "official_site", state: "present", targetUrl: "https://example.com",
+        source: { sourceType: "official_site", sourceUrl: "https://example.com" },
+      }),
+      observation({
+        type: "reachability", result: "response", statusCode,
+        source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+      }),
+      observation({
+        type: "critical_content", requiredItems: ["services", "contact"], missingItems: [],
+        source: { sourceType: "website_scan", sourceUrl: "https://example.com/content" },
+      }),
+      observation({
+        type: "navigation", testedPaths: 5, brokenPaths: 0,
+        source: { sourceType: "website_scan", sourceUrl: "https://example.com/navigation" },
+      }),
+      observation({
+        type: "critical_information_freshness", checkedCriticalItems: 2, staleCriticalItems: 0,
+        source: { sourceType: "official_site", sourceUrl: "https://example.com/about" },
+      }),
+    ];
+
+    const { result } = deriveAndEvaluate(observations, "https://example.com");
+    expect(result.gateResult).not.toBe("GOOD_ENOUGH_WEBSITE");
+  });
+
   it("classifies no official site only with independent active-presence evidence", () => {
     const result = evaluateWebsiteAudit([
       check("official_site", "fail", 0, {
@@ -295,7 +388,7 @@ describe("LeadHunter website audit", () => {
         source: { sourceType: "official_site", sourceUrl: "https://example.com/" },
       }),
       observation({
-        type: "reachability", state: "reachable", statusCode: 200, error: null,
+        type: "reachability", result: "response", statusCode: 200,
         source: { sourceType: "http_probe", sourceUrl: "https://example.com/" },
       }),
       observation({
@@ -335,7 +428,7 @@ describe("LeadHunter website audit", () => {
         source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
       }),
       observation({
-        type: "reachability", state: "unreachable", statusCode: null, error: "timeout",
+        type: "reachability", result: "failure", error: "timeout",
         source: { sourceType: "http_probe", sourceUrl: "https://new.example.com" },
       }),
       observation({
@@ -403,7 +496,7 @@ describe("LeadHunter website audit", () => {
 
     const { result } = deriveAndEvaluate([
       observation({
-        type: "reachability", state: "unreachable", statusCode: null, error: "timeout",
+        type: "reachability", result: "failure", error: "timeout",
         source: { sourceType: "http_probe", sourceUrl: "https://other.example" },
       }),
       observation({
@@ -417,7 +510,7 @@ describe("LeadHunter website audit", () => {
 
   it("strictly bounds typed observation envelopes and rejects worker outcomes", () => {
     const reachable = observation({
-      type: "reachability", state: "reachable", statusCode: 200, error: null,
+      type: "reachability", result: "response", statusCode: 200,
       source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
     });
     expect(websiteAuditEnvelopeSchema.safeParse({
@@ -431,7 +524,16 @@ describe("LeadHunter website audit", () => {
     }).success).toBe(false);
     expect(websiteAuditEnvelopeSchema.safeParse({ observations: [{
       ...reachable,
-      statusCode: null,
+      statusCode: 200,
+      error: "timeout",
+    }] }).success).toBe(false);
+    expect(websiteAuditEnvelopeSchema.safeParse({ observations: [{
+      type: "reachability",
+      result: "failure",
+      error: "dns",
+      statusCode: 200,
+      observedAt,
+      source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
     }] }).success).toBe(false);
     expect(websiteAuditEnvelopeSchema.safeParse({ observations: Array(101).fill(
       reachable,
