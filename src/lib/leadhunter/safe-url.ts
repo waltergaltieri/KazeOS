@@ -9,7 +9,24 @@ export type FetchLike = (
 
 export interface ValidatedPublicUrl {
   observedUrl: string;
+  requestUrl: string;
   canonicalUrl: string;
+  hostname: string;
+  addresses: readonly string[];
+}
+
+export interface PinnedHttpRequest {
+  requestUrl: string;
+  hostname: string;
+  addresses: readonly string[];
+  init: RequestInit;
+}
+
+/**
+ * Connect only to one of `addresses`, preserving `hostname` for Host and TLS SNI.
+ */
+export interface PinnedHttpTransport {
+  request(input: PinnedHttpRequest): Promise<Response>;
 }
 
 export class SafeUrlError extends Error {
@@ -22,8 +39,10 @@ export class SafeUrlError extends Error {
 const blockedIpv6 = new BlockList();
 blockedIpv6.addSubnet("::", 96, "ipv6");
 blockedIpv6.addSubnet("::ffff:0:0", 96, "ipv6");
+blockedIpv6.addSubnet("64:ff9b::", 96, "ipv6");
 blockedIpv6.addSubnet("64:ff9b:1::", 48, "ipv6");
 blockedIpv6.addSubnet("100::", 64, "ipv6");
+blockedIpv6.addSubnet("2001::", 32, "ipv6");
 blockedIpv6.addSubnet("2001:db8::", 32, "ipv6");
 blockedIpv6.addSubnet("2001:10::", 28, "ipv6");
 blockedIpv6.addSubnet("2001:20::", 28, "ipv6");
@@ -31,6 +50,7 @@ blockedIpv6.addSubnet("fc00::", 7, "ipv6");
 blockedIpv6.addSubnet("fe80::", 10, "ipv6");
 blockedIpv6.addSubnet("fec0::", 10, "ipv6");
 blockedIpv6.addSubnet("ff00::", 8, "ipv6");
+blockedIpv6.addSubnet("2002::", 16, "ipv6");
 
 const trackingParameters = new Set([
   "dclid",
@@ -141,18 +161,20 @@ export async function validatePublicUrl(
 ): Promise<ValidatedPublicUrl> {
   const url = parseUrl(observedUrl);
   const hostname = plainHostname(url);
+  if (url.hostname.endsWith(".")) url.hostname = hostname;
 
   if (hostname === "localhost" || hostname.endsWith(".localhost")) {
     throw new SafeUrlError("URL hostname is blocked");
   }
 
   const literalVersion = isIP(hostname);
+  let addresses: readonly string[];
   if (literalVersion !== 0) {
     if (isBlockedAddress(hostname)) {
       throw new SafeUrlError("URL resolves to a blocked network");
     }
+    addresses = [hostname];
   } else {
-    let addresses: readonly string[];
     try {
       addresses = await resolve(hostname);
     } catch {
@@ -166,80 +188,81 @@ export async function validatePublicUrl(
         throw new SafeUrlError("URL resolves to a blocked network");
       }
     }
+    addresses = [...new Set(addresses)];
   }
 
+  const request = new URL(url.toString());
+  request.hash = "";
   return {
     observedUrl,
+    requestUrl: request.toString(),
     canonicalUrl: canonicalize(url),
+    hostname,
+    addresses,
   };
 }
 
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 
-interface RedirectFetchOptions {
-  fetch?: FetchLike;
-  init?: RequestInit;
-  maxRedirects?: number;
-  validate: (url: string) => Promise<string>;
-}
-
-async function fetchWithValidatedRedirects(
-  initialUrl: string,
-  {
-    fetch: fetchImplementation = globalThis.fetch,
-    init,
-    maxRedirects = 5,
-    validate,
-  }: RedirectFetchOptions,
-): Promise<Response> {
+function validateRedirectMaximum(maxRedirects: number): void {
   if (!Number.isSafeInteger(maxRedirects) || maxRedirects < 0) {
     throw new RangeError("maxRedirects must be a non-negative integer");
   }
+}
 
-  let currentUrl = initialUrl;
-  let redirects = 0;
+export function cancelResponseBody(response: Response): void {
+  if (!response.body || response.body.locked) return;
+  try {
+    void response.body.cancel().catch(() => undefined);
+  } catch {
+    // Best-effort cancellation must not replace the original error.
+  }
+}
 
-  while (true) {
-    const validatedUrl = await validate(currentUrl);
-    const response = await fetchImplementation(validatedUrl, {
-      ...init,
-      redirect: "manual",
-    });
-
-    if (!redirectStatuses.has(response.status)) return response;
-    const location = response.headers.get("location");
-    if (!location) return response;
-
-    if (redirects >= maxRedirects) {
-      throw new SafeUrlError("Too many redirects");
-    }
-    redirects += 1;
-
-    try {
-      currentUrl = new URL(location, validatedUrl).toString();
-    } catch {
-      throw new SafeUrlError("Redirect location is malformed");
-    }
+function redirectLocation(response: Response, currentUrl: string): string | null {
+  if (!redirectStatuses.has(response.status)) return null;
+  const location = response.headers.get("location");
+  if (!location) return null;
+  cancelResponseBody(response);
+  try {
+    return new URL(location, currentUrl).toString();
+  } catch {
+    throw new SafeUrlError("Redirect location is malformed");
   }
 }
 
 export async function fetchPublicUrl(
   url: string,
   options: {
-    fetch?: FetchLike;
+    transport: PinnedHttpTransport;
     resolve?: HostnameResolver;
     init?: RequestInit;
     maxRedirects?: number;
-  } = {},
+  },
 ): Promise<Response> {
-  return fetchWithValidatedRedirects(url, {
-    fetch: options.fetch,
-    init: options.init,
-    maxRedirects: options.maxRedirects,
-    validate: async (candidate) => (
-      await validatePublicUrl(candidate, { resolve: options.resolve })
-    ).canonicalUrl,
-  });
+  const maxRedirects = options.maxRedirects ?? 5;
+  validateRedirectMaximum(maxRedirects);
+  let currentUrl = url;
+  let redirects = 0;
+
+  while (true) {
+    const validated = await validatePublicUrl(currentUrl, {
+      resolve: options.resolve,
+    });
+    const response = await options.transport.request({
+      requestUrl: validated.requestUrl,
+      hostname: validated.hostname,
+      addresses: validated.addresses,
+      init: { ...options.init, redirect: "manual" },
+    });
+    const location = redirectLocation(response, validated.requestUrl);
+    if (!location) return response;
+    if (redirects >= maxRedirects) {
+      throw new SafeUrlError("Too many redirects");
+    }
+    redirects += 1;
+    currentUrl = location;
+  }
 }
 
 export async function fetchOperatorUrl(
@@ -250,10 +273,29 @@ export async function fetchOperatorUrl(
     maxRedirects?: number;
   } = {},
 ): Promise<Response> {
-  return fetchWithValidatedRedirects(url, {
-    fetch: options.fetch,
-    init: options.init,
-    maxRedirects: options.maxRedirects,
-    validate: async (candidate) => validateOperatorUrl(candidate).toString(),
-  });
+  const maxRedirects = options.maxRedirects ?? 5;
+  validateRedirectMaximum(maxRedirects);
+  const configured = validateOperatorUrl(url);
+  const configuredOrigin = configured.origin;
+  const fetchImplementation = options.fetch ?? globalThis.fetch;
+  let currentUrl = configured.toString();
+  let redirects = 0;
+
+  while (true) {
+    const validated = validateOperatorUrl(currentUrl);
+    if (validated.origin !== configuredOrigin) {
+      throw new SafeUrlError("Operator redirects must stay on the same origin");
+    }
+    const response = await fetchImplementation(validated.toString(), {
+      ...options.init,
+      redirect: "manual",
+    });
+    const location = redirectLocation(response, validated.toString());
+    if (!location) return response;
+    if (redirects >= maxRedirects) {
+      throw new SafeUrlError("Too many redirects");
+    }
+    redirects += 1;
+    currentUrl = location;
+  }
 }

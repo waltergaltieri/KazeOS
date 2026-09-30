@@ -16,10 +16,16 @@ import type {
   SourceResultCursor,
 } from "@/lib/leadhunter/sources/contracts";
 
-export type LeadHunterDiscoveryDatabase = Pick<
+export type LeadHunterDiscoveryTransaction = Pick<
   PostgresJsDatabase<typeof schema>,
   "execute"
 >;
+
+export interface LeadHunterDiscoveryDatabase {
+  transaction<T>(
+    operation: (database: LeadHunterDiscoveryTransaction) => Promise<T>,
+  ): Promise<T>;
+}
 
 export interface PersistDiscoveryPageInput {
   ownerId: string;
@@ -78,66 +84,86 @@ export async function persistDiscoveryPage(
     uniqueCandidates.push(candidate);
   }
 
-  const insertedCandidates: string[] = [];
-  for (const candidate of uniqueCandidates) {
-    const rawRecord = {
-      sourceUrl: candidate.sourceUrl,
-      observedUrl: candidate.observedUrl,
-      providerRank: candidate.providerRank,
-      observedName: candidate.observedName,
-      observedLocation: candidate.observedLocation,
-      metadata: candidate.metadata,
+  return database.transaction(async (transaction) => {
+    const persistedCandidates: Array<{ id: string; inserted: boolean }> = [];
+    for (const candidate of uniqueCandidates) {
+      const rawRecord = {
+        sourceUrl: candidate.sourceUrl,
+        observedUrl: candidate.observedUrl,
+        providerRank: candidate.providerRank,
+        observedName: candidate.observedName,
+        observedLocation: candidate.observedLocation,
+        metadata: candidate.metadata,
+      };
+      const inserted = await transaction.execute(sql<InsertedRow>`
+        insert into ${leadHunterSourceCandidates} (
+          owner_id,
+          run_id,
+          source_type,
+          source_identity,
+          query,
+          raw_record,
+          canonical_url
+        ) values (
+          ${input.ownerId},
+          ${input.runId},
+          ${sourceType},
+          ${candidate.sourceIdentity},
+          ${query},
+          ${JSON.stringify(rawRecord)}::jsonb,
+          ${candidate.canonicalUrl}
+        )
+        on conflict (owner_id, run_id, source_type, source_identity) do nothing
+        returning id
+      `) as unknown as InsertedRow[];
+
+      if (inserted[0]) {
+        persistedCandidates.push({ id: inserted[0].id, inserted: true });
+        continue;
+      }
+
+      const existing = await transaction.execute(sql<InsertedRow>`
+        select ${leadHunterSourceCandidates.id}
+        from ${leadHunterSourceCandidates}
+        where ${leadHunterSourceCandidates.ownerId} = ${input.ownerId}
+          and ${leadHunterSourceCandidates.runId} = ${input.runId}
+          and ${leadHunterSourceCandidates.sourceType} = ${sourceType}
+          and ${leadHunterSourceCandidates.sourceIdentity} = ${candidate.sourceIdentity}
+        limit 1
+      `) as unknown as InsertedRow[];
+      if (!existing[0]) {
+        throw new Error("Source candidate conflict could not be resolved");
+      }
+      persistedCandidates.push({ id: existing[0].id, inserted: false });
+    }
+
+    let scheduledIdentityJobs = 0;
+    for (const candidate of persistedCandidates) {
+      const idempotencyKey = `run:${input.runId}:resolve_identity:${candidate.id}`;
+      const scheduled = await transaction.execute(sql<InsertedRow>`
+        insert into ${leadHunterJobs} (
+          owner_id,
+          run_id,
+          kind,
+          payload,
+          idempotency_key
+        ) values (
+          ${input.ownerId},
+          ${input.runId},
+          'resolve_identity',
+          ${JSON.stringify({ candidateId: candidate.id })}::jsonb,
+          ${idempotencyKey}
+        )
+        on conflict (owner_id, idempotency_key) do nothing
+        returning id
+      `) as unknown as InsertedRow[];
+      if (scheduled[0]) scheduledIdentityJobs += 1;
+    }
+
+    return {
+      storedCandidates: persistedCandidates.filter(({ inserted }) => inserted).length,
+      scheduledIdentityJobs,
+      nextCursor: input.page.nextCursor,
     };
-    const stored = await database.execute(sql<InsertedRow>`
-      insert into ${leadHunterSourceCandidates} (
-        owner_id,
-        run_id,
-        source_type,
-        source_identity,
-        query,
-        raw_record,
-        canonical_url
-      ) values (
-        ${input.ownerId},
-        ${input.runId},
-        ${sourceType},
-        ${candidate.sourceIdentity},
-        ${query},
-        ${JSON.stringify(rawRecord)}::jsonb,
-        ${candidate.canonicalUrl}
-      )
-      on conflict (owner_id, run_id, source_type, source_identity) do nothing
-      returning id
-    `) as unknown as InsertedRow[];
-    if (stored[0]) insertedCandidates.push(stored[0].id);
-  }
-
-  let scheduledIdentityJobs = 0;
-  for (const candidateId of insertedCandidates) {
-    const idempotencyKey = `run:${input.runId}:resolve_identity:${candidateId}`;
-    const scheduled = await database.execute(sql<InsertedRow>`
-      insert into ${leadHunterJobs} (
-        owner_id,
-        run_id,
-        kind,
-        payload,
-        idempotency_key
-      ) values (
-        ${input.ownerId},
-        ${input.runId},
-        'resolve_identity',
-        ${JSON.stringify({ candidateId })}::jsonb,
-        ${idempotencyKey}
-      )
-      on conflict (owner_id, idempotency_key) do nothing
-      returning id
-    `) as unknown as InsertedRow[];
-    if (scheduled[0]) scheduledIdentityJobs += 1;
-  }
-
-  return {
-    storedCandidates: insertedCandidates.length,
-    scheduledIdentityJobs,
-    nextCursor: input.page.nextCursor,
-  };
+  });
 }

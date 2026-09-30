@@ -1,4 +1,5 @@
 import {
+  cancelResponseBody,
   fetchOperatorUrl,
   type FetchLike,
   type HostnameResolver,
@@ -30,6 +31,9 @@ export interface SearxngAdapterOptions {
   resolve?: HostnameResolver;
   timeoutMs?: number;
   maxRedirects?: number;
+  maxResponseBytes?: number;
+  maxResults?: number;
+  maxCandidates?: number;
 }
 
 function pageFromCursor(work: SourceQueryWorkItem): number {
@@ -41,7 +45,10 @@ function pageFromCursor(work: SourceQueryWorkItem): number {
   }
   if (typeof value === "string") {
     const match = /^(?:page:)?([1-9]\d*)$/.exec(value);
-    if (match) return Number(match[1]);
+    if (match) {
+      const page = Number(match[1]);
+      if (Number.isSafeInteger(page) && page > 0) return page;
+    }
   }
   if (
     value
@@ -53,7 +60,77 @@ function pageFromCursor(work: SourceQueryWorkItem): number {
     return Number(value.page);
   }
 
-  throw new TypeError("SearXNG cursor must contain a positive page number");
+  throw new TypeError("SearXNG cursor must contain a positive safe page number");
+}
+
+function positiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+  try {
+    void reader.cancel().catch(() => undefined);
+  } catch {
+    // Best-effort cancellation must not replace the request error.
+  }
+}
+
+async function readBoundedJson(
+  response: Response,
+  maxBytes: number,
+  deadline: Promise<never>,
+): Promise<unknown> {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && /^\d+$/.test(contentLength)) {
+    const declaredBytes = Number(contentLength);
+    if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maxBytes) {
+      cancelResponseBody(response);
+      throw new SearxngRequestError(
+        `SearXNG response exceeds ${maxBytes} bytes`,
+      );
+    }
+  }
+
+  if (!response.body) {
+    throw new SearxngRequestError("SearXNG returned invalid JSON");
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const chunk = await Promise.race([reader.read(), deadline]);
+      if (chunk.done) break;
+      totalBytes += chunk.value.byteLength;
+      if (totalBytes > maxBytes) {
+        throw new SearxngRequestError(
+          `SearXNG response exceeds ${maxBytes} bytes`,
+        );
+      }
+      chunks.push(chunk.value);
+    }
+  } catch (error) {
+    cancelReader(reader);
+    if (error instanceof SearxngRequestError) throw error;
+    throw new SearxngRequestError("SearXNG returned invalid JSON");
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new SearxngRequestError("SearXNG returned invalid JSON");
+  }
 }
 
 function validOptionalText(record: Record<string, unknown>, key: string): boolean {
@@ -139,6 +216,9 @@ export function createSearxngAdapter({
   resolve,
   timeoutMs = 10_000,
   maxRedirects = 3,
+  maxResponseBytes = 1_000_000,
+  maxResults = 100,
+  maxCandidates = 50,
 }: SearxngAdapterOptions = {}): SourceAdapter {
   let configuredEndpoint: URL | null = null;
   let unavailableReason: string | undefined;
@@ -175,6 +255,9 @@ export function createSearxngAdapter({
       if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
         throw new RangeError("timeoutMs must be a positive integer");
       }
+      positiveInteger(maxResponseBytes, "maxResponseBytes");
+      positiveInteger(maxResults, "maxResults");
+      positiveInteger(maxCandidates, "maxCandidates");
 
       const page = pageFromCursor(work);
       const requestUrl = new URL(configuredEndpoint.toString());
@@ -193,7 +276,6 @@ export function createSearxngAdapter({
         }, timeoutMs);
       });
 
-      let payload: unknown;
       try {
         const response = await Promise.race([
           fetchOperatorUrl(requestUrl.toString(), {
@@ -207,16 +289,44 @@ export function createSearxngAdapter({
           timeout,
         ]);
         if (!response.ok) {
+          cancelResponseBody(response);
           throw new SearxngRequestError(
             `SearXNG request failed with status ${response.status}`,
           );
         }
-        try {
-          payload = await Promise.race([response.json(), timeout]);
-        } catch (error) {
-          if (error instanceof SearxngRequestError) throw error;
-          throw new SearxngRequestError("SearXNG returned invalid JSON");
+        const payload = await readBoundedJson(response, maxResponseBytes, timeout);
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+          throw new SearxngRequestError("SearXNG returned an invalid response");
         }
+        const results = (payload as Record<string, unknown>).results;
+        if (!Array.isArray(results)) {
+          throw new SearxngRequestError("SearXNG response is missing results");
+        }
+        if (results.length > maxResults) {
+          throw new SearxngRequestError(
+            `SearXNG returned more than ${maxResults} results`,
+          );
+        }
+
+        const candidates: SourceCandidate[] = [];
+        const seen = new Set<string>();
+        for (let index = 0; index < results.length; index += 1) {
+          if (candidates.length >= maxCandidates) break;
+          const candidate = await Promise.race([
+            candidateFromResult(results[index], index + 1, resolve),
+            timeout,
+          ]);
+          if (!candidate || seen.has(candidate.canonicalUrl)) continue;
+          seen.add(candidate.canonicalUrl);
+          candidates.push(candidate);
+        }
+
+        return {
+          candidates,
+          nextCursor: results.length === 0
+            ? { state: "exhausted" }
+            : { state: "next", value: { page: page + 1 } },
+        };
       } catch (error) {
         if (error instanceof SearxngRequestError) throw error;
         throw new SearxngRequestError(
@@ -225,30 +335,6 @@ export function createSearxngAdapter({
       } finally {
         if (timer) clearTimeout(timer);
       }
-
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-        throw new SearxngRequestError("SearXNG returned an invalid response");
-      }
-      const results = (payload as Record<string, unknown>).results;
-      if (!Array.isArray(results)) {
-        throw new SearxngRequestError("SearXNG response is missing results");
-      }
-
-      const candidates: SourceCandidate[] = [];
-      const seen = new Set<string>();
-      for (let index = 0; index < results.length; index += 1) {
-        const candidate = await candidateFromResult(results[index], index + 1, resolve);
-        if (!candidate || seen.has(candidate.canonicalUrl)) continue;
-        seen.add(candidate.canonicalUrl);
-        candidates.push(candidate);
-      }
-
-      return {
-        candidates,
-        nextCursor: results.length === 0
-          ? { state: "exhausted" }
-          : { state: "next", value: { page: page + 1 } },
-      };
     },
   };
 }

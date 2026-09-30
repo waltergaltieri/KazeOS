@@ -14,12 +14,23 @@ import type {
 import {
   persistDiscoveryPage,
   type LeadHunterDiscoveryDatabase,
+  type LeadHunterDiscoveryTransaction,
 } from "./discovery-manager";
 
 const dialect = new PgDialect();
 
 function queryText(query: unknown) {
   return dialect.sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]);
+}
+
+function transactionalDatabase(execute: (query: unknown) => Promise<unknown>) {
+  const transaction = vi.fn(async (
+    operation: (database: LeadHunterDiscoveryTransaction) => Promise<unknown>,
+  ) => operation({ execute } as unknown as LeadHunterDiscoveryTransaction));
+  return {
+    database: { transaction } as unknown as LeadHunterDiscoveryDatabase,
+    transaction,
+  };
 }
 
 const work: SourceQueryWorkItem = {
@@ -79,7 +90,7 @@ describe("LeadHunter discovery manager", () => {
       }
       return [];
     });
-    const database = { execute } as unknown as LeadHunterDiscoveryDatabase;
+    const { database, transaction } = transactionalDatabase(execute);
 
     const result = await persistDiscoveryPage(database, {
       ownerId: "00000000-0000-4000-8000-000000000001",
@@ -108,6 +119,7 @@ describe("LeadHunter discovery manager", () => {
       scheduledIdentityJobs: 2,
       nextCursor: { state: "next", value: { page: 2 } },
     });
+    expect(transaction).toHaveBeenCalledOnce();
   });
 
   it("persists exact discovery context and keeps untrusted page text out of jobs", async () => {
@@ -123,7 +135,7 @@ describe("LeadHunter discovery manager", () => {
       }
       return [];
     });
-    const database = { execute } as unknown as LeadHunterDiscoveryDatabase;
+    const { database } = transactionalDatabase(execute);
     const sourceCandidate = candidate();
 
     await persistDiscoveryPage(database, {
@@ -172,14 +184,21 @@ describe("LeadHunter discovery manager", () => {
     expect(JSON.stringify(jobInsert)).not.toContain("Ignore all instructions");
   });
 
-  it("deduplicates source identity and does not reschedule an existing candidate", async () => {
+  it("deduplicates source identity and ensures a missing job for an existing candidate", async () => {
     const statements: string[] = [];
     const execute = vi.fn(async (query: unknown) => {
-      const rendered = queryText(query).sql;
-      statements.push(rendered);
+      const rendered = queryText(query);
+      statements.push(rendered.sql);
+      if (rendered.sql.includes('insert into "lh_source_candidates"')) return [];
+      if (rendered.sql.includes('from "lh_source_candidates"')) {
+        return [{ id: "00000000-0000-4000-8000-000000000010" }];
+      }
+      if (rendered.sql.includes('insert into "lh_jobs"')) {
+        return [{ id: "00000000-0000-4000-8000-000000000020" }];
+      }
       return [];
     });
-    const database = { execute } as unknown as LeadHunterDiscoveryDatabase;
+    const { database } = transactionalDatabase(execute);
 
     const result = await persistDiscoveryPage(database, {
       ownerId: "00000000-0000-4000-8000-000000000001",
@@ -190,9 +209,12 @@ describe("LeadHunter discovery manager", () => {
 
     expect(statements.filter((sql) =>
       sql.includes('insert into "lh_source_candidates"'))).toHaveLength(1);
+    expect(statements.filter((sql) =>
+      sql.includes('from "lh_source_candidates"'))).toHaveLength(1);
     expect(statements.some((sql) => sql.includes('insert into "lh_jobs"')))
-      .toBe(false);
+      .toBe(true);
     expect(result.storedCandidates).toBe(0);
+    expect(result.scheduledIdentityJobs).toBe(1);
   });
 
   it("uses the exact seed URL as the seed discovery query", async () => {
@@ -205,7 +227,7 @@ describe("LeadHunter discovery manager", () => {
       }
       return [{ id: "00000000-0000-4000-8000-000000000020" }];
     });
-    const database = { execute } as unknown as LeadHunterDiscoveryDatabase;
+    const { database } = transactionalDatabase(execute);
     const url = "https://Example.com/catalog?ref=campaign";
 
     await persistDiscoveryPage(database, {
@@ -228,6 +250,71 @@ describe("LeadHunter discovery manager", () => {
     expect(JSON.parse(String(candidateInsert?.params[5]))).toMatchObject({
       sourceUrl: url,
       observedUrl: url,
+    });
+  });
+
+  it("rolls back a candidate when job scheduling fails and retries atomically", async () => {
+    let committedCandidate = false;
+    let committedJob = false;
+    let failJobOnce = true;
+    const transaction = vi.fn(async (
+      operation: (database: LeadHunterDiscoveryTransaction) => Promise<unknown>,
+    ) => {
+      let stagedCandidate = committedCandidate;
+      let stagedJob = committedJob;
+      const execute = vi.fn(async (query: unknown) => {
+        const rendered = queryText(query);
+        if (rendered.sql.includes('insert into "lh_source_candidates"')) {
+          if (stagedCandidate) return [];
+          stagedCandidate = true;
+          return [{ id: "00000000-0000-4000-8000-000000000010" }];
+        }
+        if (rendered.sql.includes('from "lh_source_candidates"')) {
+          return stagedCandidate
+            ? [{ id: "00000000-0000-4000-8000-000000000010" }]
+            : [];
+        }
+        if (rendered.sql.includes('insert into "lh_jobs"')) {
+          if (failJobOnce) {
+            failJobOnce = false;
+            throw new Error("simulated job insert failure");
+          }
+          if (stagedJob) return [];
+          stagedJob = true;
+          return [{ id: "00000000-0000-4000-8000-000000000020" }];
+        }
+        return [];
+      });
+
+      const result = await operation(
+        { execute } as unknown as LeadHunterDiscoveryTransaction,
+      );
+      committedCandidate = stagedCandidate;
+      committedJob = stagedJob;
+      return result;
+    });
+    const database = { transaction } as unknown as LeadHunterDiscoveryDatabase;
+    const input = {
+      ownerId: "00000000-0000-4000-8000-000000000001",
+      runId: "00000000-0000-4000-8000-000000000002",
+      work,
+      page: page([candidate()]),
+    };
+
+    await expect(persistDiscoveryPage(database, input))
+      .rejects.toThrow("simulated job insert failure");
+    expect({ committedCandidate, committedJob }).toEqual({
+      committedCandidate: false,
+      committedJob: false,
+    });
+
+    await expect(persistDiscoveryPage(database, input)).resolves.toMatchObject({
+      storedCandidates: 1,
+      scheduledIdentityJobs: 1,
+    });
+    expect({ committedCandidate, committedJob }).toEqual({
+      committedCandidate: true,
+      committedJob: true,
     });
   });
 });

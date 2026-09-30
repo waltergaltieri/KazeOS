@@ -22,6 +22,19 @@ const initialWork: SourceQueryWorkItem = {
 
 const publicResolver = vi.fn(async () => ["93.184.216.34"]);
 
+function streamedResponse(content: string, status = 200, close = true) {
+  const cancel = vi.fn();
+  const bytes = new TextEncoder().encode(content);
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      if (close) controller.close();
+    },
+    cancel,
+  }), { status });
+  return { cancel, response };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -112,6 +125,24 @@ describe("SearXNG source adapter", () => {
     expect(page.nextCursor).toEqual({ state: "exhausted" });
   });
 
+  it.each([
+    "page:9007199254740992",
+    "999999999999999999999999999999999999",
+  ])("rejects unsafe numeric string cursor %s before requesting", async (value) => {
+    const fetch = vi.fn<FetchLike>();
+    const adapter = createSearxngAdapter({
+      endpoint: "https://search.example.com/search",
+      fetch,
+      resolve: publicResolver,
+    });
+
+    await expect(adapter.discover({
+      ...initialWork,
+      cursor: { state: "next", value },
+    })).rejects.toThrow("positive safe page number");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("skips malformed and unsafe records without turning snippets into facts", async () => {
     const fetch = vi.fn<FetchLike>(async () => new Response(JSON.stringify({
       results: [
@@ -136,9 +167,8 @@ describe("SearXNG source adapter", () => {
   });
 
   it("rejects non-success HTTP responses without reading them as results", async () => {
-    const fetch = vi.fn<FetchLike>(async () => new Response("provider details", {
-      status: 503,
-    }));
+    const rejected = streamedResponse("provider details", 503);
+    const fetch = vi.fn<FetchLike>(async () => rejected.response);
     const adapter = createSearxngAdapter({
       endpoint: "https://search.example.com/search",
       fetch,
@@ -149,6 +179,65 @@ describe("SearXNG source adapter", () => {
       name: "SearxngRequestError",
       message: "SearXNG request failed with status 503",
     });
+    expect(rejected.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("rejects and cancels a response body that exceeds the byte limit", async () => {
+    const oversized = streamedResponse(JSON.stringify({
+      results: [{ url: "https://example.com/", content: "x".repeat(100) }],
+    }), 200, false);
+    const adapter = createSearxngAdapter({
+      endpoint: "https://search.example.com/search",
+      fetch: vi.fn<FetchLike>(async () => oversized.response),
+      resolve: publicResolver,
+      maxResponseBytes: 40,
+    });
+
+    await expect(adapter.discover(initialWork)).rejects.toThrow(
+      "response exceeds 40 bytes",
+    );
+    expect(oversized.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a result set above the configured item limit before resolving URLs", async () => {
+    const resolve = vi.fn(async () => ["93.184.216.34"]);
+    const adapter = createSearxngAdapter({
+      endpoint: "https://search.example.com/search",
+      fetch: vi.fn<FetchLike>(async () => new Response(JSON.stringify({
+        results: [
+          { url: "https://one.example/" },
+          { url: "https://two.example/" },
+        ],
+      }), { status: 200 })),
+      resolve,
+      maxResults: 1,
+    });
+
+    await expect(adapter.discover(initialWork)).rejects.toThrow(
+      "more than 1 results",
+    );
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("caps normalized candidates independently from provider result items", async () => {
+    const resolve = vi.fn(async () => ["93.184.216.34"]);
+    const adapter = createSearxngAdapter({
+      endpoint: "https://search.example.com/search",
+      fetch: vi.fn<FetchLike>(async () => new Response(JSON.stringify({
+        results: [
+          { url: "https://one.example/" },
+          { url: "https://two.example/" },
+        ],
+      }), { status: 200 })),
+      resolve,
+      maxResults: 2,
+      maxCandidates: 1,
+    });
+
+    const page = await adapter.discover(initialWork);
+
+    expect(page.candidates).toHaveLength(1);
+    expect(resolve).toHaveBeenCalledOnce();
   });
 
   it("aborts and rejects requests that exceed the configured timeout", async () => {
@@ -175,15 +264,40 @@ describe("SearXNG source adapter", () => {
 
   it("keeps the timeout active while the response body is being parsed", async () => {
     vi.useFakeTimers();
-    const response = new Response(null, { status: 200 });
-    vi.spyOn(response, "json").mockImplementation(
-      () => new Promise<never>(() => undefined),
-    );
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream<Uint8Array>({
+      pull: () => new Promise<never>(() => undefined),
+      cancel,
+    }), { status: 200 });
     const fetch = vi.fn<FetchLike>(async () => response);
     const adapter = createSearxngAdapter({
       endpoint: "https://search.example.com/search",
       fetch,
       resolve: publicResolver,
+      timeoutMs: 50,
+    });
+    let outcome: unknown = "pending";
+    void adapter.discover(initialWork).then(
+      (value) => { outcome = value; },
+      (error: unknown) => { outcome = error; },
+    );
+
+    await vi.advanceTimersByTimeAsync(51);
+
+    expect(outcome).toBeInstanceOf(SearxngRequestError);
+    expect(outcome).toMatchObject({ message: "SearXNG request timed out" });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps one deadline active while candidate DNS is resolving", async () => {
+    vi.useFakeTimers();
+    const resolve = vi.fn(() => new Promise<readonly string[]>(() => undefined));
+    const adapter = createSearxngAdapter({
+      endpoint: "https://search.example.com/search",
+      fetch: vi.fn<FetchLike>(async () => new Response(JSON.stringify({
+        results: [{ url: "https://slow.example/" }],
+      }), { status: 200 })),
+      resolve,
       timeoutMs: 50,
     });
     let outcome: unknown = "pending";
