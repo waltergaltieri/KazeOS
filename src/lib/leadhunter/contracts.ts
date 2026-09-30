@@ -100,6 +100,7 @@ export const qualificationRuleSchema = z
   .object({
     criterion: nonBlankText(240),
     weight: z.number().int().min(-100).max(100).refine((weight) => weight !== 0),
+    effect: z.enum(["score", "exclude"]).default("score"),
   })
   .strict();
 
@@ -194,9 +195,9 @@ export type MessageSection = z.infer<typeof messageSectionSchema>;
 export type DiscoveryStrategy = z.infer<typeof discoveryStrategySchema>;
 export type ResearchQuestion = z.infer<typeof researchQuestionSchema>;
 export type QualificationGate = z.infer<typeof qualificationGateSchema>;
-export type QualificationRule = z.infer<typeof qualificationRuleSchema>;
+export type QualificationRule = z.input<typeof qualificationRuleSchema>;
 export type MessagePolicy = z.infer<typeof messagePolicySchema>;
-export type CampaignStrategy = z.infer<typeof campaignStrategySchema>;
+export type CampaignStrategy = z.input<typeof campaignStrategySchema>;
 
 interface CampaignStrategyDefaults {
   objective: string;
@@ -280,9 +281,24 @@ function reconcileQualificationRules(
   positiveCriteria: string[],
   negativeCriteria: string[],
 ): QualificationRule[] {
+  const authoredRules = new Map(
+    rules.map((rule) => [normalizedSignal(rule.criterion), rule]),
+  );
   const formRules = [
-    ...positiveCriteria.map((criterion) => ({ criterion, weight: 10 })),
-    ...negativeCriteria.map((criterion) => ({ criterion, weight: -10 })),
+    ...positiveCriteria.map((criterion) => ({
+      criterion,
+      weight: 10,
+      effect: authoredRules.get(normalizedSignal(criterion))?.effect === "exclude"
+        ? "exclude" as const
+        : "score" as const,
+    })),
+    ...negativeCriteria.map((criterion) => ({
+      criterion,
+      weight: -10,
+      effect: authoredRules.get(normalizedSignal(criterion))?.effect === "exclude"
+        ? "exclude" as const
+        : "score" as const,
+    })),
   ];
   const formSignals = new Set(formRules.map((rule) => normalizedSignal(rule.criterion)));
   const preservedSignals = new Set<string>();
@@ -338,8 +354,16 @@ export function createDefaultCampaignStrategy(
     qualification: {
       gates: [],
       rules: [
-        ...values.positiveCriteria.map((criterion) => ({ criterion, weight: 10 })),
-        ...values.negativeCriteria.map((criterion) => ({ criterion, weight: -10 })),
+        ...values.positiveCriteria.map((criterion) => ({
+          criterion,
+          weight: 10,
+          effect: "score",
+        })),
+        ...values.negativeCriteria.map((criterion) => ({
+          criterion,
+          weight: -10,
+          effect: "score",
+        })),
       ],
     },
     message: defaultMessagePolicy(values.countries),

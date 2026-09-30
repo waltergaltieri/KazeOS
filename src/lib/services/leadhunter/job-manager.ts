@@ -108,7 +108,7 @@ const jobPayloadSchemas = {
     website: z.string().url().max(2_048).refine(
       (value) => /^https?:\/\//i.test(value),
       "Website must use HTTP(S)",
-    ),
+    ).optional(),
   }).strict(),
   qualify: leadPayloadSchema,
   enrich_contact: leadPayloadSchema,
@@ -130,10 +130,16 @@ const jobResultSchemas = {
   }).strict()),
   audit_website: resultSchema("audit_website", z.object({
     auditId: z.string().uuid(),
+    gateResult: z.enum([
+      "NO_WEBSITE",
+      "BAD_WEBSITE",
+      "GOOD_ENOUGH_WEBSITE",
+      "UNVERIFIED",
+    ]),
   }).strict()),
   qualify: resultSchema("qualify", z.object({
-    qualified: z.boolean(),
-    score: z.number().min(0).max(100),
+    decision: z.enum(["eligible", "excluded", "needs_review", "no_email"]),
+    score: z.number().int().min(0).max(100),
   }).strict()),
   enrich_contact: resultSchema("enrich_contact", z.object({
     contactIds: z.array(z.string().uuid()).max(50),
@@ -414,7 +420,10 @@ export async function completeJob(
     throw new JobCompletionRejectedError();
   }
 
-  if ("result" in input.completion && job.kind === "research") {
+  if (
+    "result" in input.completion
+    && ["research", "audit_website", "qualify"].includes(job.kind)
+  ) {
     throw new JobCompletionValidationError();
   }
 

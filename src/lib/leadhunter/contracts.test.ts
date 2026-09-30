@@ -226,6 +226,30 @@ describe("LeadHunter campaign strategy contracts", () => {
     expect(reconciled.message).toEqual(strategy.message);
   });
 
+  it("preserves an explicit exclusion discriminator during form reconciliation", () => {
+    const strategy = campaignStrategySchema.parse({
+      ...validStrategy,
+      qualification: {
+        gates: [],
+        rules: [{ criterion: "Ya es cliente", weight: -50, effect: "exclude" }],
+      },
+    });
+
+    const reconciled = reconcileCampaignStrategy({
+      objective: "Encontrar distribuidores con procesos manuales.",
+      serviceFocus: "automation",
+      countries: ["AR"],
+      sources: ["web_search"],
+      positiveCriteria: [],
+      negativeCriteria: ["Ya es cliente"],
+      strategy,
+    });
+
+    expect(reconciled.qualification.rules).toEqual([
+      { criterion: "Ya es cliente", weight: -10, effect: "exclude" },
+    ]);
+  });
+
   it("keeps generated single-country policies explicit", () => {
     const input = {
       objective: "Encontrar distribuidores con procesos manuales.",

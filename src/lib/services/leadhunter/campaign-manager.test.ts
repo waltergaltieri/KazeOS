@@ -99,8 +99,8 @@ describe("createCampaign", () => {
         }),
         qualification: expect.objectContaining({
           rules: [
-            { criterion: "Catálogo mayorista", weight: 10 },
-            { criterion: "Ya es cliente", weight: -10 },
+            { criterion: "Catálogo mayorista", weight: 10, effect: "score" },
+            { criterion: "Ya es cliente", weight: -10, effect: "score" },
           ],
         }),
         message: expect.objectContaining({
@@ -202,7 +202,13 @@ describe("createCampaign", () => {
     const snapshot = inserts[1]?.value.snapshot as {
       strategy: {
         discovery: { countries: string[]; sources: string[] };
-        qualification: { rules: Array<{ criterion: string; weight: number }> };
+        qualification: {
+          rules: Array<{
+            criterion: string;
+            weight: number;
+            effect: "score" | "exclude";
+          }>;
+        };
       };
     };
 
@@ -211,9 +217,9 @@ describe("createCampaign", () => {
       sources: ["web_search"],
     });
     expect(snapshot.strategy.qualification.rules).toEqual([
-      { criterion: "Señal adicional", weight: 5 },
-      { criterion: "Catálogo mayorista", weight: 10 },
-      { criterion: "Ya es cliente", weight: -10 },
+      { criterion: "Señal adicional", weight: 5, effect: "score" },
+      { criterion: "Catálogo mayorista", weight: 10, effect: "score" },
+      { criterion: "Ya es cliente", weight: -10, effect: "score" },
     ]);
   });
 });

@@ -54,12 +54,15 @@ const validJobContracts = [
   {
     kind: "audit_website",
     payload: { leadId, website: "https://example.com" },
-    output: { auditId: "55555555-5555-4555-8555-555555555555" },
+    output: {
+      auditId: "55555555-5555-4555-8555-555555555555",
+      gateResult: "BAD_WEBSITE",
+    },
   },
   {
     kind: "qualify",
     payload: { leadId },
-    output: { qualified: true, score: 75 },
+    output: { decision: "eligible", score: 75 },
   },
   {
     kind: "enrich_contact",
@@ -206,7 +209,9 @@ describe("claimNextJob query contract", () => {
 });
 
 describe("completeJob", () => {
-  it.each(validJobContracts.filter(({ kind }) => kind !== "research"))(
+  it.each(validJobContracts.filter(({ kind }) => (
+    !["research", "audit_website", "qualify"].includes(kind)
+  )))(
     "accepts the declared $kind payload and result contract",
     async ({
       kind,

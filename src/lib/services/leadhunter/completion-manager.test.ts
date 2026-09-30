@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   completeJob: vi.fn(),
   persistResearchResultInTransaction: vi.fn(),
+  persistWebsiteAuditResultInTransaction: vi.fn(),
+  persistQualificationResultInTransaction: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -15,6 +17,10 @@ vi.mock("./job-manager", async (importOriginal) => ({
 }));
 vi.mock("./research-manager", () => ({
   persistResearchResultInTransaction: mocks.persistResearchResultInTransaction,
+}));
+vi.mock("./qualification-manager", () => ({
+  persistWebsiteAuditResultInTransaction: mocks.persistWebsiteAuditResultInTransaction,
+  persistQualificationResultInTransaction: mocks.persistQualificationResultInTransaction,
 }));
 
 import { completeClaimedJob } from "./completion-manager";
@@ -33,10 +39,26 @@ const now = new Date("2026-09-30T12:00:00.000Z");
 function researchDatabase() {
   const execute = vi.fn(async (query: unknown) => {
     const rendered = dialect.sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]);
-    expect(rendered.sql).toContain("for update");
+    expect(rendered.sql).not.toContain("for update");
     return [{
       ownerId,
       kind: "research",
+      state: "leased",
+      leaseOwner: "worker-api",
+      leaseTokenDigest: digestLeaseToken(leaseToken),
+      leaseExpiresAt: "2026-09-30T12:05:00.000Z",
+    }];
+  });
+  return { database: { execute } as unknown as LeadHunterJobDatabase, execute };
+}
+
+function specializedDatabase(kind: "audit_website" | "qualify") {
+  const execute = vi.fn(async (query: unknown) => {
+    const rendered = dialect.sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]);
+    expect(rendered.sql).not.toContain("for update");
+    return [{
+      ownerId,
+      kind,
       state: "leased",
       leaseOwner: "worker-api",
       leaseTokenDigest: digestLeaseToken(leaseToken),
@@ -174,4 +196,77 @@ describe("LeadHunter completion dispatcher", () => {
     await completeClaimedJob(research, failureInput);
     expect(mocks.completeJob).toHaveBeenCalledWith(research, failureInput);
   });
+
+  it.each([
+    ["audit_website" as const, "persistWebsiteAuditResultInTransaction" as const, { checks: [] }],
+    ["qualify" as const, "persistQualificationResultInTransaction" as const, { assessments: [] }],
+  ])("routes %s output through its evidence manager", async (kind, manager, output) => {
+    const { database } = specializedDatabase(kind);
+    mocks[manager].mockResolvedValue({ status: "processed" });
+
+    await completeClaimedJob(database, {
+      id: jobId,
+      leaseToken,
+      completion: { result: output },
+      now,
+      maxAttempts: 3,
+    });
+
+    expect(mocks[manager]).toHaveBeenCalledWith(database, {
+      ownerId,
+      jobId,
+      leaseToken,
+      now,
+      output,
+    });
+    expect(mocks.completeJob).not.toHaveBeenCalled();
+  });
+
+  it.each(["audit_website", "qualify"] as const)(
+    "preserves generic worker failures for %s",
+    async (kind) => {
+      const { database } = specializedDatabase(kind);
+      mocks.completeJob.mockResolvedValue({ status: "failed" });
+      const input = {
+        id: jobId,
+        leaseToken,
+        completion: { error: "worker failed" },
+        now,
+        maxAttempts: 3,
+      };
+
+      await completeClaimedJob(database, input);
+
+      expect(mocks.completeJob).toHaveBeenCalledWith(database, input);
+      expect(mocks.persistWebsiteAuditResultInTransaction).not.toHaveBeenCalled();
+      expect(mocks.persistQualificationResultInTransaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["audit_website", "qualify"] as const)(
+    "rejects a wrong %s lease before specialized dispatch",
+    async (kind) => {
+      const execute = vi.fn(async () => [{
+        ownerId,
+        kind,
+        state: "leased",
+        leaseOwner: "worker-api",
+        leaseTokenDigest: digestLeaseToken("different-token"),
+        leaseExpiresAt: "2026-09-30T12:05:00.000Z",
+      }]);
+      const database = { execute } as unknown as LeadHunterJobDatabase;
+
+      await expect(completeClaimedJob(database, {
+        id: jobId,
+        leaseToken,
+        completion: { result: {} },
+        now,
+        maxAttempts: 3,
+      })).rejects.toBeInstanceOf(JobCompletionRejectedError);
+
+      expect(mocks.persistWebsiteAuditResultInTransaction).not.toHaveBeenCalled();
+      expect(mocks.persistQualificationResultInTransaction).not.toHaveBeenCalled();
+      expect(mocks.completeJob).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -39,6 +39,33 @@ describe("LeadHunter research job result bounds", () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
+  it.each(["audit_website", "qualify"] as const)(
+    "rejects generic successful %s completion before any write",
+    async (kind) => {
+      const execute = vi.fn(async () => [{
+        id: "00000000-0000-4000-8000-000000000001",
+        runId: "00000000-0000-4000-8000-000000000002",
+        kind,
+        state: "leased",
+        result: null,
+        payload: { leadId: "00000000-0000-4000-8000-000000000003" },
+        attemptCount: 1,
+        leaseExpiresAt: "2026-09-30T12:10:00.000Z",
+        leaseTokenDigest: digestLeaseToken(leaseToken),
+      }]);
+
+      await expect(completeJob({ execute } as unknown as LeadHunterJobDatabase, {
+        id: "00000000-0000-4000-8000-000000000001",
+        leaseToken,
+        now: new Date("2026-09-30T12:00:00.000Z"),
+        maxAttempts: 3,
+        completion: { result: { kind, output: {} } },
+      })).rejects.toBeInstanceOf(JobCompletionValidationError);
+
+      expect(execute).toHaveBeenCalledOnce();
+    },
+  );
+
   it("rejects generic successful research completion before any write", async () => {
     const execute = vi.fn(async () => [{
       id: "00000000-0000-4000-8000-000000000001",

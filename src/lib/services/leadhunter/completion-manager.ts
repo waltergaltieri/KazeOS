@@ -13,6 +13,10 @@ import {
   type LeadHunterJobDatabase,
 } from "./job-manager";
 import { persistResearchResultInTransaction } from "./research-manager";
+import {
+  persistQualificationResultInTransaction,
+  persistWebsiteAuditResultInTransaction,
+} from "./qualification-manager";
 
 interface CompletionDispatchRow {
   ownerId: string;
@@ -37,11 +41,14 @@ export async function completeClaimedJob(
       ${leadHunterJobs.leaseExpiresAt} as "leaseExpiresAt"
     from ${leadHunterJobs}
     where ${leadHunterJobs.id} = ${input.id}
-    for update
   `) as unknown as CompletionDispatchRow[];
   const job = rows[0];
 
-  if (job?.kind === "research" && "result" in input.completion) {
+  if (
+    job
+    && ["research", "audit_website", "qualify"].includes(job.kind)
+    && "result" in input.completion
+  ) {
     const suppliedDigest = digestLeaseToken(input.leaseToken);
     if (!exactDigestMatch(job.leaseTokenDigest, suppliedDigest)) {
       throw new JobCompletionRejectedError();
@@ -62,13 +69,20 @@ export async function completeClaimedJob(
     if (!activeLease && job.state !== "succeeded") {
       throw new JobCompletionRejectedError();
     }
-    return persistResearchResultInTransaction(database, {
+    const managerInput = {
       ownerId: job.ownerId,
       jobId: input.id,
       leaseToken: input.leaseToken,
       now: input.now,
       output: input.completion.result,
-    });
+    };
+    if (job.kind === "research") {
+      return persistResearchResultInTransaction(database, managerInput);
+    }
+    if (job.kind === "audit_website") {
+      return persistWebsiteAuditResultInTransaction(database, managerInput);
+    }
+    return persistQualificationResultInTransaction(database, managerInput);
   }
 
   return completeJob(database, input);
