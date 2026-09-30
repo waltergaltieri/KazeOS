@@ -42,7 +42,7 @@ Comando de verificación: `workers/leadhunter/.venv/Scripts/python -m pytest wor
 
 | Medida | Resultado |
 |---|---:|
-| Casos de prueba Python | 38 aprobados |
+| Casos de prueba Python | 39 aprobados |
 | Documentos del corpus | 7 |
 | Afirmaciones esperadas | 13 |
 | Afirmaciones correctas | 13 |

@@ -92,6 +92,7 @@ _VISIBLE_BLOCK_TAGS = {
     "article",
     "aside",
     "blockquote",
+    "body",
     "dd",
     "div",
     "dt",

@@ -384,7 +384,7 @@ def test_grounding_preserves_unicode_punctuation_email_url_and_address() -> None
 
 def test_grounding_does_not_join_separate_visible_blocks() -> None:
     request = request_for("active-official.html").model_copy(update={
-        "content": "<h1>ACME</h1><p>Industrial</p>",
+        "content": "<body><h1>ACME</h1><p>Industrial</p></body>",
     })
     finding = {
         "field": "business.name",
@@ -402,6 +402,24 @@ def test_grounding_does_not_join_separate_visible_blocks() -> None:
         "content": "<p>ACME Industrial</p>",
     })
     assert validate_provider_output(same_block, [finding]) == [
+        Finding.model_validate(finding),
+    ]
+
+
+def test_grounding_accepts_contiguous_direct_body_text_with_inline_markup() -> None:
+    request = request_for("active-official.html").model_copy(update={
+        "content": "<body>ACME <strong>Industrial</strong></body>",
+    })
+    finding = {
+        "field": "business.name",
+        "value": "ACME Industrial",
+        "status": "verified",
+        "confidence": 90,
+        "source_url": str(request.source_url),
+        "extract": "ACME Industrial",
+    }
+
+    assert validate_provider_output(request, [finding]) == [
         Finding.model_validate(finding),
     ]
 
