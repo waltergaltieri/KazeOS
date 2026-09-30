@@ -22,7 +22,7 @@ export function authenticateWorkerRequest(
 ): MachineAuthenticationResult {
   const secret = configuredSecret?.trim();
 
-  if (!secret) {
+  if (!secret || secret.length < 32) {
     return {
       ok: false,
       status: 503,

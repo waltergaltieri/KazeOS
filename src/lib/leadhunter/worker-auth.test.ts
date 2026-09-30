@@ -48,4 +48,19 @@ describe("authenticateWorkerRequest", () => {
     });
     expect(JSON.stringify(result)).not.toContain(secret);
   });
+
+  it("treats a configured secret shorter than 32 characters as unavailable", () => {
+    const shortSecret = "short-worker-secret";
+    const result = authenticateWorkerRequest(
+      request(`Bearer ${shortSecret}`),
+      shortSecret,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 503,
+      error: "Worker is not configured",
+    });
+    expect(JSON.stringify(result)).not.toContain(shortSecret);
+  });
 });

@@ -66,6 +66,12 @@ const optionalString = z.preprocess(
   z.string().trim().min(1).optional(),
 );
 
+const optionalWorkerSecret = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim() === "" ? undefined : value,
+  z.string().trim().min(32, "must contain at least 32 characters").optional(),
+);
+
 const optionalHttpsUrl = z.preprocess(
   (value) => (value === "" ? undefined : value),
   httpsUrl.optional(),
@@ -98,7 +104,7 @@ export const serverEnvSchema = z.object({
   SUPABASE_JWKS_URL: optionalHttpsUrl,
   SUPABASE_SECRET_KEY: optionalString,
   CRON_SECRET: optionalString,
-  LEADHUNTER_WORKER_SECRET: optionalString,
+  LEADHUNTER_WORKER_SECRET: optionalWorkerSecret,
   APP_ORIGIN: appOriginSchema,
 });
 

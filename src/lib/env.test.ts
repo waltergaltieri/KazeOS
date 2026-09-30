@@ -96,6 +96,13 @@ describe("parseEnv", () => {
     ).toThrowError(/SUPABASE_JWKS_URL/);
   });
 
+  it("rejects a configured LeadHunter worker secret shorter than 32 characters", () => {
+    expect(() => parseEnv({
+      ...validEnv,
+      LEADHUNTER_WORKER_SECRET: "too-short",
+    })).toThrowError(/LEADHUNTER_WORKER_SECRET/);
+  });
+
   it("rejects a Supabase secret key in the public key variable", () => {
     expect(() =>
       parseEnv({
@@ -124,12 +131,14 @@ describe("parseEnv", () => {
         ...validEnv,
         SUPABASE_SECRET_KEY: "   ",
         CRON_SECRET: "  cron-value  ",
-        LEADHUNTER_WORKER_SECRET: "  worker-value  ",
+        LEADHUNTER_WORKER_SECRET:
+          "  worker-secret-with-at-least-32-characters  ",
       }),
     ).toMatchObject({
       SUPABASE_SECRET_KEY: undefined,
       CRON_SECRET: "cron-value",
-      LEADHUNTER_WORKER_SECRET: "worker-value",
+      LEADHUNTER_WORKER_SECRET:
+        "worker-secret-with-at-least-32-characters",
     });
   });
 });

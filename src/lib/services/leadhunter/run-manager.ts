@@ -275,6 +275,21 @@ export async function planDueRuns(
         on conflict (owner_id, idempotency_key) do nothing
       `);
       createdJobs += plan.work.length;
+    } else {
+      await database.execute(sql`
+        update ${leadHunterRuns}
+        set
+          state = 'completed',
+          counts = jsonb_build_object(
+            'total', 0,
+            'succeeded', 0,
+            'failed', 0
+          ),
+          started_at = ${now},
+          finished_at = ${now}
+        where ${leadHunterRuns.id} = ${run.id}
+          and ${leadHunterRuns.state} = 'planned'
+      `);
     }
 
     await database.execute(sql`

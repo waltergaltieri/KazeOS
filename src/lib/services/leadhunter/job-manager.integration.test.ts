@@ -19,13 +19,64 @@ import {
   type LeadHunterJobDatabase,
 } from "./job-manager";
 import * as databaseSchema from "@/db/schema";
-import { leadHunterJobs } from "@/db/schema";
+import { leadHunterJobs, leadHunterRuns } from "@/db/schema";
 
 const jobId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const runId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const now = new Date("2026-09-30T12:00:00.000Z");
 const leaseExpiresAt = new Date("2026-09-30T12:05:00.000Z");
 const dialect = new PgDialect();
+const candidateId = "11111111-1111-4111-8111-111111111111";
+const leadId = "22222222-2222-4222-8222-222222222222";
+const enrollmentId = "33333333-3333-4333-8333-333333333333";
+const messageVersionId = "44444444-4444-4444-8444-444444444444";
+
+const validJobContracts = [
+  {
+    kind: "discover",
+    payload: {
+      kind: "seed_url",
+      id: "seed:one",
+      url: "https://example.com",
+    },
+    output: { candidateCount: 1 },
+  },
+  {
+    kind: "resolve_identity",
+    payload: { candidateId },
+    output: { leadId, confidence: 0.9 },
+  },
+  {
+    kind: "research",
+    payload: { leadId },
+    output: { evidenceIds: [] },
+  },
+  {
+    kind: "audit_website",
+    payload: { leadId, website: "https://example.com" },
+    output: { auditId: "55555555-5555-4555-8555-555555555555" },
+  },
+  {
+    kind: "qualify",
+    payload: { leadId },
+    output: { qualified: true, score: 75 },
+  },
+  {
+    kind: "enrich_contact",
+    payload: { leadId },
+    output: { contactIds: ["66666666-6666-4666-8666-666666666666"] },
+  },
+  {
+    kind: "prepare_message",
+    payload: { enrollmentId },
+    output: { messageVersionId },
+  },
+  {
+    kind: "validate_message",
+    payload: { messageVersionId },
+    output: { valid: true, issues: [] },
+  },
+] as const;
 
 type ClaimedPayloadIsUnknown = unknown extends ClaimedJob["payload"]
   ? true
@@ -145,29 +196,21 @@ describe("claimNextJob query contract", () => {
     expect(statements).toEqual(expect.arrayContaining([
       expect.stringMatching(/update "lh_runs" as run[\s\S]+summary\.active_count = 0/),
     ]));
+    const lockIndex = statements.findIndex((statement) =>
+      /select[\s\S]+from "lh_runs"[\s\S]+for update/.test(statement));
+    const settlementIndex = statements.findIndex((statement) =>
+      statement.includes("update \"lh_runs\" as run"));
+    expect(lockIndex).toBeGreaterThan(0);
+    expect(settlementIndex).toBeGreaterThan(lockIndex);
   });
 });
 
 describe("completeJob", () => {
-  it.each([
-    ["discover", { candidateCount: 1 }],
-    ["resolve_identity", {
-      leadId: "11111111-1111-4111-8111-111111111111",
-      confidence: 0.9,
-    }],
-    ["research", { evidenceIds: [] }],
-    ["audit_website", {
-      auditId: "22222222-2222-4222-8222-222222222222",
-    }],
-    ["qualify", { qualified: true, score: 75 }],
-    ["enrich_contact", {
-      contactIds: ["33333333-3333-4333-8333-333333333333"],
-    }],
-    ["prepare_message", {
-      messageVersionId: "44444444-4444-4444-8444-444444444444",
-    }],
-    ["validate_message", { valid: true, issues: [] }],
-  ] as const)("accepts the declared %s result contract", async (kind, output) => {
+  it.each(validJobContracts)("accepts the declared $kind payload and result contract", async ({
+    kind,
+    output,
+    payload,
+  }) => {
     const leaseToken = "current-lease-token";
     let statementCount = 0;
     const execute = vi.fn(async () => {
@@ -179,6 +222,7 @@ describe("completeJob", () => {
           kind,
           state: "leased",
           result: null,
+          payload,
           attemptCount: 1,
           leaseExpiresAt: leaseExpiresAt.toISOString(),
           leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
@@ -200,16 +244,10 @@ describe("completeJob", () => {
     )).resolves.toEqual({ status: "succeeded", result });
   });
 
-  it.each([
-    "discover",
-    "resolve_identity",
-    "research",
-    "audit_website",
-    "qualify",
-    "enrich_contact",
-    "prepare_message",
-    "validate_message",
-  ] as const)("rejects an output that does not match the %s contract", async (kind) => {
+  it.each(validJobContracts)("rejects an output that does not match the $kind contract", async ({
+    kind,
+    payload,
+  }) => {
     const leaseToken = "current-lease-token";
     const execute = vi.fn(async () => [{
       id: jobId,
@@ -217,6 +255,7 @@ describe("completeJob", () => {
       kind,
       state: "leased",
       result: null,
+      payload,
       attemptCount: 1,
       leaseExpiresAt: leaseExpiresAt.toISOString(),
       leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
@@ -228,6 +267,76 @@ describe("completeJob", () => {
         id: jobId,
         leaseToken,
         completion: { result: { kind, output: { unrelated: true } } },
+        now,
+        maxAttempts: 3,
+      },
+    )).rejects.toBeInstanceOf(JobCompletionValidationError);
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it.each(validJobContracts)("rejects a malformed $kind payload before transitioning", async ({
+    kind,
+    output,
+  }) => {
+    const leaseToken = "current-lease-token";
+    const execute = vi.fn(async () => [{
+      id: jobId,
+      runId,
+      kind,
+      state: "leased",
+      result: null,
+      payload: { unrelated: true },
+      attemptCount: 1,
+      leaseExpiresAt: leaseExpiresAt.toISOString(),
+      leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
+    }]);
+
+    await expect(completeJob(
+      { execute } as unknown as LeadHunterJobDatabase,
+      {
+        id: jobId,
+        leaseToken,
+        completion: { result: { kind, output } },
+        now,
+        maxAttempts: 3,
+      },
+    )).rejects.toBeInstanceOf(JobCompletionValidationError);
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { candidateCount: 1 },
+    { candidateCount: 1, nextCursor: { state: "initial" } },
+  ])("requires a next or exhausted cursor for source-query discovery %#", async (output) => {
+    const leaseToken = "current-lease-token";
+    const execute = vi.fn(async () => [{
+      id: jobId,
+      runId,
+      kind: "discover",
+      state: "leased",
+      result: null,
+      payload: {
+        kind: "source_query",
+        id: "query:one",
+        source: "web_search",
+        country: "AR",
+        region: null,
+        industry: null,
+        query: "distribuidores",
+        cursor: { state: "initial" },
+        geographyEvidence: null,
+      },
+      attemptCount: 1,
+      leaseExpiresAt: leaseExpiresAt.toISOString(),
+      leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
+    }]);
+
+    await expect(completeJob(
+      { execute } as unknown as LeadHunterJobDatabase,
+      {
+        id: jobId,
+        leaseToken,
+        completion: { result: { kind: "discover", output } },
         now,
         maxAttempts: 3,
       },
@@ -250,11 +359,14 @@ describe("completeJob", () => {
           result: null,
           payload: {
             kind: "source_query",
+            id: "query:one",
             source: "web_search",
             country: "AR",
             region: null,
             industry: null,
             query: "distribuidores",
+            cursor: { state: "initial" },
+            geographyEvidence: null,
           },
           attemptCount: 1,
           leaseExpiresAt: leaseExpiresAt.toISOString(),
@@ -337,6 +449,7 @@ describe("completeJob", () => {
           kind: "discover",
           state: "leased",
           result: null,
+          payload: validJobContracts[0].payload,
           attemptCount: 1,
           leaseExpiresAt: leaseExpiresAt.toISOString(),
           leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
@@ -411,14 +524,36 @@ describe("completeJob", () => {
 
 describe("database integration guard", () => {
   it.each([
-    undefined,
-    "not-a-url",
-    "mysql://user:password@localhost/kazeos_test",
-    "postgresql://user:password@localhost/kazeos_production",
-  ])("reports a safe explicit reason when TEST_DATABASE_URL is not isolated %#", (
-    value,
-  ) => {
-    const configuration = databaseTestConfiguration(value);
+    { testUrl: undefined },
+    { testUrl: "not-a-url" },
+    { testUrl: "mysql://user:password@localhost/kazeos_test" },
+    { testUrl: "postgresql://user:password@localhost/kazeos_production" },
+    { testUrl: "postgresql://user:password@localhost/kazeos_prod" },
+    { testUrl: "postgresql://user:password@localhost/kazeos_test_prod" },
+    { testUrl: "postgresql://user:password@localhost/postgres" },
+    { testUrl: "postgresql://user:password@localhost/contest" },
+    { testUrl: "postgresql://user:password@localhost/latest" },
+    { testUrl: "postgresql://user:password@localhost/testimonials" },
+    {
+      testUrl: "postgresql://user:password@localhost/kazeos_test",
+      databaseUrl: "postgresql://user:password@localhost/kazeos_test",
+      confirmation: "leadhunter-test-only",
+    },
+    {
+      testUrl: "postgresql://user:password@localhost/kazeos_test",
+      databaseUrl: "postgresql://user:password@localhost/kazeos_prod",
+      confirmation: "wrong-confirmation",
+    },
+  ])("reports a safe explicit reason when TEST_DATABASE_URL is not isolated %#", ({
+    testUrl,
+    databaseUrl = "postgresql://user:password@localhost/kazeos_prod",
+    confirmation,
+  }) => {
+    const configuration = databaseTestConfiguration(
+      testUrl,
+      databaseUrl,
+      confirmation,
+    );
 
     expect(configuration).toEqual({
       databaseUrl: undefined,
@@ -431,7 +566,11 @@ describe("database integration guard", () => {
   it("accepts only an explicit PostgreSQL test database URL", () => {
     const value = "postgresql://localhost/kazeos_test";
 
-    expect(databaseTestConfiguration(value)).toEqual({
+    expect(databaseTestConfiguration(
+      value,
+      "postgresql://localhost/kazeos_prod",
+      "leadhunter-test-only",
+    )).toEqual({
       databaseUrl: value,
       skipReason: undefined,
     });
@@ -441,7 +580,11 @@ describe("database integration guard", () => {
 const integrationDatabaseSkipReason =
   "LeadHunter PostgreSQL integration skipped: an explicit isolated TEST_DATABASE_URL is required.";
 
-function databaseTestConfiguration(value: string | undefined): {
+function databaseTestConfiguration(
+  value: string | undefined,
+  applicationDatabaseUrl: string | undefined,
+  mutationConfirmation: string | undefined,
+): {
   databaseUrl: string | undefined;
   skipReason: string | undefined;
 } {
@@ -454,9 +597,24 @@ function databaseTestConfiguration(value: string | undefined): {
 
   try {
     const url = new URL(value);
-    const databaseName = url.pathname.slice(1).toLowerCase();
+    const databaseName = decodeURIComponent(url.pathname.slice(1)).toLowerCase();
+    const hasTestToken = /(^|[_-])test($|[_-])/.test(databaseName);
+    const hasProductionToken = /(^|[_-])(main|prod|production|live)($|[_-])/
+      .test(databaseName);
+    let matchesApplicationDatabase = false;
+    if (applicationDatabaseUrl) {
+      try {
+        matchesApplicationDatabase = new URL(applicationDatabaseUrl).href
+          === url.href;
+      } catch {
+        matchesApplicationDatabase = true;
+      }
+    }
     const isolated = ["postgres:", "postgresql:"].includes(url.protocol)
-      && databaseName.includes("test");
+      && hasTestToken
+      && !hasProductionToken
+      && !matchesApplicationDatabase
+      && mutationConfirmation === "leadhunter-test-only";
     return isolated
       ? { databaseUrl: value, skipReason: undefined }
       : {
@@ -473,6 +631,8 @@ function databaseTestConfiguration(value: string | undefined): {
 
 const databaseTestConfigurationResult = databaseTestConfiguration(
   process.env.TEST_DATABASE_URL,
+  process.env.DATABASE_URL,
+  process.env.LEADHUNTER_TEST_DATABASE_CONFIRM,
 );
 const testDatabaseUrl = databaseTestConfigurationResult.databaseUrl;
 if (databaseTestConfigurationResult.skipReason) {
@@ -551,7 +711,11 @@ async function seedJobFixture(jobCount: number): Promise<JobFixture> {
     ownerId,
     runId,
     kind: "discover" as const,
-    payload: { index },
+    payload: {
+      kind: "seed_url" as const,
+      id: `seed:${index}`,
+      url: `https://example.com/${index}`,
+    },
     idempotencyKey: `${runId}:discover:${index}`,
   })));
 
@@ -592,6 +756,47 @@ describeDatabase("LeadHunter job manager database integration", () => {
       expect(first).not.toBeNull();
       expect(second).not.toBeNull();
       expect(new Set([first?.id, second?.id])).toEqual(new Set(fixture.jobIds));
+    } finally {
+      await cleanupJobFixture(fixture);
+    }
+  }, 30_000);
+
+  it("serializes concurrent terminal completions and closes the parent run", async () => {
+    const fixture = await seedJobFixture(2);
+
+    try {
+      const claimed = await Promise.all([
+        database!.transaction((transaction) => claimNextJob(transaction, {
+          now,
+          leaseDurationMs: 60_000,
+          maxAttempts: 3,
+        })),
+        database!.transaction((transaction) => claimNextJob(transaction, {
+          now,
+          leaseDurationMs: 60_000,
+          maxAttempts: 3,
+        })),
+      ]);
+      await Promise.all(claimed.map((job) => database!.transaction(
+        (transaction) => completeJob(transaction, {
+          id: job!.id,
+          leaseToken: job!.leaseToken,
+          completion: {
+            result: { kind: "discover", output: { candidateCount: 1 } },
+          },
+          now,
+          maxAttempts: 3,
+        }),
+      )));
+
+      const [run] = await database!
+        .select({ state: leadHunterRuns.state, counts: leadHunterRuns.counts })
+        .from(leadHunterRuns)
+        .where(drizzleSql`${leadHunterRuns.id} = ${fixture.runId}`);
+      expect(run).toEqual({
+        state: "completed",
+        counts: { total: 2, succeeded: 2, failed: 0 },
+      });
     } finally {
       await cleanupJobFixture(fixture);
     }

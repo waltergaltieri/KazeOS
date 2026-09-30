@@ -42,14 +42,57 @@ const sourceResultCursorSchema = z.union([
   }).strict(),
 ]);
 
+const runnableSourceCursorSchema = z.union([
+  z.object({ state: z.literal("initial") }).strict(),
+  z.object({
+    state: z.literal("next"),
+    value: z.json(),
+  }).strict(),
+]);
+
 const sourceQueryPayloadSchema = z.object({
   kind: z.literal("source_query"),
+  id: z.string().trim().min(1).max(200),
   source: leadHunterSourceSchema,
-  country: z.string().trim().min(1),
-  region: z.string().nullable(),
-  industry: z.string().nullable(),
-  query: z.string().trim().min(1),
-});
+  country: z.string().trim().min(1).max(100),
+  region: z.string().trim().min(1).max(160).nullable(),
+  industry: z.string().trim().min(1).max(160).nullable(),
+  query: z.string().trim().min(1).max(500),
+  cursor: runnableSourceCursorSchema,
+  geographyEvidence: z.null(),
+}).strict();
+
+const seedUrlPayloadSchema = z.object({
+  kind: z.literal("seed_url"),
+  id: z.string().trim().min(1).max(200),
+  url: z.string().url().max(2_048).refine(
+    (value) => /^https?:\/\//i.test(value),
+    "Seed URL must use HTTP(S)",
+  ),
+}).strict();
+
+const discoverPayloadSchema = z.discriminatedUnion("kind", [
+  sourceQueryPayloadSchema,
+  seedUrlPayloadSchema,
+]);
+const leadPayloadSchema = z.object({ leadId: z.string().uuid() }).strict();
+
+const jobPayloadSchemas = {
+  discover: discoverPayloadSchema,
+  resolve_identity: z.object({ candidateId: z.string().uuid() }).strict(),
+  research: leadPayloadSchema,
+  audit_website: z.object({
+    leadId: z.string().uuid(),
+    website: z.string().url().max(2_048).refine(
+      (value) => /^https?:\/\//i.test(value),
+      "Website must use HTTP(S)",
+    ),
+  }).strict(),
+  qualify: leadPayloadSchema,
+  enrich_contact: leadPayloadSchema,
+  prepare_message: z.object({ enrollmentId: z.string().uuid() }).strict(),
+  validate_message: z.object({ messageVersionId: z.string().uuid() }).strict(),
+};
 
 const jobResultSchemas = {
   discover: resultSchema("discover", z.object({
@@ -197,6 +240,12 @@ async function settleRun(
   now: Date,
 ) {
   await database.execute(sql`
+    select ${leadHunterRuns.id}
+    from ${leadHunterRuns}
+    where ${leadHunterRuns.id} = ${runId}
+    for update
+  `);
+  await database.execute(sql`
     update ${leadHunterRuns} as run
     set
       state = case
@@ -256,7 +305,7 @@ export async function claimNextJob(
       .filter(({ state }) => state === "failed")
       .map(({ runId }) => runId),
   );
-  for (const failedRunId of failedRunIds) {
+  for (const failedRunId of [...failedRunIds].sort()) {
     await settleRun(database, failedRunId, options.now);
   }
 
@@ -355,9 +404,23 @@ export async function completeJob(
     throw new JobCompletionRejectedError();
   }
 
+  const parsedPayload = jobPayloadSchemas[job.kind].safeParse(job.payload);
+  if (!parsedPayload.success) throw new JobCompletionValidationError();
+
   if ("result" in input.completion) {
     const parsed = jobResultSchemas[job.kind].safeParse(input.completion.result);
     if (!parsed.success) throw new JobCompletionValidationError();
+
+    if (parsed.data.kind === "discover") {
+      const discoveryPayload = discoverPayloadSchema.safeParse(job.payload);
+      if (!discoveryPayload.success) throw new JobCompletionValidationError();
+      if (
+        discoveryPayload.data.kind === "source_query"
+        && !parsed.data.output.nextCursor
+      ) {
+        throw new JobCompletionValidationError();
+      }
+    }
 
     await database.execute(sql`
       update ${leadHunterJobs}

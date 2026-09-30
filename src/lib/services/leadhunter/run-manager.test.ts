@@ -180,6 +180,58 @@ describe("planDueRuns", () => {
     }));
   });
 
+  it("completes a newly planned run immediately when all work is exhausted", async () => {
+    mocks.createSearchPlan.mockReturnValueOnce({
+      planVersion: 1,
+      campaignVersion: 4,
+      budget: {
+        maxQueries: 10,
+        plannedQueries: 0,
+        maxCandidates: 10,
+        totalQueries: 1,
+        scannedQueries: 1,
+      },
+      work: [],
+      nextPlanningCursor: { offset: 0 },
+      planHash: "empty-plan-hash",
+    });
+    const statements: string[] = [];
+    const database = {
+      execute: vi.fn(async (query: unknown) => {
+        const rendered = queryText(query).sql;
+        statements.push(rendered);
+        if (rendered.includes("from \"lh_campaigns\"")) {
+          return [{
+            ownerId,
+            campaignId,
+            campaignVersion: 4,
+            scheduledFor,
+            snapshot,
+          }];
+        }
+        if (rendered.includes("from \"lh_runs\"")) return [];
+        if (rendered.includes("insert into \"lh_runs\"")) {
+          return [{ id: runId }];
+        }
+        return [];
+      }),
+    } as unknown as LeadHunterRunDatabase;
+
+    await expect(planDueRuns(database, { now: scheduledFor })).resolves.toEqual({
+      dueCampaigns: 1,
+      createdRuns: 1,
+      createdJobs: 0,
+    });
+
+    expect(statements.some((statement) =>
+      statement.includes("insert into \"lh_jobs\""))).toBe(false);
+    expect(statements).toEqual(expect.arrayContaining([
+      expect.stringMatching(
+        /update "lh_runs"[\s\S]+state = 'completed'[\s\S]+counts = jsonb_build_object\([\s\S]+'total',[\s\S]+0/,
+      ),
+    ]));
+  });
+
   it("locks due campaigns so concurrent cron invocations do not race their slots", async () => {
     const statements: string[] = [];
     const database = {
