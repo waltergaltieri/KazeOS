@@ -24,6 +24,7 @@ import { campaignStrategySchema, type CampaignStrategy } from "@/lib/leadhunter/
 import {
   evaluateQualification,
   qualificationAssessmentEnvelopeSchema,
+  qualificationResultSchema,
   type QualificationResult,
 } from "@/lib/leadhunter/qualification";
 import {
@@ -188,24 +189,6 @@ const storedQualificationResultSchema = z.object({
     decision: z.enum(["eligible", "excluded", "needs_review", "no_email"]),
     score: z.number().int().min(0).max(100),
   }).strict(),
-}).strict();
-
-const storedQualificationDetailSchema = z.object({
-  decision: z.enum(["eligible", "excluded", "needs_review", "no_email"]),
-  commercialFit: z.number().int().min(0).max(100),
-  evidenceConfidence: z.number().int().min(0).max(100),
-  businessStrength: z.number().int().min(0).max(100),
-  contactability: z.number().int().min(0).max(100),
-  score: z.number().int().min(0).max(100),
-  gates: z.array(z.object({
-    type: z.enum(["website", "required_finding", "research_required"]),
-    key: z.string().max(200),
-    status: z.enum(["passed", "failed", "needs_review"]),
-    reason: z.string().max(500),
-    evidenceIds: z.array(z.string().uuid()).max(100),
-  }).strict()).max(50),
-  reasons: z.array(z.string().max(500)).max(100),
-  evidenceIds: z.array(z.string().uuid()).max(500),
 }).strict();
 
 function stableUuid(parts: unknown[]): string {
@@ -531,7 +514,10 @@ function evidenceBoundedChecks(
 ): WebsiteAuditCheck[] {
   return checks.map((check) => ({
     ...check,
-    confidence: Math.min(...check.evidenceIds.map((id) => evidenceById.get(id)!.confidence)),
+    confidence: Math.min(
+      check.confidence,
+      ...check.evidenceIds.map((id) => evidenceById.get(id)!.confidence),
+    ),
   }));
 }
 
@@ -683,7 +669,7 @@ export async function persistQualificationResultInTransaction(
     if (job.kind !== "qualify") throw new Error("Job is not a qualification job");
     if (job.state === "succeeded") {
       const stored = storedQualificationResultSchema.safeParse(job.result);
-      const detail = storedQualificationDetailSchema.safeParse(job.qualificationDetail);
+      const detail = qualificationResultSchema.safeParse(job.qualificationDetail);
       if (!stored.success || !detail.success) {
         throw new Error("Stored qualification result is invalid");
       }
@@ -722,7 +708,7 @@ export async function persistQualificationResultInTransaction(
     const strategy = strategyFromSnapshot(job.snapshot);
     let detail: QualificationResult;
     try {
-      detail = evaluateQualification({
+      detail = qualificationResultSchema.parse(evaluateQualification({
         gates: strategy.qualification.gates,
         rules: strategy.qualification.rules,
         researchQuestions: strategy.research.questions,
@@ -740,7 +726,7 @@ export async function persistQualificationResultInTransaction(
         assessments: envelope.data.assessments,
         websiteAudit: storedAuditForQualification(audit),
         publishedEmailConfidence: contacts[0]?.emailConfidence ?? null,
-      });
+      }));
     } catch {
       await rejectOutput(transaction, input, job, "invalid_or_unowned_assessment");
       return { status: "rejected", decision: null, score: null, detail: null };

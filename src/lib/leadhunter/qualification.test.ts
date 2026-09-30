@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { campaignStrategySchema, createDefaultCampaignStrategy } from "./contracts";
 import {
   evaluateQualification,
+  maximumQualificationEvidenceIds,
+  maximumQualificationGateResults,
+  maximumQualificationReasons,
   qualificationAssessmentEnvelopeSchema,
+  qualificationResultSchema,
   type QualificationAssessment,
   type QualificationEvidence,
   type QualificationInput,
@@ -341,5 +345,91 @@ describe("LeadHunter qualification", () => {
       { criterion: "Proceso manual", weight: 10, effect: "score" },
       { criterion: "Ya es cliente", weight: -10, effect: "exclude" },
     ]);
+  });
+
+  it("losslessly validates the maximum contract-sized qualification result", () => {
+    const questions = Array.from({ length: 100 }, (_, index) => ({
+      key: `required_${index}`,
+      prompt: `Required question ${index}`,
+      required: true,
+    }));
+    const persistedEvidence = Array.from({ length: 500 }, (_, index) => evidence(
+      `00000000-0000-5000-8000-${(index + 1).toString().padStart(12, "0")}`,
+      {
+        questionKey: `required_${Math.floor(index / 5)}`,
+        field: `required_${Math.floor(index / 5)}`,
+        value: `answer_${Math.floor(index / 5)}`,
+        confidence: 100,
+      },
+    ));
+    const result = evaluateQualification(input({
+      gates: Array.from({ length: 50 }, () => ({
+        type: "website" as const,
+        allowed: ["GOOD_ENOUGH_WEBSITE" as const],
+      })),
+      researchQuestions: questions,
+      evidence: persistedEvidence,
+      assessments: [assessment(
+        "Tiene procesos manuales",
+        "met",
+        90,
+        [persistedEvidence[0]!.id],
+      )],
+      websiteAudit: {
+        gateResult: "GOOD_ENOUGH_WEBSITE",
+        confidence: 100,
+        evidenceIds: [persistedEvidence[0]!.id],
+      },
+    }));
+
+    expect(maximumQualificationGateResults).toBe(150);
+    expect(maximumQualificationReasons).toBe(250);
+    expect(maximumQualificationEvidenceIds).toBe(500);
+    expect(result.gates).toHaveLength(maximumQualificationGateResults);
+    expect(result.evidenceIds).toHaveLength(maximumQualificationEvidenceIds);
+    expect(qualificationResultSchema.safeParse(result).success).toBe(true);
+
+    expect(qualificationResultSchema.safeParse({
+      ...result,
+      gates: [...result.gates, result.gates[0]],
+    }).success).toBe(false);
+    expect(qualificationResultSchema.safeParse({
+      ...result,
+      reasons: Array.from({ length: maximumQualificationReasons + 1 }, (_, index) => `r${index}`),
+    }).success).toBe(false);
+    const excessIds = Array.from(
+      { length: maximumQualificationEvidenceIds + 1 },
+      (_, index) => `00000000-0000-5000-8001-${index.toString().padStart(12, "0")}`,
+    );
+    expect(qualificationResultSchema.safeParse({
+      ...result,
+      evidenceIds: excessIds,
+    }).success).toBe(false);
+    expect(qualificationResultSchema.safeParse({
+      ...result,
+      gates: [{ ...result.gates[0], evidenceIds: excessIds }],
+    }).success).toBe(false);
+  });
+
+  it("rejects qualification inputs beyond their independent contract maxima", () => {
+    const websiteGate = {
+      type: "website" as const,
+      allowed: ["GOOD_ENOUGH_WEBSITE" as const],
+    };
+    expect(() => evaluateQualification(input({
+      gates: Array.from({ length: 51 }, () => websiteGate),
+    }))).toThrow();
+    expect(() => evaluateQualification(input({
+      researchQuestions: Array.from({ length: 101 }, (_, index) => ({
+        key: `required_${index}`,
+        prompt: `Required question ${index}`,
+        required: true,
+      })),
+    }))).toThrow();
+    expect(() => evaluateQualification(input({
+      evidence: Array.from({ length: 501 }, (_, index) => evidence(
+        `00000000-0000-5000-8002-${index.toString().padStart(12, "0")}`,
+      )),
+    }))).toThrow();
   });
 });

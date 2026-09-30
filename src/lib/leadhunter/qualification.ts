@@ -52,7 +52,7 @@ export const qualificationEvidenceSchema = z.object({
 const websiteAuditInputSchema = z.object({
   gateResult: websiteGateStateSchema,
   confidence: z.number().int().min(0).max(100),
-  evidenceIds: z.array(z.string().uuid()).max(100).transform(
+  evidenceIds: z.array(z.string().uuid()).max(500).transform(
     (values) => [...new Set(values)].sort(),
   ),
 }).strict();
@@ -70,25 +70,37 @@ export interface QualificationInput {
   publishedEmailConfidence: number | null;
 }
 
-export interface GateResult {
-  type: QualificationGate["type"] | "research_required";
-  key: string;
-  status: "passed" | "failed" | "needs_review";
-  reason: string;
-  evidenceIds: string[];
-}
+// Contracts permit 50 configured gates and 100 required research questions.
+// At most one assessment reason is emitted for each of 100 configured rules,
+// plus one reason for each non-passing gate. Terminal reasons are mutually
+// exclusive with those branches, so the true result maxima are 150 gates and
+// 250 reasons. Every referenced ID must come from the 500-row evidence input.
+export const maximumQualificationGateResults = 150;
+export const maximumQualificationReasons = 250;
+export const maximumQualificationEvidenceIds = 500;
 
-export interface QualificationResult {
-  decision: "eligible" | "excluded" | "needs_review" | "no_email";
-  commercialFit: number;
-  evidenceConfidence: number;
-  businessStrength: number;
-  contactability: number;
-  score: number;
-  gates: GateResult[];
-  reasons: string[];
-  evidenceIds: string[];
-}
+export const qualificationGateResultSchema = z.object({
+  type: z.enum(["website", "required_finding", "research_required"]),
+  key: z.string().max(200),
+  status: z.enum(["passed", "failed", "needs_review"]),
+  reason: z.string().max(500),
+  evidenceIds: z.array(z.string().uuid()).max(maximumQualificationEvidenceIds),
+}).strict();
+
+export const qualificationResultSchema = z.object({
+  decision: z.enum(["eligible", "excluded", "needs_review", "no_email"]),
+  commercialFit: z.number().int().min(0).max(100),
+  evidenceConfidence: z.number().int().min(0).max(100),
+  businessStrength: z.number().int().min(0).max(100),
+  contactability: z.number().int().min(0).max(100),
+  score: z.number().int().min(0).max(100),
+  gates: z.array(qualificationGateResultSchema).max(maximumQualificationGateResults),
+  reasons: z.array(z.string().max(500)).max(maximumQualificationReasons),
+  evidenceIds: z.array(z.string().uuid()).max(maximumQualificationEvidenceIds),
+}).strict();
+
+export type GateResult = z.infer<typeof qualificationGateResultSchema>;
+export type QualificationResult = z.infer<typeof qualificationResultSchema>;
 
 interface EffectiveAssessment extends QualificationAssessment {
   effectiveConfidence: number;
@@ -378,7 +390,7 @@ export function evaluateQualification(rawInput: QualificationInput): Qualificati
     ...(websiteAudit?.evidenceIds ?? []),
   ])].sort();
 
-  return {
+  return qualificationResultSchema.parse({
     decision,
     commercialFit,
     evidenceConfidence,
@@ -388,5 +400,5 @@ export function evaluateQualification(rawInput: QualificationInput): Qualificati
     gates: gateResults,
     reasons,
     evidenceIds: usedEvidenceIds,
-  };
+  });
 }

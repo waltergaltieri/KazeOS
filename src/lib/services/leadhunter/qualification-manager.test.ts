@@ -136,6 +136,43 @@ function evidenceRow(id = evidenceId, overrides: Record<string, unknown> = {}) {
   };
 }
 
+function maximumStrategy() {
+  const base = strategy();
+  return {
+    ...base,
+    research: {
+      questions: Array.from({ length: 100 }, (_, index) => ({
+        key: `required_${index}`,
+        prompt: `Required question ${index}`,
+        required: true,
+      })),
+    },
+    qualification: {
+      gates: Array.from({ length: 50 }, () => ({
+        type: "website" as const,
+        allowed: ["NO_WEBSITE" as const],
+      })),
+      rules: Array.from({ length: 100 }, (_, index) => ({
+        criterion: `Exclude ${index}`,
+        weight: -1,
+        effect: "exclude" as const,
+      })),
+    },
+  };
+}
+
+function maximumEvidenceRows() {
+  return Array.from({ length: 500 }, (_, index) => evidenceRow(
+    `00000000-0000-5000-8000-${(index + 1).toString().padStart(12, "0")}`,
+    {
+      questionKey: index < 400 ? `required_${Math.floor(index / 4)}` : null,
+      field: index < 400 ? `required_${Math.floor(index / 4)}` : `exclusion_${index - 400}`,
+      value: index < 400 ? `conflicting_answer_${index}` : "Verified exclusion",
+      confidence: 100,
+    },
+  ));
+}
+
 function auditCheck(
   key: string,
   outcome: "pass" | "fail",
@@ -339,6 +376,48 @@ describe("LeadHunter qualification manager", () => {
     ] }));
 
     expect(result).toMatchObject({ status: "processed", gateResult: "UNVERIFIED" });
+  });
+
+  it("also lets the worker confidence cap stronger persisted evidence", async () => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      const context = lockedContextResult(rendered.sql, lockedJob("audit_website", {
+        payload: { leadId, website: "https://example.com" },
+      }));
+      if (context) return context;
+      if (rendered.sql.includes('from "lh_evidence"')) {
+        return [
+          evidenceRow(evidenceId, {
+            questionKey: "digital_presence",
+            field: "website.page_integrity",
+            confidence: 95,
+          }),
+          evidenceRow(secondEvidenceId, {
+            questionKey: "digital_presence",
+            field: "website.critical_content",
+            sourceType: "website_scan",
+            confidence: 95,
+          }),
+        ];
+      }
+      if (rendered.sql.includes('insert into "lh_website_audits"')) return [{ id: auditId }];
+      return [];
+    });
+    const { value } = database(execute);
+
+    const result = await persistWebsiteAuditResult(value, input({ checks: [
+      auditCheck("page_integrity", "fail", evidenceId, { confidence: 20 }),
+      auditCheck("critical_content", "fail", secondEvidenceId, {
+        confidence: 95,
+        source: { sourceType: "website_scan", sourceUrl: "https://example.com/about" },
+      }),
+    ] }));
+
+    expect(result).toMatchObject({ status: "processed", gateResult: "UNVERIFIED" });
+    const insert = statements.find(({ sql }) => sql.includes('insert into "lh_website_audits"'));
+    expect(insert?.params).toContain(58);
   });
 
   it("does not bind present-site observations to a different origin", async () => {
@@ -564,6 +643,88 @@ describe("LeadHunter qualification manager", () => {
         businessStrength: 40,
       },
     });
+  });
+
+  it("persists and replays the maximum valid detail without losing gates or evidence", async () => {
+    let completed = false;
+    let qualificationDetail: unknown = null;
+    let storedResult: unknown = null;
+    const rows = maximumEvidenceRows();
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      const job = lockedJob("qualify", {
+        state: completed ? "succeeded" : "leased",
+        snapshot: { strategy: maximumStrategy() },
+        qualificationDetail,
+        result: storedResult,
+      });
+      const context = lockedContextResult(rendered.sql, job);
+      if (context) return context;
+      if (rendered.sql.includes('from "lh_website_audits"')) {
+        return [{
+          id: auditId,
+          gateResult: "GOOD_ENOUGH_WEBSITE",
+          checks: [],
+          summary: "Verified website",
+          confidence: 100,
+          evidenceIds: [rows[0]!.id],
+        }];
+      }
+      if (rendered.sql.includes('from "lh_evidence"')) return rows;
+      if (rendered.sql.includes('from "lh_contacts"')) return [{ emailConfidence: 100 }];
+      if (rendered.sql.includes('update "lh_enrollments"')) {
+        const detailJson = rendered.params.find((value) => (
+          typeof value === "string" && value.includes('"commercialFit"')
+        ));
+        qualificationDetail = JSON.parse(String(detailJson));
+      }
+      if (
+        rendered.sql.includes('update "lh_jobs"')
+        && rendered.sql.includes("state = 'succeeded'")
+      ) {
+        storedResult = JSON.parse(String(rendered.params[0]));
+        completed = true;
+      }
+      return [];
+    });
+    const { value } = database(execute);
+
+    const assessments = Array.from({ length: 100 }, (_, index) => ({
+      criterion: `Exclude ${index}`,
+      outcome: "met" as const,
+      confidence: 100,
+      evidenceIds: [rows[index + 400]!.id],
+    }));
+    const first = await persistQualificationResult(value, input({ assessments }));
+    const retry = await persistQualificationResult(value, input({ assessments }));
+
+    expect(first).toMatchObject({ status: "processed", decision: "excluded" });
+    expect(first.detail?.gates).toHaveLength(150);
+    expect(first.detail?.reasons).toHaveLength(250);
+    expect(first.detail?.evidenceIds).toHaveLength(500);
+    expect(retry).toEqual({ ...first, status: "already_processed" });
+  });
+
+  it("durably rejects an assessment envelope beyond its maximum before enrollment writes", async () => {
+    const statements: string[] = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered.sql);
+      const context = lockedContextResult(rendered.sql, lockedJob("qualify"));
+      if (context) return context;
+      return [];
+    });
+    const { value } = database(execute);
+    const assessments = Array.from({ length: 101 }, (_, index) => ({
+      criterion: `Criterion ${index}`,
+      outcome: "met" as const,
+      confidence: 100,
+      evidenceIds: [evidenceId],
+    }));
+
+    await expect(persistQualificationResult(value, input({ assessments })))
+      .resolves.toMatchObject({ status: "rejected" });
+    expect(statements.some((sql) => sql.includes('update "lh_enrollments"'))).toBe(false);
   });
 
   it("rejects a stale campaign version before applying a valid assessment", async () => {
