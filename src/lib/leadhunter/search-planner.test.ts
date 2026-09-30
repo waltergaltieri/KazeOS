@@ -6,7 +6,15 @@ import { createSearchPlan } from "./search-planner";
 import type {
   SourceDiscoveryPage,
   SourceQueryCursor,
+  SourceQueryWorkItem,
 } from "./sources/contracts";
+
+type ExhaustedCursorIsNotRunnable = Extract<
+  SourceQueryWorkItem["cursor"],
+  { state: "exhausted" }
+> extends never ? true : false;
+
+const exhaustedCursorIsNotRunnable: ExhaustedCursorIsNotRunnable = true;
 
 const campaignSnapshot = {
   objective: "Encontrar distribuidores con venta mayorista.",
@@ -124,6 +132,8 @@ describe("LeadHunter search planner", () => {
       maxQueries: 3,
       plannedQueries: 3,
       maxCandidates: 30,
+      totalQueries: 4,
+      scannedQueries: 3,
     });
   });
 
@@ -328,6 +338,55 @@ describe("LeadHunter search planner", () => {
       .toEqual([completeWork[1]!.id]);
   });
 
+  it("bounds exhausted scans and advances across the range on later runs", () => {
+    const rangedCampaign: LeadHunterCampaignSnapshot = structuredClone(campaignSnapshot);
+    rangedCampaign.strategy.discovery.sources = ["web_search"];
+    rangedCampaign.strategy.discovery.queries = Array.from(
+      { length: 8 },
+      (_value, index) => `Consulta ${index}`,
+    );
+    const exhaustedCursors: SourceQueryCursor[] = Array.from(
+      { length: 5 },
+      (_value, index) => ({
+        source: "web_search",
+        country: "AR",
+        region: "Buenos Aires",
+        industry: "Distribución mayorista",
+        query: `Consulta ${index}`,
+        cursor: { state: "exhausted" },
+      }),
+    );
+
+    const first = createSearchPlan({
+      campaignVersion: 7,
+      campaign: rangedCampaign,
+      maxQueries: 1,
+      previousCursors: exhaustedCursors,
+    });
+
+    expect(sourceQueries(first)).toEqual([]);
+    expect(first.budget).toMatchObject({
+      plannedQueries: 0,
+      scannedQueries: 4,
+      totalQueries: 8,
+    });
+    expect(first.nextPlanningCursor).toEqual({ offset: 4 });
+
+    const second = createSearchPlan({
+      campaignVersion: 7,
+      campaign: rangedCampaign,
+      maxQueries: 1,
+      previousCursors: exhaustedCursors,
+      planningCursor: first.nextPlanningCursor,
+    });
+
+    expect(sourceQueries(second)).toEqual([
+      expect.objectContaining({ query: "Consulta 5" }),
+    ]);
+    expect(second.budget.scannedQueries).toBe(2);
+    expect(second.nextPlanningCursor).toEqual({ offset: 6 });
+  });
+
   it("does not reschedule an exhausted source query", () => {
     const previousCursors: SourceQueryCursor[] = [
       {
@@ -370,6 +429,7 @@ describe("LeadHunter search planner", () => {
     } satisfies SourceDiscoveryPage;
 
     expect(page.nextCursor).toEqual({ state: "exhausted" });
+    expect(exhaustedCursorIsNotRunnable).toBe(true);
   });
 
   it("deep-clones cursor input and keeps the recorded hash stable", () => {
@@ -501,5 +561,64 @@ describe("LeadHunter search planner", () => {
       maxQueries: 10,
       planningCursor: { offset },
     })).toThrow(/planningCursor/);
+  });
+
+  it("plans maximum-size discovery dimensions without materializing combinations", () => {
+    const maximumCampaign: LeadHunterCampaignSnapshot = structuredClone(campaignSnapshot);
+    maximumCampaign.strategy.discovery = {
+      sources: [
+        "web_search",
+        "directories",
+        "instagram",
+        "linkedin",
+        "csv",
+        "manual",
+      ],
+      countries: Array.from(
+        { length: 20 },
+        (_value, index) => `A${String.fromCharCode(65 + index)}`,
+      ),
+      regions: Array.from(
+        { length: 100 },
+        (_value, index) => `Región ${index}`,
+      ),
+      industries: Array.from(
+        { length: 100 },
+        (_value, index) => `Industria ${index}`,
+      ),
+      queries: Array.from(
+        { length: 200 },
+        (_value, index) => `Consulta ${index}`,
+      ),
+      seedUrls: campaignSnapshot.strategy.discovery.seedUrls,
+    };
+
+    const zeroBudget = createSearchPlan({
+      campaignVersion: 7,
+      campaign: maximumCampaign,
+      maxQueries: 0,
+      planningCursor: { offset: 123_456 },
+    });
+
+    expect(sourceQueries(zeroBudget)).toHaveLength(0);
+    expect(zeroBudget.budget).toMatchObject({
+      maxQueries: 0,
+      plannedQueries: 0,
+      scannedQueries: 0,
+      totalQueries: 240_000_000,
+    });
+    expect(zeroBudget.nextPlanningCursor).toEqual({ offset: 123_456 });
+    expect(zeroBudget.work.filter((work) => work.kind === "seed_url")).toHaveLength(2);
+
+    const smallBudget = createSearchPlan({
+      campaignVersion: 7,
+      campaign: maximumCampaign,
+      maxQueries: 2,
+      planningCursor: { offset: 239_999_999 },
+    });
+
+    expect(sourceQueries(smallBudget)).toHaveLength(2);
+    expect(smallBudget.budget.scannedQueries).toBe(2);
+    expect(smallBudget.nextPlanningCursor).toEqual({ offset: 1 });
   });
 });

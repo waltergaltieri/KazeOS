@@ -23,10 +23,11 @@ export interface ExhaustedSourceCursor {
   state: "exhausted";
 }
 
-export type SourceCursor =
+export type RunnableSourceCursor =
   | InitialSourceCursor
-  | NextSourceCursor
-  | ExhaustedSourceCursor;
+  | NextSourceCursor;
+
+export type SourceCursor = RunnableSourceCursor | ExhaustedSourceCursor;
 
 export type SourceResultCursor = NextSourceCursor | ExhaustedSourceCursor;
 
@@ -56,7 +57,7 @@ export interface SourceQueryWorkItem {
   region: string | null;
   industry: string | null;
   query: string;
-  cursor: SourceCursor;
+  cursor: RunnableSourceCursor;
   geographyEvidence: null;
 }
 
@@ -72,6 +73,8 @@ export interface SearchPlanBudget {
   maxQueries: number;
   plannedQueries: number;
   maxCandidates: number;
+  totalQueries: number;
+  scannedQueries: number;
 }
 
 export interface SearchPlanningCursor {

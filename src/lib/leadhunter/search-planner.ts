@@ -205,6 +205,45 @@ function seedUrlWork(seedUrls: string[]): SeedUrlWorkItem[] {
   });
 }
 
+const scanMultiplier = 4;
+const maximumScanBudget = 10_000;
+
+function combinationCount(dimensions: number[]): number {
+  const total = dimensions.reduce((product, length) => product * length, 1);
+  if (!Number.isSafeInteger(total)) {
+    throw new RangeError("Search plan combination count exceeds the safe integer range");
+  }
+  return total;
+}
+
+function combinationAt(
+  flatIndex: number,
+  dimensions: {
+    sources: LeadHunterSource[];
+    countries: string[];
+    regions: (string | null)[];
+    industries: (string | null)[];
+    queries: string[];
+  },
+) {
+  let remainder = flatIndex;
+  const query = dimensions.queries[remainder % dimensions.queries.length]!;
+  remainder = Math.floor(remainder / dimensions.queries.length);
+  const industry = dimensions.industries[
+    remainder % dimensions.industries.length
+  ]!;
+  remainder = Math.floor(remainder / dimensions.industries.length);
+  const region = dimensions.regions[remainder % dimensions.regions.length]!;
+  remainder = Math.floor(remainder / dimensions.regions.length);
+  const country = dimensions.countries[
+    remainder % dimensions.countries.length
+  ]!;
+  remainder = Math.floor(remainder / dimensions.countries.length);
+  const source = dimensions.sources[remainder % dimensions.sources.length]!;
+
+  return { source, country, region, industry, query };
+}
+
 export function createSearchPlan({
   campaignVersion,
   campaign,
@@ -239,54 +278,51 @@ export function createSearchPlan({
   const regionValues = regions.length > 0 ? regions : [null];
   const industryValues = industries.length > 0 ? industries : [null];
   const cursors = previousCursorMap(previousCursors);
-  const candidateWork: SourceQueryWorkItem[] = [];
-
-  for (const source of sources) {
-    for (const country of countries) {
-      for (const region of regionValues) {
-        for (const industry of industryValues) {
-          for (const query of queries) {
-            const identity = sourceQueryIdentity({
-              source,
-              country,
-              region,
-              industry,
-              query,
-            });
-            const cursor = cursors.get(identity) ?? { state: "initial" };
-
-            candidateWork.push({
-              kind: "source_query",
-              id: `query:${hash(identity)}`,
-              source,
-              country,
-              region,
-              industry,
-              query,
-              cursor,
-              geographyEvidence: null,
-            });
-          }
-        }
-      }
-    }
-  }
+  const dimensions = {
+    sources,
+    countries,
+    regions: regionValues,
+    industries: industryValues,
+    queries,
+  };
+  const totalQueries = combinationCount([
+    sources.length,
+    countries.length,
+    regionValues.length,
+    industryValues.length,
+    queries.length,
+  ]);
 
   const generatedWork: SourceQueryWorkItem[] = [];
-  const startOffset = candidateWork.length === 0
+  const startOffset = totalQueries === 0
     ? 0
-    : planningCursor.offset % candidateWork.length;
+    : planningCursor.offset % totalQueries;
   let nextOffset = startOffset;
   let scannedWork = 0;
+  const scanBudget = Math.min(
+    totalQueries,
+    maxQueries * scanMultiplier,
+    maximumScanBudget,
+  );
 
   while (
     generatedWork.length < maxQueries
-    && scannedWork < candidateWork.length
+    && scannedWork < scanBudget
   ) {
-    const work = candidateWork[nextOffset]!;
-    nextOffset = (nextOffset + 1) % candidateWork.length;
+    const combination = combinationAt(nextOffset, dimensions);
+    const identity = sourceQueryIdentity(combination);
+    const cursor = cursors.get(identity) ?? { state: "initial" };
+    nextOffset = (nextOffset + 1) % totalQueries;
     scannedWork += 1;
-    if (work.cursor.state !== "exhausted") generatedWork.push(work);
+    if (cursor.state === "exhausted") continue;
+
+    generatedWork.push({
+      kind: "source_query",
+      id: `query:${hash(identity)}`,
+      ...combination,
+      cursor,
+      geographyEvidence: null,
+    });
   }
 
   const planWithoutHash = {
@@ -296,6 +332,8 @@ export function createSearchPlan({
       maxQueries,
       plannedQueries: generatedWork.length,
       maxCandidates: campaign.dailyLeadLimit,
+      totalQueries,
+      scannedQueries: scannedWork,
     },
     work: [
       ...generatedWork,
