@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   foreignKey,
   index,
@@ -71,6 +72,50 @@ export const leadHunterActorTypeEnum = pgEnum("lh_actor_type", [
   "human",
   "system",
   "agent",
+]);
+
+export const leadHunterRunStateEnum = pgEnum("lh_run_state", [
+  "planned",
+  "running",
+  "completed",
+  "partial",
+  "failed",
+  "cancelled",
+]);
+
+export const leadHunterJobStateEnum = pgEnum("lh_job_state", [
+  "queued",
+  "leased",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+export const leadHunterJobKindEnum = pgEnum("lh_job_kind", [
+  "discover",
+  "resolve_identity",
+  "research",
+  "audit_website",
+  "qualify",
+  "enrich_contact",
+  "prepare_message",
+  "validate_message",
+]);
+
+export const leadHunterMessageStateEnum = pgEnum("lh_message_state", [
+  "draft",
+  "valid",
+  "invalid",
+  "superseded",
+]);
+
+export const leadHunterOutboxStateEnum = pgEnum("lh_outbox_state", [
+  "queued",
+  "leased",
+  "provider_accepted",
+  "failed",
+  "unknown",
+  "cancelled",
 ]);
 
 export interface LeadHunterSequenceStep {
@@ -180,6 +225,58 @@ export const leadHunterCampaignVersions = pgTable(
   ],
 ).enableRLS();
 
+export const leadHunterRuns = pgTable(
+  "lh_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: ownerIdColumn(),
+    campaignId: uuid("campaign_id").notNull(),
+    campaignVersion: integer("campaign_version").notNull(),
+    plan: jsonb("plan").$type<Record<string, unknown>>().notNull(),
+    cursor: jsonb("cursor")
+      .$type<Record<string, unknown>>()
+      .default(sql`'{}'::jsonb`)
+      .notNull(),
+    state: leadHunterRunStateEnum("state").default("planned").notNull(),
+    counts: jsonb("counts")
+      .$type<Record<string, number>>()
+      .default(sql`'{}'::jsonb`)
+      .notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "date" }),
+    finishedAt: timestamp("finished_at", { withTimezone: true, mode: "date" }),
+    ...auditColumns(),
+  },
+  (table) => [
+    check("lh_runs_campaign_version_positive", sql`${table.campaignVersion} > 0`),
+    check("lh_runs_plan_object", sql`jsonb_typeof(${table.plan}) = 'object'`),
+    check("lh_runs_cursor_object", sql`jsonb_typeof(${table.cursor}) = 'object'`),
+    check("lh_runs_counts_object", sql`jsonb_typeof(${table.counts}) = 'object'`),
+    check(
+      "lh_runs_finished_after_started",
+      sql`${table.finishedAt} is null or ${table.startedAt} is null or ${table.finishedAt} >= ${table.startedAt}`,
+    ),
+    unique("lh_runs_owner_id_id_unique").on(table.ownerId, table.id),
+    foreignKey({
+      name: "lh_runs_owner_campaign_version_campaign_versions_owner_campaign_version_fk",
+      columns: [table.ownerId, table.campaignId, table.campaignVersion],
+      foreignColumns: [
+        leadHunterCampaignVersions.ownerId,
+        leadHunterCampaignVersions.campaignId,
+        leadHunterCampaignVersions.version,
+      ],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    index("lh_runs_owner_campaign_created_idx").on(
+      table.ownerId,
+      table.campaignId,
+      table.createdAt,
+    ),
+    index("lh_runs_owner_state_idx").on(table.ownerId, table.state),
+    ...backendPolicies("lh_runs", table.ownerId),
+  ],
+).enableRLS();
+
 export const leadHunterLeads = pgTable(
   "lh_leads",
   {
@@ -230,9 +327,17 @@ export const leadHunterContacts = pgTable(
     normalizedEmail: text("normalized_email"),
     phone: text("phone"),
     sourceUrl: text("source_url"),
+    emailConfidence: smallint("email_confidence"),
+    sourceType: text("source_type"),
+    isPrimary: boolean("is_primary").default(false).notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true, mode: "date" }),
     ...auditColumns(),
   },
   (table) => [
+    check(
+      "lh_contacts_email_confidence_range",
+      sql`${table.emailConfidence} is null or ${table.emailConfidence} between 0 and 100`,
+    ),
     unique("lh_contacts_owner_id_id_unique").on(table.ownerId, table.id),
     foreignKey({
       name: "lh_contacts_owner_lead_leads_owner_id_id_fk",
@@ -245,6 +350,9 @@ export const leadHunterContacts = pgTable(
     uniqueIndex("lh_contacts_owner_email_unique")
       .on(table.ownerId, table.normalizedEmail)
       .where(sql`${table.normalizedEmail} is not null`),
+    uniqueIndex("lh_contacts_one_primary_per_lead_unique")
+      .on(table.ownerId, table.leadId)
+      .where(sql`${table.isPrimary} = true`),
     ...backendPolicies("lh_contacts", table.ownerId),
   ],
 ).enableRLS();
@@ -255,11 +363,15 @@ export const leadHunterEvidence = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     ownerId: ownerIdColumn(),
     leadId: uuid("lead_id").notNull(),
+    runId: uuid("run_id"),
+    campaignId: uuid("campaign_id"),
     kind: leadHunterEvidenceKindEnum("kind").notNull(),
     sourceType: text("source_type").notNull(),
     sourceUrl: text("source_url"),
     field: text("field").notNull(),
     value: text("value").notNull(),
+    extract: text("extract"),
+    contentHash: text("content_hash"),
     confidence: smallint("confidence").notNull(),
     observedAt: timestamp("observed_at", { withTimezone: true, mode: "date" })
       .defaultNow()
@@ -269,6 +381,10 @@ export const leadHunterEvidence = pgTable(
   (table) => [
     check("lh_evidence_field_not_blank", sql`btrim(${table.field}) <> ''`),
     check("lh_evidence_value_not_blank", sql`btrim(${table.value}) <> ''`),
+    check(
+      "lh_evidence_content_hash_not_blank",
+      sql`${table.contentHash} is null or btrim(${table.contentHash}) <> ''`,
+    ),
     check("lh_evidence_confidence_range", sql`${table.confidence} between 0 and 100`),
     unique("lh_evidence_owner_id_id_unique").on(table.ownerId, table.id),
     foreignKey({
@@ -278,7 +394,23 @@ export const leadHunterEvidence = pgTable(
     })
       .onDelete("cascade")
       .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_evidence_owner_run_runs_owner_id_id_fk",
+      columns: [table.ownerId, table.runId],
+      foreignColumns: [leadHunterRuns.ownerId, leadHunterRuns.id],
+    })
+      .onDelete("restrict")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_evidence_owner_campaign_campaigns_owner_id_id_fk",
+      columns: [table.ownerId, table.campaignId],
+      foreignColumns: [leadHunterCampaigns.ownerId, leadHunterCampaigns.id],
+    })
+      .onDelete("restrict")
+      .onUpdate("cascade"),
     index("lh_evidence_owner_lead_idx").on(table.ownerId, table.leadId),
+    index("lh_evidence_owner_run_idx").on(table.ownerId, table.runId),
+    index("lh_evidence_owner_campaign_idx").on(table.ownerId, table.campaignId),
     ...backendPolicies("lh_evidence", table.ownerId),
   ],
 ).enableRLS();
@@ -295,6 +427,9 @@ export const leadHunterEnrollments = pgTable(
     status: leadHunterEnrollmentStatusEnum("status").default("researching").notNull(),
     score: smallint("score"),
     reason: text("reason"),
+    qualificationDetail: jsonb("qualification_detail").$type<Record<string, unknown>>(),
+    researchSummary: jsonb("research_summary").$type<Record<string, unknown>>(),
+    messageVersionId: uuid("message_version_id"),
     nextActionAt: timestamp("next_action_at", { withTimezone: true, mode: "date" }),
     ...auditColumns(),
   },
@@ -373,5 +508,399 @@ export const leadHunterActivities = pgTable(
       table.occurredAt,
     ),
     ...backendPolicies("lh_activity", table.ownerId),
+  ],
+).enableRLS();
+
+export const leadHunterJobs = pgTable(
+  "lh_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: ownerIdColumn(),
+    runId: uuid("run_id").notNull(),
+    enrollmentId: uuid("enrollment_id"),
+    leadId: uuid("lead_id"),
+    kind: leadHunterJobKindEnum("kind").notNull(),
+    state: leadHunterJobStateEnum("state").default("queued").notNull(),
+    payload: jsonb("payload")
+      .$type<Record<string, unknown>>()
+      .default(sql`'{}'::jsonb`)
+      .notNull(),
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    lastError: text("last_error"),
+    ...auditColumns(),
+  },
+  (table) => [
+    check("lh_jobs_attempt_count_non_negative", sql`${table.attemptCount} >= 0`),
+    check("lh_jobs_idempotency_key_not_blank", sql`btrim(${table.idempotencyKey}) <> ''`),
+    check(
+      "lh_jobs_lease_consistency",
+      sql`${table.state} <> 'leased' or (${table.leaseOwner} is not null and ${table.leaseExpiresAt} is not null)`,
+    ),
+    unique("lh_jobs_owner_id_id_unique").on(table.ownerId, table.id),
+    unique("lh_jobs_owner_idempotency_key_unique").on(
+      table.ownerId,
+      table.idempotencyKey,
+    ),
+    foreignKey({
+      name: "lh_jobs_owner_run_runs_owner_id_id_fk",
+      columns: [table.ownerId, table.runId],
+      foreignColumns: [leadHunterRuns.ownerId, leadHunterRuns.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_jobs_owner_enrollment_enrollments_owner_id_id_fk",
+      columns: [table.ownerId, table.enrollmentId],
+      foreignColumns: [leadHunterEnrollments.ownerId, leadHunterEnrollments.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_jobs_owner_lead_leads_owner_id_id_fk",
+      columns: [table.ownerId, table.leadId],
+      foreignColumns: [leadHunterLeads.ownerId, leadHunterLeads.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    index("lh_jobs_owner_run_idx").on(table.ownerId, table.runId),
+    index("lh_jobs_owner_enrollment_idx").on(table.ownerId, table.enrollmentId),
+    index("lh_jobs_owner_lead_idx").on(table.ownerId, table.leadId),
+    index("lh_jobs_claimable_idx")
+      .on(table.ownerId, table.state, table.leaseExpiresAt, table.createdAt)
+      .where(sql`${table.state} in ('queued', 'leased')`),
+    ...backendPolicies("lh_jobs", table.ownerId),
+  ],
+).enableRLS();
+
+export const leadHunterSourceCandidates = pgTable(
+  "lh_source_candidates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: ownerIdColumn(),
+    runId: uuid("run_id").notNull(),
+    sourceType: text("source_type").notNull(),
+    sourceIdentity: text("source_identity").notNull(),
+    query: text("query").notNull(),
+    rawRecord: jsonb("raw_record").$type<Record<string, unknown>>().notNull(),
+    canonicalUrl: text("canonical_url"),
+    resolutionState: text("resolution_state").default("pending").notNull(),
+    leadId: uuid("lead_id"),
+    discoveredAt: timestamp("discovered_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+    ...auditColumns(),
+  },
+  (table) => [
+    check("lh_source_candidates_source_type_not_blank", sql`btrim(${table.sourceType}) <> ''`),
+    check(
+      "lh_source_candidates_source_identity_not_blank",
+      sql`btrim(${table.sourceIdentity}) <> ''`,
+    ),
+    check("lh_source_candidates_query_not_blank", sql`btrim(${table.query}) <> ''`),
+    check(
+      "lh_source_candidates_resolution_state_valid",
+      sql`${table.resolutionState} in ('pending', 'resolved', 'duplicate', 'needs_review', 'rejected')`,
+    ),
+    unique("lh_source_candidates_owner_id_id_unique").on(table.ownerId, table.id),
+    unique("lh_source_candidates_source_identity_unique").on(
+      table.ownerId,
+      table.runId,
+      table.sourceType,
+      table.sourceIdentity,
+    ),
+    foreignKey({
+      name: "lh_source_candidates_owner_run_runs_owner_id_id_fk",
+      columns: [table.ownerId, table.runId],
+      foreignColumns: [leadHunterRuns.ownerId, leadHunterRuns.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_source_candidates_owner_lead_leads_owner_id_id_fk",
+      columns: [table.ownerId, table.leadId],
+      foreignColumns: [leadHunterLeads.ownerId, leadHunterLeads.id],
+    })
+      .onDelete("restrict")
+      .onUpdate("cascade"),
+    index("lh_source_candidates_owner_run_resolution_idx").on(
+      table.ownerId,
+      table.runId,
+      table.resolutionState,
+    ),
+    index("lh_source_candidates_owner_lead_idx").on(table.ownerId, table.leadId),
+    ...backendPolicies("lh_source_candidates", table.ownerId),
+  ],
+).enableRLS();
+
+export const leadHunterWebsiteAudits = pgTable(
+  "lh_website_audits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: ownerIdColumn(),
+    runId: uuid("run_id").notNull(),
+    enrollmentId: uuid("enrollment_id").notNull(),
+    leadId: uuid("lead_id").notNull(),
+    gateResult: text("gate_result").notNull(),
+    checks: jsonb("checks").$type<Record<string, unknown>[]>().notNull(),
+    summary: text("summary").notNull(),
+    confidence: smallint("confidence").notNull(),
+    evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull(),
+    ...auditColumns(),
+  },
+  (table) => [
+    check(
+      "lh_website_audits_gate_result_valid",
+      sql`${table.gateResult} in ('NO_WEBSITE', 'BAD_WEBSITE', 'GOOD_ENOUGH_WEBSITE', 'UNVERIFIED')`,
+    ),
+    check("lh_website_audits_summary_not_blank", sql`btrim(${table.summary}) <> ''`),
+    check("lh_website_audits_confidence_range", sql`${table.confidence} between 0 and 100`),
+    unique("lh_website_audits_owner_id_id_unique").on(table.ownerId, table.id),
+    unique("lh_website_audits_run_enrollment_unique").on(
+      table.ownerId,
+      table.runId,
+      table.enrollmentId,
+    ),
+    foreignKey({
+      name: "lh_website_audits_owner_run_runs_owner_id_id_fk",
+      columns: [table.ownerId, table.runId],
+      foreignColumns: [leadHunterRuns.ownerId, leadHunterRuns.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_website_audits_owner_enrollment_enrollments_owner_id_id_fk",
+      columns: [table.ownerId, table.enrollmentId],
+      foreignColumns: [leadHunterEnrollments.ownerId, leadHunterEnrollments.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_website_audits_owner_lead_leads_owner_id_id_fk",
+      columns: [table.ownerId, table.leadId],
+      foreignColumns: [leadHunterLeads.ownerId, leadHunterLeads.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    index("lh_website_audits_owner_enrollment_idx").on(
+      table.ownerId,
+      table.enrollmentId,
+    ),
+    index("lh_website_audits_owner_lead_idx").on(table.ownerId, table.leadId),
+    ...backendPolicies("lh_website_audits", table.ownerId),
+  ],
+).enableRLS();
+
+export const leadHunterMessageBriefs = pgTable(
+  "lh_message_briefs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: ownerIdColumn(),
+    enrollmentId: uuid("enrollment_id").notNull(),
+    contactId: uuid("contact_id").notNull(),
+    campaignId: uuid("campaign_id").notNull(),
+    campaignVersion: integer("campaign_version").notNull(),
+    brief: jsonb("brief").$type<Record<string, unknown>>().notNull(),
+    evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull(),
+    ...auditColumns(),
+  },
+  (table) => [
+    check(
+      "lh_message_briefs_campaign_version_positive",
+      sql`${table.campaignVersion} > 0`,
+    ),
+    check("lh_message_briefs_brief_object", sql`jsonb_typeof(${table.brief}) = 'object'`),
+    unique("lh_message_briefs_owner_id_id_unique").on(table.ownerId, table.id),
+    unique("lh_message_briefs_owner_id_enrollment_unique").on(
+      table.ownerId,
+      table.id,
+      table.enrollmentId,
+    ),
+    unique("lh_message_briefs_enrollment_version_unique").on(
+      table.ownerId,
+      table.enrollmentId,
+      table.campaignVersion,
+    ),
+    foreignKey({
+      name: "lh_message_briefs_owner_enrollment_enrollments_owner_id_id_fk",
+      columns: [table.ownerId, table.enrollmentId],
+      foreignColumns: [leadHunterEnrollments.ownerId, leadHunterEnrollments.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_message_briefs_owner_contact_contacts_owner_id_id_fk",
+      columns: [table.ownerId, table.contactId],
+      foreignColumns: [leadHunterContacts.ownerId, leadHunterContacts.id],
+    })
+      .onDelete("restrict")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_message_briefs_owner_campaign_version_campaign_versions_owner_campaign_version_fk",
+      columns: [table.ownerId, table.campaignId, table.campaignVersion],
+      foreignColumns: [
+        leadHunterCampaignVersions.ownerId,
+        leadHunterCampaignVersions.campaignId,
+        leadHunterCampaignVersions.version,
+      ],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    index("lh_message_briefs_owner_enrollment_idx").on(
+      table.ownerId,
+      table.enrollmentId,
+    ),
+    index("lh_message_briefs_owner_contact_idx").on(table.ownerId, table.contactId),
+    ...backendPolicies("lh_message_briefs", table.ownerId),
+  ],
+).enableRLS();
+
+export const leadHunterMessageVersions = pgTable(
+  "lh_message_versions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: ownerIdColumn(),
+    briefId: uuid("brief_id").notNull(),
+    enrollmentId: uuid("enrollment_id").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    state: leadHunterMessageStateEnum("state").default("draft").notNull(),
+    validationResult: jsonb("validation_result").$type<Record<string, unknown>>(),
+    modelMetadata: jsonb("model_metadata").$type<Record<string, unknown>>(),
+    supersedesMessageVersionId: uuid("supersedes_message_version_id"),
+    ...auditColumns(),
+  },
+  (table) => [
+    check("lh_message_versions_subject_not_blank", sql`btrim(${table.subject}) <> ''`),
+    check("lh_message_versions_body_not_blank", sql`btrim(${table.body}) <> ''`),
+    check(
+      "lh_message_versions_validation_consistency",
+      sql`${table.state} not in ('valid', 'invalid') or ${table.validationResult} is not null`,
+    ),
+    check(
+      "lh_message_versions_not_self_superseding",
+      sql`${table.supersedesMessageVersionId} is null or ${table.supersedesMessageVersionId} <> ${table.id}`,
+    ),
+    unique("lh_message_versions_owner_id_id_unique").on(table.ownerId, table.id),
+    unique("lh_message_versions_owner_id_enrollment_unique").on(
+      table.ownerId,
+      table.id,
+      table.enrollmentId,
+    ),
+    foreignKey({
+      name: "lh_message_versions_owner_brief_message_briefs_owner_id_id_fk",
+      columns: [table.ownerId, table.briefId, table.enrollmentId],
+      foreignColumns: [
+        leadHunterMessageBriefs.ownerId,
+        leadHunterMessageBriefs.id,
+        leadHunterMessageBriefs.enrollmentId,
+      ],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_message_versions_owner_enrollment_enrollments_owner_id_id_fk",
+      columns: [table.ownerId, table.enrollmentId],
+      foreignColumns: [leadHunterEnrollments.ownerId, leadHunterEnrollments.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_message_versions_owner_supersedes_message_versions_owner_id_id_fk",
+      columns: [table.ownerId, table.supersedesMessageVersionId],
+      foreignColumns: [table.ownerId, table.id],
+    })
+      .onDelete("restrict")
+      .onUpdate("cascade"),
+    index("lh_message_versions_owner_brief_created_idx").on(
+      table.ownerId,
+      table.briefId,
+      table.createdAt,
+    ),
+    index("lh_message_versions_owner_enrollment_idx").on(
+      table.ownerId,
+      table.enrollmentId,
+    ),
+    ...backendPolicies("lh_message_versions", table.ownerId),
+  ],
+).enableRLS();
+
+export const leadHunterOutbox = pgTable(
+  "lh_outbox",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: ownerIdColumn(),
+    enrollmentId: uuid("enrollment_id").notNull(),
+    messageVersionId: uuid("message_version_id").notNull(),
+    recipientEmail: text("recipient_email").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true, mode: "date" }).notNull(),
+    logicalStep: integer("logical_step").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    state: leadHunterOutboxStateEnum("state").default("queued").notNull(),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    providerMessageId: text("provider_message_id"),
+    lastError: text("last_error"),
+    ...auditColumns(),
+  },
+  (table) => [
+    check("lh_outbox_recipient_email_not_blank", sql`btrim(${table.recipientEmail}) <> ''`),
+    check("lh_outbox_subject_not_blank", sql`btrim(${table.subject}) <> ''`),
+    check("lh_outbox_body_not_blank", sql`btrim(${table.body}) <> ''`),
+    check("lh_outbox_logical_step_non_negative", sql`${table.logicalStep} >= 0`),
+    check("lh_outbox_attempt_count_non_negative", sql`${table.attemptCount} >= 0`),
+    check("lh_outbox_idempotency_key_not_blank", sql`btrim(${table.idempotencyKey}) <> ''`),
+    check(
+      "lh_outbox_lease_consistency",
+      sql`${table.state} <> 'leased' or (${table.leaseOwner} is not null and ${table.leaseExpiresAt} is not null)`,
+    ),
+    unique("lh_outbox_owner_id_id_unique").on(table.ownerId, table.id),
+    unique("lh_outbox_owner_idempotency_key_unique").on(
+      table.ownerId,
+      table.idempotencyKey,
+    ),
+    unique("lh_outbox_enrollment_logical_step_unique").on(
+      table.ownerId,
+      table.enrollmentId,
+      table.logicalStep,
+    ),
+    foreignKey({
+      name: "lh_outbox_owner_enrollment_enrollments_owner_id_id_fk",
+      columns: [table.ownerId, table.enrollmentId],
+      foreignColumns: [leadHunterEnrollments.ownerId, leadHunterEnrollments.id],
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_outbox_owner_message_version_message_versions_owner_id_id_fk",
+      columns: [table.ownerId, table.messageVersionId, table.enrollmentId],
+      foreignColumns: [
+        leadHunterMessageVersions.ownerId,
+        leadHunterMessageVersions.id,
+        leadHunterMessageVersions.enrollmentId,
+      ],
+    })
+      .onDelete("restrict")
+      .onUpdate("cascade"),
+    index("lh_outbox_owner_message_version_idx").on(
+      table.ownerId,
+      table.messageVersionId,
+    ),
+    index("lh_outbox_due_idx")
+      .on(table.ownerId, table.dueAt)
+      .where(sql`${table.state} = 'queued'`),
+    ...backendPolicies("lh_outbox", table.ownerId),
   ],
 ).enableRLS();
