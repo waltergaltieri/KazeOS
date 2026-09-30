@@ -86,6 +86,27 @@ describe("createCampaign", () => {
         }),
       }),
     ]);
+
+    expect(inserts[1]?.value.snapshot).toEqual(expect.objectContaining({
+      strategy: expect.objectContaining({
+        version: 1,
+        discovery: expect.objectContaining({
+          countries: ["AR"],
+          queries: [values.objective],
+          sources: ["web_search"],
+        }),
+        qualification: expect.objectContaining({
+          rules: [
+            { criterion: "Catálogo mayorista", weight: 10 },
+            { criterion: "Ya es cliente", weight: -10 },
+          ],
+        }),
+        message: expect.objectContaining({
+          language: "es-AR",
+          minimumSpecificFacts: 3,
+        }),
+      }),
+    }));
   });
 
   it("fails instead of leaving an incomplete campaign when insert returns no id", async () => {

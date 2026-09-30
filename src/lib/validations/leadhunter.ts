@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+import {
+  campaignStrategySchema,
+  leadHunterSourceSchema,
+} from "@/lib/leadhunter/contracts";
+
+export { leadHunterSourceSchema } from "@/lib/leadhunter/contracts";
+export type { LeadHunterSource } from "@/lib/leadhunter/contracts";
+
 const trimmedText = (minimum: number, maximum: number, message: string) =>
   z.string().trim().min(minimum, message).max(maximum);
 
@@ -24,15 +32,6 @@ const nonEmptyWeekdays = z
   .transform((days) => [...new Set(days)]);
 
 const criterionSchema = z.string().trim().min(1).max(240);
-
-export const leadHunterSourceSchema = z.enum([
-  "web_search",
-  "directories",
-  "instagram",
-  "linkedin",
-  "csv",
-  "manual",
-]);
 
 export const campaignStatusSchema = z.enum([
   "draft",
@@ -63,6 +62,7 @@ export const campaignFormSchema = z
       .transform((sources) => [...new Set(sources)]),
     positiveCriteria: z.array(criterionSchema).max(30).default([]),
     negativeCriteria: z.array(criterionSchema).max(30).default([]),
+    strategy: campaignStrategySchema.optional(),
     searchDays: nonEmptyWeekdays,
     searchTime: timeSchema,
     sendDays: nonEmptyWeekdays,
@@ -213,5 +213,4 @@ export const leadFormSchema = z
 
 export type CampaignFormValues = z.infer<typeof campaignFormSchema>;
 export type CampaignStatus = z.infer<typeof campaignStatusSchema>;
-export type LeadHunterSource = z.infer<typeof leadHunterSourceSchema>;
 export type LeadFormValues = z.infer<typeof leadFormSchema>;

@@ -45,6 +45,51 @@ describe("LeadHunter campaign validation", () => {
     expect(parsed.sequenceSteps).toHaveLength(2);
   });
 
+  it("accepts an explicit structured strategy without changing form fields", () => {
+    const parsed = campaignFormSchema.parse({
+      ...validCampaign,
+      strategy: {
+        version: 1,
+        discovery: {
+          countries: ["AR"],
+          regions: [],
+          industries: ["Distribución"],
+          queries: ["distribuidores argentinos"],
+          sources: ["web_search"],
+          seedUrls: [],
+        },
+        research: {
+          questions: [
+            {
+              key: "business_model",
+              prompt: "¿Qué vende el negocio y a quién?",
+              required: true,
+            },
+          ],
+        },
+        qualification: {
+          gates: [],
+          rules: [{ criterion: "Publica catálogo", weight: 10 }],
+        },
+        message: {
+          language: "es-AR",
+          tone: "Profesional y específico",
+          minimumSpecificFacts: 3,
+          wordRange: { minimum: 120, maximum: 220 },
+          intro: "Presentar KazeCode brevemente.",
+          commercialModel: "Proponer una mejora concreta.",
+          cta: "Preguntar si tiene sentido conversar.",
+          signature: "Equipo KazeCode",
+          requiredSections: ["cta", "signature"],
+          restrictedPhrases: [],
+        },
+      },
+    });
+
+    expect(parsed.strategy?.discovery.countries).toEqual(["AR"]);
+    expect(parsed.positiveCriteria).toEqual(["Publica catálogo mayorista"]);
+  });
+
   it("rejects a sending window whose end is not after its start", () => {
     const result = campaignFormSchema.safeParse({
       ...validCampaign,

@@ -22,6 +22,7 @@ import {
   authenticatedOwnerPolicies,
   ownerIdColumn,
 } from "./shared";
+import type { CampaignStrategy } from "@/lib/leadhunter/contracts";
 
 export const leadHunterCampaignStatusEnum = pgEnum("lh_campaign_status", [
   "draft",
@@ -94,6 +95,7 @@ export interface LeadHunterCampaignSnapshot {
   sources: string[];
   positiveCriteria: string[];
   negativeCriteria: string[];
+  strategy: CampaignStrategy;
   schedule: LeadHunterSchedule;
   dailyLeadLimit: number;
   dailyEmailLimit: number;
