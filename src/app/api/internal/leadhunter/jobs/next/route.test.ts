@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ClaimedJob } from "@/lib/services/leadhunter/job-manager";
+
 const mocks = vi.hoisted(() => ({
   claimLeadHunterJob: vi.fn(),
 }));
@@ -67,13 +69,14 @@ describe("POST /api/internal/leadhunter/jobs/next", () => {
   });
 
   it("returns the narrow claimed-job contract without accepting an owner id", async () => {
-    mocks.claimLeadHunterJob.mockResolvedValue({
+    const claimedJob = {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      kind: "discover",
+      kind: "discover" as const,
       leaseToken: "random-token",
-      leaseExpiresAt: new Date("2026-09-30T12:05:00.000Z"),
+      leaseExpiresAt: "2026-09-30T12:05:00.000Z",
       payload: { query: "distribuidores" },
-    });
+    } satisfies ClaimedJob;
+    mocks.claimLeadHunterJob.mockResolvedValue(claimedJob);
 
     const response = await invokePost(request("{}"));
 

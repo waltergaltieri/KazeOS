@@ -15,6 +15,7 @@ import {
   completeJob,
   JobCompletionRejectedError,
   JobCompletionValidationError,
+  type ClaimedJob,
   type LeadHunterJobDatabase,
 } from "./job-manager";
 import * as databaseSchema from "@/db/schema";
@@ -25,6 +26,18 @@ const runId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const now = new Date("2026-09-30T12:00:00.000Z");
 const leaseExpiresAt = new Date("2026-09-30T12:05:00.000Z");
 const dialect = new PgDialect();
+
+type ClaimedPayloadIsUnknown = unknown extends ClaimedJob["payload"]
+  ? true
+  : false;
+type ClaimedExpiryIsExactlyString = ClaimedJob["leaseExpiresAt"] extends string
+  ? string extends ClaimedJob["leaseExpiresAt"]
+    ? true
+    : false
+  : false;
+
+const claimedPayloadIsUnknown: ClaimedPayloadIsUnknown = true;
+const claimedExpiryIsExactlyString: ClaimedExpiryIsExactlyString = true;
 
 function queryText(query: unknown) {
   return dialect.sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]);
@@ -61,9 +74,11 @@ describe("claimNextJob query contract", () => {
       id: jobId,
       kind: "discover",
       leaseToken: expect.any(String),
-      leaseExpiresAt,
+      leaseExpiresAt: leaseExpiresAt.toISOString(),
       payload: { query: "distribuidores" },
     });
+    expect(claimedPayloadIsUnknown).toBe(true);
+    expect(claimedExpiryIsExactlyString).toBe(true);
     expect(Object.keys(claimed ?? {}).sort()).toEqual([
       "id",
       "kind",
@@ -394,24 +409,78 @@ describe("completeJob", () => {
   });
 });
 
-function explicitNonProductionDatabaseUrl() {
-  const value = process.env.TEST_DATABASE_URL;
-  if (!value) return undefined;
+describe("database integration guard", () => {
+  it.each([
+    undefined,
+    "not-a-url",
+    "mysql://user:password@localhost/kazeos_test",
+    "postgresql://user:password@localhost/kazeos_production",
+  ])("reports a safe explicit reason when TEST_DATABASE_URL is not isolated %#", (
+    value,
+  ) => {
+    const configuration = databaseTestConfiguration(value);
+
+    expect(configuration).toEqual({
+      databaseUrl: undefined,
+      skipReason:
+        "LeadHunter PostgreSQL integration skipped: an explicit isolated TEST_DATABASE_URL is required.",
+    });
+    expect(JSON.stringify(configuration)).not.toContain("password");
+  });
+
+  it("accepts only an explicit PostgreSQL test database URL", () => {
+    const value = "postgresql://localhost/kazeos_test";
+
+    expect(databaseTestConfiguration(value)).toEqual({
+      databaseUrl: value,
+      skipReason: undefined,
+    });
+  });
+});
+
+const integrationDatabaseSkipReason =
+  "LeadHunter PostgreSQL integration skipped: an explicit isolated TEST_DATABASE_URL is required.";
+
+function databaseTestConfiguration(value: string | undefined): {
+  databaseUrl: string | undefined;
+  skipReason: string | undefined;
+} {
+  if (!value) {
+    return {
+      databaseUrl: undefined,
+      skipReason: integrationDatabaseSkipReason,
+    };
+  }
 
   try {
     const url = new URL(value);
     const databaseName = url.pathname.slice(1).toLowerCase();
-    if (!["postgres:", "postgresql:"].includes(url.protocol)) return undefined;
-    return databaseName.includes("test") ? value : undefined;
+    const isolated = ["postgres:", "postgresql:"].includes(url.protocol)
+      && databaseName.includes("test");
+    return isolated
+      ? { databaseUrl: value, skipReason: undefined }
+      : {
+          databaseUrl: undefined,
+          skipReason: integrationDatabaseSkipReason,
+        };
   } catch {
-    return undefined;
+    return {
+      databaseUrl: undefined,
+      skipReason: integrationDatabaseSkipReason,
+    };
   }
 }
 
-const describeDatabase = explicitNonProductionDatabaseUrl()
+const databaseTestConfigurationResult = databaseTestConfiguration(
+  process.env.TEST_DATABASE_URL,
+);
+const testDatabaseUrl = databaseTestConfigurationResult.databaseUrl;
+if (databaseTestConfigurationResult.skipReason) {
+  process.stderr.write(`${databaseTestConfigurationResult.skipReason}\n`);
+}
+const describeDatabase = testDatabaseUrl
   ? describe
   : describe.skip;
-const testDatabaseUrl = explicitNonProductionDatabaseUrl();
 const databaseClient = testDatabaseUrl
   ? postgres(testDatabaseUrl, { prepare: false, max: 4 })
   : undefined;

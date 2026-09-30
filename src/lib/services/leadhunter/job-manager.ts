@@ -95,8 +95,8 @@ export interface ClaimedJob {
   id: string;
   kind: JobKind;
   leaseToken: string;
-  leaseExpiresAt: Date;
-  payload: Record<string, unknown>;
+  leaseExpiresAt: string;
+  payload: unknown;
 }
 
 interface ClaimedJobRow extends Omit<ClaimedJob, "leaseToken" | "leaseExpiresAt"> {
@@ -308,7 +308,7 @@ export async function claimNextJob(
     id: claimed.id,
     kind: claimed.kind,
     leaseToken,
-    leaseExpiresAt: databaseDate(claimed.leaseExpiresAt),
+    leaseExpiresAt: databaseDate(claimed.leaseExpiresAt).toISOString(),
     payload: claimed.payload,
   };
 }
