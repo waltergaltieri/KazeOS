@@ -44,6 +44,15 @@ const pipelineTables = [
   leadHunterOutbox,
 ];
 
+const mutablePipelineTableNames = new Set([
+  "lh_runs",
+  "lh_jobs",
+  "lh_source_candidates",
+  "lh_website_audits",
+  "lh_message_versions",
+  "lh_outbox",
+]);
+
 const foundationTables = [
   leadHunterCampaigns,
   leadHunterCampaignVersions,
@@ -198,6 +207,7 @@ describe("LeadHunter schema contract", () => {
       "brief",
       "evidence_ids",
     ]));
+    expect(columnNames(requireTable(leadHunterMessageBriefs))).not.toContain("updated_at");
     expect(columnNames(requireTable(leadHunterMessageVersions))).toEqual(expect.arrayContaining([
       "brief_id",
       "enrollment_id",
@@ -251,9 +261,13 @@ describe("LeadHunter schema contract", () => {
       expect(config.enableRLS).toBe(true);
       expect(policyNames).toContain(`${getTableName(table)}_authenticated_select`);
       expect(policyNames).toContain(`${getTableName(table)}_backend_insert`);
-      expect(policyNames).toContain(`${getTableName(table)}_backend_update`);
       expect(policyNames).not.toContain(`${getTableName(table)}_authenticated_insert`);
       expect(policyNames).not.toContain(`${getTableName(table)}_authenticated_update`);
+      if (mutablePipelineTableNames.has(getTableName(table))) {
+        expect(policyNames).toContain(`${getTableName(table)}_backend_update`);
+      } else {
+        expect(policyNames).not.toContain(`${getTableName(table)}_backend_update`);
+      }
     }
   });
 
@@ -300,6 +314,13 @@ describe("LeadHunter schema contract", () => {
       "lh_outbox_owner_message_version_message_versions_owner_id_id_fk",
     )).toEqual({
       columns: ["owner_id", "message_version_id", "enrollment_id"],
+      foreignColumns: ["owner_id", "id", "enrollment_id"],
+    });
+    expect(foreignKeyContract(
+      leadHunterEnrollments,
+      "lh_enrollments_owner_message_version_message_versions_owner_id_id_enrollment_id_fk",
+    )).toEqual({
+      columns: ["owner_id", "message_version_id", "id"],
       foreignColumns: ["owner_id", "id", "enrollment_id"],
     });
   });

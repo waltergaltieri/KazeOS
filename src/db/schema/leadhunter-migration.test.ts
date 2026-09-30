@@ -28,6 +28,13 @@ const journalPath = resolve(
 const migration = existsSync(migrationPath)
   ? normalizeSql(readFileSync(migrationPath, "utf8"))
   : "";
+const outboxGuard = migration.match(
+  /create or replace function private\.guard_lh_outbox_command\(\)(.*?)\$\$;/,
+)?.[1] ?? "";
+const messageBriefDefinition =
+  migration
+    .split("create table lh_message_briefs (")[1]
+    ?.split("alter table lh_message_briefs enable row level security")[0] ?? "";
 
 const foundationTables = [
   "lh_campaigns",
@@ -48,6 +55,9 @@ const pipelineTables = [
   "lh_message_versions",
   "lh_outbox",
 ];
+const mutablePipelineTables = pipelineTables.filter(
+  (table) => table !== "lh_message_briefs",
+);
 
 describe("LeadHunter foundation migration", () => {
   it("keeps foundation writes behind the backend role", () => {
@@ -131,6 +141,9 @@ describe("LeadHunter pipeline migration", () => {
     expect(migration).toContain(
       "foreign key (owner_id,lead_id) references public.lh_leads(owner_id,id)",
     );
+    expect(migration).toContain(
+      "constraint lh_enrollments_owner_message_version_message_versions_owner_id_id_enrollment_id_fk foreign key (owner_id,message_version_id,id) references public.lh_message_versions(owner_id,id,enrollment_id)",
+    );
     expect(migration).toContain("create index lh_jobs_claimable_idx");
     expect(migration).toContain("where lh_jobs.state in ('queued', 'leased')");
     expect(migration).toContain("create index lh_outbox_due_idx");
@@ -147,22 +160,76 @@ describe("LeadHunter pipeline migration", () => {
     expect(migration).toMatch(
       /grant select, insert, update on table public\.lh_runs,[^;]+ to kazeos_backend/,
     );
+    expect(migration).toContain(
+      "grant select, insert on table public.lh_message_briefs to kazeos_backend",
+    );
 
     for (const table of pipelineTables) {
       expect(migration).toContain(`create policy ${table}_authenticated_select`);
       expect(migration).toContain(`create policy ${table}_backend_insert`);
-      expect(migration).toContain(`create policy ${table}_backend_update`);
       expect(migration).not.toContain(`create policy ${table}_authenticated_insert`);
       expect(migration).not.toContain(`create policy ${table}_authenticated_update`);
     }
+    for (const table of mutablePipelineTables) {
+      expect(migration).toContain(`create policy ${table}_backend_update`);
+    }
+    expect(migration).not.toContain("create policy lh_message_briefs_backend_update");
   });
 
   it("maintains updated_at on mutable pipeline tables", () => {
-    for (const table of pipelineTables) {
+    for (const table of mutablePipelineTables) {
       expect(migration).toContain(`create trigger ${table}_set_updated_at`);
       expect(migration).toContain(`before update on public.${table}`);
       expect(migration).toContain("execute function private.set_updated_at()");
     }
+  });
+
+  it("keeps message briefs immutable after insertion", () => {
+    expect(messageBriefDefinition).not.toContain("updated_at");
+    expect(migration).not.toContain("create trigger lh_message_briefs_set_updated_at");
+    expect(migration).not.toMatch(
+      /grant select, insert, update on table [^;]*public\.lh_message_briefs/,
+    );
+  });
+
+  it("protects outbox command content while allowing operational updates", () => {
+    expect(migration).toContain(
+      "create or replace function private.guard_lh_outbox_command()",
+    );
+    for (const column of [
+      "id",
+      "owner_id",
+      "enrollment_id",
+      "message_version_id",
+      "recipient_email",
+      "subject",
+      "body",
+      "due_at",
+      "logical_step",
+      "idempotency_key",
+      "created_at",
+    ]) {
+      expect(outboxGuard).toContain(`new.${column} is distinct from old.${column}`);
+    }
+    for (const operationalColumn of [
+      "state",
+      "attempt_count",
+      "lease_owner",
+      "lease_expires_at",
+      "provider_message_id",
+      "last_error",
+      "updated_at",
+    ]) {
+      expect(outboxGuard).not.toContain(
+        `new.${operationalColumn} is distinct from old.${operationalColumn}`,
+      );
+    }
+    expect(migration).toContain(
+      "revoke all on function private.guard_lh_outbox_command() from public, anon, authenticated",
+    );
+    expect(migration).toContain(
+      "create trigger lh_outbox_guard_command before update on public.lh_outbox for each row execute function private.guard_lh_outbox_command()",
+    );
   });
 
   it("records the generated snapshot after migration 0009", () => {

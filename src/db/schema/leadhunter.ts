@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   check,
   foreignKey,
@@ -152,6 +153,25 @@ const backendPolicies = (tableName: string, ownerColumn: Parameters<typeof authe
     writePolicyAudience: "backend",
     writeRole: kazeosBackendRole,
   });
+
+const backendInsertPolicies = (
+  tableName: string,
+  ownerColumn: Parameters<typeof authenticatedOwnerPolicies>[1],
+) => backendPolicies(tableName, ownerColumn).filter(
+  (policy) => policy.name !== `${tableName}_backend_update`,
+);
+
+function messageVersionEnrollmentForeignColumns(): [
+  AnyPgColumn,
+  AnyPgColumn,
+  AnyPgColumn,
+] {
+  return [
+    leadHunterMessageVersions.ownerId,
+    leadHunterMessageVersions.id,
+    leadHunterMessageVersions.enrollmentId,
+  ];
+}
 
 export const leadHunterCampaigns = pgTable(
   "lh_campaigns",
@@ -456,6 +476,13 @@ export const leadHunterEnrollments = pgTable(
     })
       .onDelete("cascade")
       .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_enrollments_owner_message_version_message_versions_owner_id_id_enrollment_id_fk",
+      columns: [table.ownerId, table.messageVersionId, table.id],
+      foreignColumns: messageVersionEnrollmentForeignColumns(),
+    })
+      .onDelete("restrict")
+      .onUpdate("cascade"),
     index("lh_enrollments_owner_campaign_status_idx").on(
       table.ownerId,
       table.campaignId,
@@ -708,7 +735,9 @@ export const leadHunterMessageBriefs = pgTable(
     campaignVersion: integer("campaign_version").notNull(),
     brief: jsonb("brief").$type<Record<string, unknown>>().notNull(),
     evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull(),
-    ...auditColumns(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
   },
   (table) => [
     check(
@@ -757,7 +786,7 @@ export const leadHunterMessageBriefs = pgTable(
       table.enrollmentId,
     ),
     index("lh_message_briefs_owner_contact_idx").on(table.ownerId, table.contactId),
-    ...backendPolicies("lh_message_briefs", table.ownerId),
+    ...backendInsertPolicies("lh_message_briefs", table.ownerId),
   ],
 ).enableRLS();
 
