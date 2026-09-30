@@ -40,6 +40,8 @@ export interface SourceCapabilities {
   unavailableReason?: string;
 }
 
+export type SourceAdapterId = LeadHunterSource | "seed_url";
+
 export interface SourceQueryCursor {
   source: LeadHunterSource;
   country: string;
@@ -91,10 +93,14 @@ export interface LeadHunterSearchPlan {
 }
 
 export interface SourceCandidate {
+  sourceType: SourceAdapterId;
   sourceIdentity: string;
+  sourceUrl: string;
+  observedUrl: string;
+  canonicalUrl: string;
   observedName: string | null;
   observedLocation: string | null;
-  publicUrl: string | null;
+  providerRank: number;
   metadata: { [key: string]: JsonValue };
 }
 
@@ -104,7 +110,14 @@ export interface SourceDiscoveryPage {
 }
 
 export interface SourceAdapter {
-  readonly source: LeadHunterSource;
+  readonly source: SourceAdapterId;
   readonly capabilities: SourceCapabilities;
-  discover(work: SourceQueryWorkItem): Promise<SourceDiscoveryPage>;
+  discover(work: SearchPlanWorkItem): Promise<SourceDiscoveryPage>;
+}
+
+export class SourceUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SourceUnavailableError";
+  }
 }
