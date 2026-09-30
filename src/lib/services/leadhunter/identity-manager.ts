@@ -186,12 +186,7 @@ function identityFromProvenance(candidate: CandidateRow): BusinessIdentity {
   return businessIdentitySchema.parse({
     name: raw.observedName,
     emails: [],
-    urls: [{
-      url: sourceUrl,
-      role: registrableDomainForOfficialUrl(sourceUrl)
-        ? "official_website"
-        : candidate.sourceType === "seed_url" ? "directory" : "social_profile",
-    }],
+    urls: [{ url: sourceUrl, role: "directory" }],
     location: raw.observedLocation ? { city: raw.observedLocation } : {},
     organizationRole: "unknown",
   });

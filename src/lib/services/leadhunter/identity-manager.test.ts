@@ -416,4 +416,120 @@ describe("resolveSourceCandidateIdentity", () => {
     })).rejects.toThrow();
     expect(statements).toHaveLength(0);
   });
+
+  it("does not treat an unclassified adapter URL as an official-domain match", async () => {
+    const directoryUrl = "https://directory.example.com/listing/business-one";
+    const adapterRawRecord = {
+      sourceUrl: directoryUrl,
+      observedUrl: directoryUrl,
+      providerRank: 2,
+      observedName: "Business One",
+      observedLocation: "Miami",
+      metadata: {
+        engine: "brave",
+        snippet: "Public directory listing",
+        snippetTrust: "untrusted",
+      },
+    };
+    const derivedObservation: BusinessIdentity = {
+      name: "Business One",
+      emails: [],
+      urls: [{ url: directoryUrl, role: "directory" }],
+      location: { city: "Miami" },
+      organizationRole: "unknown",
+    };
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      if (rendered.sql.includes('from "lh_source_candidates"')) {
+        return [pendingCandidate({
+          rawRecord: adapterRawRecord,
+          canonicalUrl: directoryUrl,
+        })];
+      }
+      if (rendered.sql.includes('from "lh_leads" as lead')) {
+        return [existingLead({
+          name: "Business Two",
+          normalizedName: "business two",
+          domain: "example.com",
+          website: "https://directory.example.com/listing/business-two",
+          countryCode: null,
+          city: "Miami",
+          emails: [],
+        })];
+      }
+      if (rendered.sql.includes("as contacted")) {
+        return [{
+          convertedOrClient: false,
+          suppressed: false,
+          contacted: false,
+          activeOutbound: false,
+        }];
+      }
+      if (rendered.sql.includes('insert into "lh_leads"')) return [{ id: newLeadId }];
+      if (rendered.sql.includes('update "lh_source_candidates"')) {
+        return [{ id: candidateId }];
+      }
+      return [];
+    });
+    const { database } = transactionalDatabase(execute);
+
+    const result = await resolveSourceCandidateIdentity(database, {
+      ownerId,
+      candidateId,
+      observation: derivedObservation,
+    });
+
+    expect(result).toMatchObject({
+      status: "created",
+      leadId: newLeadId,
+      decision: { outcome: "different" },
+    });
+    expect(statements.some(({ sql, params }) => (
+      sql.includes('update "lh_source_candidates"') && params.includes("duplicate")
+    ))).toBe(false);
+  });
+
+  it("rejects relabeling an unclassified adapter URL as official", async () => {
+    const directoryUrl = "https://directory.example.com/listing/business-one";
+    const statements: string[] = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered.sql);
+      if (rendered.sql.includes('from "lh_source_candidates"')) {
+        return [pendingCandidate({
+          rawRecord: {
+            sourceUrl: directoryUrl,
+            observedUrl: directoryUrl,
+            providerRank: 2,
+            observedName: "Business One",
+            observedLocation: null,
+            metadata: {
+              engine: "brave",
+              snippet: "Public directory listing",
+              snippetTrust: "untrusted",
+            },
+          },
+          canonicalUrl: directoryUrl,
+        })];
+      }
+      return [];
+    });
+    const { database } = transactionalDatabase(execute);
+
+    await expect(resolveSourceCandidateIdentity(database, {
+      ownerId,
+      candidateId,
+      observation: {
+        name: "Business One",
+        emails: [],
+        urls: [{ url: directoryUrl, role: "official_website" }],
+        location: {},
+        organizationRole: "unknown",
+      },
+    })).rejects.toThrow("does not match persisted provenance");
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).not.toContain("for update");
+  });
 });
