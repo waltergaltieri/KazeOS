@@ -103,9 +103,14 @@ describe("LeadHunter completion dispatcher", () => {
   it.each([
     { evidenceIds: [] },
     { kind: "research", output: { evidenceIds: [] } },
-  ])("rejects generic research result shape without writing: %#", async (output) => {
-    const { database, execute } = researchDatabase();
-    const { JobCompletionValidationError } = await import("./job-manager");
+  ])("routes a generic research result shape through strict evidence audit: %#", async (output) => {
+    const { database } = researchDatabase();
+    mocks.persistResearchResultInTransaction.mockResolvedValue({
+      status: "rejected",
+      evidenceIds: [],
+      rejectedCount: 1,
+      dossier: null,
+    });
 
     await expect(completeClaimedJob(database, {
       id: jobId,
@@ -113,10 +118,15 @@ describe("LeadHunter completion dispatcher", () => {
       completion: { result: output },
       now,
       maxAttempts: 3,
-    })).rejects.toBeInstanceOf(JobCompletionValidationError);
+    })).resolves.toMatchObject({ status: "rejected", evidenceIds: [] });
 
-    expect(execute).toHaveBeenCalledOnce();
-    expect(mocks.persistResearchResultInTransaction).not.toHaveBeenCalled();
+    expect(mocks.persistResearchResultInTransaction).toHaveBeenCalledWith(database, {
+      ownerId,
+      jobId,
+      leaseToken,
+      now,
+      output,
+    });
     expect(mocks.completeJob).not.toHaveBeenCalled();
   });
 

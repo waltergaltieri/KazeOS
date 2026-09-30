@@ -180,18 +180,26 @@ describe("POST /api/internal/leadhunter/jobs/[id]/complete", () => {
     expect(body).not.toContain("source_url");
   });
 
-  it("maps a generic evidence-id submission to an invalid result", async () => {
-    const { JobCompletionValidationError } =
-      await import("@/lib/services/leadhunter/job-manager");
-    mocks.completeLeadHunterJob.mockRejectedValue(new JobCompletionValidationError());
+  it("returns the bounded audit rejection for a generic evidence-id submission", async () => {
+    mocks.completeLeadHunterJob.mockResolvedValue({
+      status: "rejected",
+      evidenceIds: [],
+      rejectedCount: 1,
+      dossier: null,
+    });
 
     const response = await invokePost(request(JSON.stringify({
       leaseToken: "raw-research-token",
       result: { kind: "research", output: { evidenceIds: [] } },
     })));
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Invalid job result" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "rejected",
+      evidenceIds: [],
+      rejectedCount: 1,
+      dossier: null,
+    });
   });
 
   it("maps rejected or invalid completions to generic responses", async () => {

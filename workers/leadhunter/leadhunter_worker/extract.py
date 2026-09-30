@@ -10,6 +10,7 @@ from html.parser import HTMLParser
 from inspect import signature
 from time import perf_counter
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
@@ -36,12 +37,19 @@ def _is_unicode_word(character: str) -> bool:
     return character == "_" or character.isalnum()
 
 
+def _is_structured_value(value: str) -> bool:
+    if re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+        return True
+    parsed = urlsplit(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
 def _contains_bounded_span(container: str, candidate: str) -> bool:
     haystack = _normalized_text(container)
     needle = _normalized_text(candidate)
     if not needle:
         return False
-    if re.fullmatch(r"[a-z0-9]+", needle) and needle in {"a", "an", "the"}:
+    if not _is_structured_value(needle) and needle.isalpha() and len(needle) <= 3:
         return False
     start = 0
     while (index := haystack.find(needle, start)) >= 0:
@@ -73,18 +81,62 @@ class _Capture:
     chunks: list[str]
 
 
+@dataclass
+class _VisibleBlock:
+    tag: str
+    chunks: list[str]
+
+
+_VISIBLE_BLOCK_TAGS = {
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "dd",
+    "div",
+    "dt",
+    "figcaption",
+    "footer",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "li",
+    "main",
+    "nav",
+    "p",
+    "section",
+    "td",
+    "th",
+}
+
+
 class _EvidenceHTMLParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.captures: list[_Capture] = []
         self.completed: list[_Capture] = []
-        self.visible_chunks: list[str] = []
+        self.visible_blocks: list[str] = []
+        self.block_stack: list[_VisibleBlock] = []
         self.ignored_depth = 0
+
+    def _finish_block_segment(self, block: _VisibleBlock) -> None:
+        text = " ".join(" ".join(block.chunks).split())
+        if text:
+            self.visible_blocks.append(text)
+        block.chunks.clear()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in {"script", "style", "template"}:
             self.ignored_depth += 1
             return
+        if tag in _VISIBLE_BLOCK_TAGS:
+            if self.block_stack:
+                self._finish_block_segment(self.block_stack[-1])
+            self.block_stack.append(_VisibleBlock(tag=tag, chunks=[]))
         attributes = dict(attrs)
         field = attributes.get("data-lh-field")
         if field:
@@ -110,20 +162,32 @@ class _EvidenceHTMLParser(HTMLParser):
                 self.completed.append(capture)
                 del self.captures[index]
                 break
+        if tag in _VISIBLE_BLOCK_TAGS:
+            for index in range(len(self.block_stack) - 1, -1, -1):
+                block = self.block_stack[index]
+                if block.tag == tag:
+                    self._finish_block_segment(block)
+                    del self.block_stack[index]
+                    break
 
     def handle_data(self, data: str) -> None:
         if self.ignored_depth:
             return
-        self.visible_chunks.append(data)
+        if self.block_stack:
+            self.block_stack[-1].chunks.append(data)
+        elif data.strip():
+            self.visible_blocks.append(" ".join(data.split()))
         for capture in self.captures:
             capture.chunks.append(data)
 
 
-def _parse_annotated_content(content: str) -> tuple[str, list[_Capture]]:
+def _parse_annotated_content(content: str) -> tuple[list[str], list[_Capture]]:
     parser = _EvidenceHTMLParser()
     parser.feed(content)
     parser.close()
-    return " ".join(" ".join(parser.visible_chunks).split()), parser.completed
+    for block in parser.block_stack:
+        parser._finish_block_segment(block)
+    return parser.visible_blocks, parser.completed
 
 
 def _same_source(left: str, right: str) -> bool:
@@ -140,7 +204,7 @@ def validate_provider_output(
     if len(raw_findings) > 50:
         raise ProviderOutputRejected("provider returned too many findings")
     allowed_fields = {question.key for question in request.questions}
-    grounded_content, _ = _parse_annotated_content(request.content)
+    grounded_blocks, _ = _parse_annotated_content(request.content)
     accepted: list[Finding] = []
 
     for raw in raw_findings:
@@ -154,7 +218,10 @@ def validate_provider_output(
             raise ProviderOutputRejected("provider substituted the evidence source")
         if finding.extract is None:
             raise ProviderOutputRejected("finding requires an exact evidence extract")
-        if not _contains_bounded_span(grounded_content, finding.extract):
+        if not any(
+            _contains_bounded_span(block, finding.extract)
+            for block in grounded_blocks
+        ):
             raise ProviderOutputRejected("finding extract is not grounded in supplied content")
         if not _contains_bounded_span(finding.extract, finding.value):
             raise ProviderOutputRejected("finding value is not grounded within its extract")
@@ -165,7 +232,7 @@ def validate_provider_output(
 
 def extract_offline(request: ExtractionRequest) -> ExtractionResponse:
     started = perf_counter()
-    visible_content, captures = _parse_annotated_content(request.content)
+    visible_blocks, captures = _parse_annotated_content(request.content)
     requested = {question.key for question in request.questions}
     candidates: list[dict[str, Any]] = []
     for capture in captures:
@@ -196,7 +263,7 @@ def extract_offline(request: ExtractionRequest) -> ExtractionResponse:
     elapsed_ms = int((perf_counter() - started) * 1_000)
     if elapsed_ms > request.budget.max_runtime_ms:
         raise TimeoutError("offline extraction exceeded its runtime budget")
-    diagnostics = [] if visible_content else ["content_empty"]
+    diagnostics = [] if visible_blocks else ["content_empty"]
     return ExtractionResponse(
         source_url=request.source_url,
         source_type=request.source_type,

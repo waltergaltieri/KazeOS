@@ -244,7 +244,11 @@ describe("LeadHunter research manager", () => {
     expect(dossier.requiredUnknowns).toEqual([]);
   });
 
-  it("rejects a malformed worker envelope, records one audit event and stores no evidence", async () => {
+  it.each([
+    ["unknown action", { ...workerOutput([finding()]), sendMail: true }],
+    ["top-level evidence ids", { evidenceIds: [] }],
+    ["legacy research result", { kind: "research", output: { evidenceIds: [] } }],
+  ])("rejects $0, records one audit event and stores no evidence", async (_name, output) => {
     const statements: Array<{ sql: string; params: unknown[] }> = [];
     const execute = vi.fn(async (query: unknown) => {
       const rendered = queryText(query);
@@ -256,17 +260,74 @@ describe("LeadHunter research manager", () => {
 
     const result = await persistResearchResult(
       database,
-      persistenceInput({ ...workerOutput([finding()]), sendMail: true }),
+      persistenceInput(output),
     );
 
     expect(result).toMatchObject({ status: "rejected", evidenceIds: [] });
     expect(statements.some(({ sql }) => sql.includes('insert into "lh_evidence"'))).toBe(false);
-    const jobUpdate = statements.find(({ sql }) => sql.includes('update "lh_jobs"'));
+    expect(statements.some(({ sql }) => sql.includes('update "lh_enrollments"'))).toBe(false);
+    const activities = statements.filter(({ sql }) => sql.includes('insert into "lh_activity"'));
+    expect(activities).toHaveLength(1);
+    const activityDetail = JSON.parse(String(activities[0]?.params.at(-1)));
+    expect(activityDetail).toMatchObject({
+      acceptedCount: 0,
+      rejected: [{ code: "invalid_envelope", index: null }],
+    });
+    expect(JSON.stringify(activityDetail)).not.toContain("evidenceIds");
+    const jobUpdates = statements.filter(({ sql }) => sql.includes('update "lh_jobs"'));
+    expect(jobUpdates).toHaveLength(1);
+    const jobUpdate = jobUpdates[0];
     expect(jobUpdate?.sql).toContain("state = 'failed'");
+    expect(jobUpdate?.sql).toContain("lease_token_digest = null");
     expect(jobUpdate?.sql).toContain("last_error = 'research_output_rejected'");
-    expect(statements.some(({ sql }) => (
+    expect(statements.filter(({ sql }) => (
       sql.includes('update "lh_runs" as run') && sql.includes("summary.active_count = 0")
-    ))).toBe(true);
+    ))).toHaveLength(1);
+  });
+
+  it("does not duplicate the rejection lifecycle when an invalid envelope is retried", async () => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    let rejected = false;
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      if (rendered.sql.includes('from "lh_jobs" as job')) {
+        return [rejected
+          ? lockedJob({
+              state: "failed",
+              leaseOwner: null,
+              leaseTokenDigest: null,
+              leaseExpiresAt: null,
+            })
+          : lockedJob()];
+      }
+      if (
+        rendered.sql.includes('update "lh_jobs"')
+        && rendered.sql.includes("state = 'failed'")
+      ) {
+        rejected = true;
+      }
+      return [];
+    });
+    const { database } = transactionalDatabase(execute);
+    const output = { evidenceIds: [] };
+
+    await expect(persistResearchResult(
+      database,
+      persistenceInput(output),
+    )).resolves.toMatchObject({ status: "rejected" });
+    await expect(persistResearchResult(
+      database,
+      persistenceInput(output),
+    )).rejects.toBeInstanceOf(JobCompletionRejectedError);
+
+    expect(statements.filter(({ sql }) => sql.includes('insert into "lh_activity"'))).toHaveLength(1);
+    expect(statements.filter(({ sql }) => (
+      sql.includes('update "lh_jobs"') && sql.includes("state = 'failed'")
+    ))).toHaveLength(1);
+    expect(statements.filter(({ sql }) => (
+      sql.includes('update "lh_runs" as run') && sql.includes("summary.active_count = 0")
+    ))).toHaveLength(1);
   });
 
   it("returns a succeeded job without duplicating evidence or activity", async () => {

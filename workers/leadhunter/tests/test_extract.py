@@ -382,6 +382,48 @@ def test_grounding_preserves_unicode_punctuation_email_url_and_address() -> None
     ]
 
 
+def test_grounding_does_not_join_separate_visible_blocks() -> None:
+    request = request_for("active-official.html").model_copy(update={
+        "content": "<h1>ACME</h1><p>Industrial</p>",
+    })
+    finding = {
+        "field": "business.name",
+        "value": "ACME Industrial",
+        "status": "verified",
+        "confidence": 90,
+        "source_url": str(request.source_url),
+        "extract": "ACME Industrial",
+    }
+
+    with pytest.raises(ProviderOutputRejected, match="extract"):
+        validate_provider_output(request, [finding])
+
+    same_block = request.model_copy(update={
+        "content": "<p>ACME Industrial</p>",
+    })
+    assert validate_provider_output(same_block, [finding]) == [
+        Finding.model_validate(finding),
+    ]
+
+
+@pytest.mark.parametrize("value", ["de", "la", "y"])
+def test_grounding_rejects_short_plain_alphabetic_values(value: str) -> None:
+    request = request_for("active-official.html").model_copy(update={
+        "content": f"<p>{value}</p>",
+    })
+    finding = {
+        "field": "business.name",
+        "value": value,
+        "status": "inferred",
+        "confidence": 80,
+        "source_url": str(request.source_url),
+        "extract": value,
+    }
+
+    with pytest.raises(ProviderOutputRejected, match="grounded"):
+        validate_provider_output(request, [finding])
+
+
 def test_scrapegraph_adapter_rejects_unreported_or_over_budget_usage() -> None:
     request = request_for("active-official.html")
     adapter = ScrapeGraphAIExtractor(

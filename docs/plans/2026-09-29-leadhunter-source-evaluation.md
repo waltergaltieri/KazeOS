@@ -8,7 +8,7 @@
 
 El worker recibe contenido público que otro componente ya obtuvo. No abre URLs, no navega, no consulta la base de datos y no recibe credenciales de correo, administración de KazeOS ni Supabase. La URL, la fecha de suministro, el tipo de fuente, el hash del contenido, las preguntas autorizadas y los límites de ejecución forman parte de un contrato estricto.
 
-El contenido se trata como datos no confiables. Una página no puede agregar campos, cambiar el esquema, pedir acciones ni sustituir la URL de evidencia. Todo resultado pasa por la misma validación de campos, fuente y arraigo textual antes de cruzar el límite del worker. Cada afirmación debe incluir un extracto exacto y acotado presente en el contenido suministrado; el valor debe aparecer dentro de ese mismo extracto con límites Unicode de palabra o frase. Se rechazan extractos ausentes, valores triviales y coincidencias parciales como `a` o `us` dentro de `business`.
+El contenido se trata como datos no confiables. Una página no puede agregar campos, cambiar el esquema, pedir acciones ni sustituir la URL de evidencia. Todo resultado pasa por la misma validación de campos, fuente y arraigo textual antes de cruzar el límite del worker. Cada afirmación debe incluir un extracto exacto y acotado que aparezca completo dentro de un solo bloque visible del contenido suministrado; encabezados, párrafos y otros bloques separados nunca se concatenan para fabricar una frase. El valor debe aparecer dentro de ese mismo extracto con límites Unicode de palabra o frase. Se rechazan extractos ausentes, coincidencias parciales como `us` dentro de `business` y cualquier valor alfabético de una sola palabra con tres caracteres o menos (`a`, `de`, `la`, `y`, entre otros). La excepción sólo alcanza a valores claramente estructurados que validen como correo o URL HTTP(S); ante una señal textual débil se conserva `unknown` en lugar de crear evidencia.
 
 ## Dependencias y versión evaluable
 
@@ -42,7 +42,7 @@ Comando de verificación: `workers/leadhunter/.venv/Scripts/python -m pytest wor
 
 | Medida | Resultado |
 |---|---:|
-| Casos de prueba Python | 34 aprobados |
+| Casos de prueba Python | 38 aprobados |
 | Documentos del corpus | 7 |
 | Afirmaciones esperadas | 13 |
 | Afirmaciones correctas | 13 |

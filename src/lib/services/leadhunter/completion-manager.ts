@@ -10,7 +10,6 @@ import {
   digestLeaseToken,
   exactDigestMatch,
   JobCompletionRejectedError,
-  JobCompletionValidationError,
   type LeadHunterJobDatabase,
 } from "./job-manager";
 import { persistResearchResultInTransaction } from "./research-manager";
@@ -22,18 +21,6 @@ interface CompletionDispatchRow {
   leaseOwner: string | null;
   leaseTokenDigest: string | null;
   leaseExpiresAt: Date | string | null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isGenericResearchResult(value: unknown) {
-  if (!isRecord(value)) return false;
-  if (Object.hasOwn(value, "evidenceIds")) return true;
-  return value.kind === "research"
-    && isRecord(value.output)
-    && Object.hasOwn(value.output, "evidenceIds");
 }
 
 export async function completeClaimedJob(
@@ -74,9 +61,6 @@ export async function completeClaimedJob(
     }
     if (!activeLease && job.state !== "succeeded") {
       throw new JobCompletionRejectedError();
-    }
-    if (isGenericResearchResult(input.completion.result)) {
-      throw new JobCompletionValidationError();
     }
     return persistResearchResultInTransaction(database, {
       ownerId: job.ownerId,
