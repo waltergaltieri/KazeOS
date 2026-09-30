@@ -26,6 +26,7 @@ const campaignId = "00000000-0000-4000-8000-000000000006";
 const evidenceId = "00000000-0000-5000-8000-000000000007";
 const secondEvidenceId = "00000000-0000-5000-8000-000000000008";
 const auditId = "00000000-0000-5000-8000-000000000009";
+const thirdEvidenceId = "00000000-0000-5000-8000-000000000010";
 const leaseToken = "task8-qualification-lease-token";
 const now = new Date("2026-09-30T12:01:00.000Z");
 
@@ -88,7 +89,7 @@ function lockedJob(
     currentCampaignVersion: 3,
     state: "leased",
     kind,
-    payload: { leadId },
+    payload: kind === "audit_website" ? { leadId, website: null } : { leadId },
     result: null,
     leaseTokenDigest: digestLeaseToken(leaseToken),
     leaseExpiresAt: "2026-09-30T12:05:00.000Z",
@@ -125,6 +126,7 @@ function evidenceRow(id = evidenceId, overrides: Record<string, unknown> = {}) {
     questionKey: "business_model",
     field: "business_model",
     value: "Venta mayorista",
+    kind: "fact",
     status: "verified",
     confidence: 90,
     sourceUrl: "https://example.com/about",
@@ -134,7 +136,12 @@ function evidenceRow(id = evidenceId, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function auditCheck(key: string, outcome: "pass" | "fail", id: string) {
+function auditCheck(
+  key: string,
+  outcome: "pass" | "fail",
+  id: string,
+  overrides: Record<string, unknown> = {},
+) {
   return {
     key,
     category: key === "active_commercial_presence" ? "presence" : "presence",
@@ -147,6 +154,7 @@ function auditCheck(key: string, outcome: "pass" | "fail", id: string) {
       sourceType: "official_site",
       sourceUrl: "https://example.com/about",
     },
+    ...overrides,
   };
 }
 
@@ -164,8 +172,20 @@ describe("LeadHunter qualification manager", () => {
       if (context) return context;
       if (rendered.sql.includes('from "lh_evidence"')) {
         return [
-          evidenceRow(),
-          evidenceRow(secondEvidenceId, { field: "active_commercial_presence" }),
+          evidenceRow(evidenceId, {
+            questionKey: "digital_presence",
+            field: "digital_presence",
+            value: "No official website is published",
+            sourceType: "directory",
+            sourceUrl: "https://directory.example/acme",
+          }),
+          evidenceRow(secondEvidenceId, {
+            questionKey: "digital_presence",
+            field: "digital_presence",
+            value: "Active Instagram storefront",
+            sourceType: "instagram",
+            sourceUrl: "https://instagram.com/acme",
+          }),
         ];
       }
       if (rendered.sql.includes('insert into "lh_website_audits"')) return [{ id: auditId }];
@@ -174,8 +194,18 @@ describe("LeadHunter qualification manager", () => {
     const { value, transaction } = database(execute);
 
     const result = await persistWebsiteAuditResult(value, input({ checks: [
-      auditCheck("official_site", "fail", evidenceId),
-      auditCheck("active_commercial_presence", "pass", secondEvidenceId),
+      auditCheck("official_site", "fail", evidenceId, {
+        source: {
+          sourceType: "directory",
+          sourceUrl: "https://directory.example/acme",
+        },
+      }),
+      auditCheck("active_commercial_presence", "pass", secondEvidenceId, {
+        source: {
+          sourceType: "instagram",
+          sourceUrl: "https://instagram.com/acme",
+        },
+      }),
     ] }));
 
     expect(result).toMatchObject({
@@ -237,6 +267,169 @@ describe("LeadHunter qualification manager", () => {
       jobId,
       rejectionCode: "unowned_evidence",
     });
+  });
+
+  it("rejects unrelated or inferred evidence for material website checks", async () => {
+    for (const row of [
+      evidenceRow(evidenceId, {
+        questionKey: "business_model",
+        field: "business_model",
+      }),
+      evidenceRow(evidenceId, {
+        questionKey: "digital_presence",
+        field: "website.reachable",
+        kind: "hypothesis",
+        status: "inferred",
+        confidence: 100,
+      }),
+    ]) {
+      const execute = vi.fn(async (query: unknown) => {
+        const rendered = queryText(query);
+        const context = lockedContextResult(rendered.sql, lockedJob("audit_website", {
+          payload: { leadId, website: "https://example.com" },
+        }));
+        if (context) return context;
+        if (rendered.sql.includes('from "lh_evidence"')) return [row];
+        return [];
+      });
+      const { value } = database(execute);
+
+      await expect(persistWebsiteAuditResult(value, input({ checks: [
+        auditCheck("reachable", "pass", evidenceId),
+      ] }))).resolves.toMatchObject({ status: "rejected" });
+    }
+  });
+
+  it("derives audit confidence from persisted evidence and cannot be raised by the worker", async () => {
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      const context = lockedContextResult(rendered.sql, lockedJob("audit_website", {
+        payload: { leadId, website: "https://example.com" },
+      }));
+      if (context) return context;
+      if (rendered.sql.includes('from "lh_evidence"')) {
+        return [
+          evidenceRow(evidenceId, {
+            questionKey: "digital_presence",
+            field: "website.page_integrity",
+            confidence: 60,
+          }),
+          evidenceRow(secondEvidenceId, {
+            questionKey: "digital_presence",
+            field: "website.critical_content",
+            sourceType: "website_scan",
+            confidence: 100,
+          }),
+        ];
+      }
+      if (rendered.sql.includes('insert into "lh_website_audits"')) return [{ id: auditId }];
+      return [];
+    });
+    const { value } = database(execute);
+
+    const result = await persistWebsiteAuditResult(value, input({ checks: [
+      auditCheck("page_integrity", "fail", evidenceId, { confidence: 100 }),
+      auditCheck("critical_content", "fail", secondEvidenceId, {
+        confidence: 100,
+        source: {
+          sourceType: "website_scan",
+          sourceUrl: "https://example.com/about",
+        },
+      }),
+    ] }));
+
+    expect(result).toMatchObject({ status: "processed", gateResult: "UNVERIFIED" });
+  });
+
+  it("does not bind present-site observations to a different origin", async () => {
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      const context = lockedContextResult(rendered.sql, lockedJob("audit_website", {
+        payload: { leadId, website: "https://example.com" },
+      }));
+      if (context) return context;
+      if (rendered.sql.includes('from "lh_evidence"')) return [evidenceRow(evidenceId, {
+        questionKey: "digital_presence",
+        field: "website.reachable",
+        sourceUrl: "https://other.example/about",
+      })];
+      if (rendered.sql.includes('insert into "lh_website_audits"')) return [{ id: auditId }];
+      return [];
+    });
+    const { value } = database(execute);
+
+    const result = await persistWebsiteAuditResult(value, input({ checks: [
+      auditCheck("reachable", "pass", evidenceId, {
+        source: {
+          sourceType: "official_site",
+          sourceUrl: "https://other.example/about",
+        },
+      }),
+    ] }));
+
+    expect(result).toMatchObject({ status: "processed", gateResult: "UNVERIFIED" });
+  });
+
+  it("allows a cross-origin website target only with verified redirect evidence", async () => {
+    for (const redirect of [
+      evidenceRow(thirdEvidenceId, {
+        questionKey: "digital_presence",
+        field: "website.redirect_target",
+        value: "https://redirected.example",
+        sourceUrl: "https://example.com",
+        confidence: 90,
+      }),
+      evidenceRow(thirdEvidenceId, {
+        questionKey: "digital_presence",
+        field: "website.redirect_target",
+        value: "https://redirected.example",
+        sourceUrl: "https://example.com",
+        kind: "hypothesis",
+        status: "inferred",
+        confidence: 100,
+      }),
+    ]) {
+      const execute = vi.fn(async (query: unknown) => {
+        const rendered = queryText(query);
+        const context = lockedContextResult(rendered.sql, lockedJob("audit_website", {
+          payload: { leadId, website: "https://example.com" },
+        }));
+        if (context) return context;
+        if (rendered.sql.includes('from "lh_evidence"')) {
+          return [
+            evidenceRow(evidenceId, {
+              questionKey: "digital_presence",
+              field: "website.page_integrity",
+              sourceUrl: "https://redirected.example/a",
+            }),
+            evidenceRow(secondEvidenceId, {
+              questionKey: "digital_presence",
+              field: "website.critical_content",
+              sourceType: "website_scan",
+              sourceUrl: "https://redirected.example/b",
+            }),
+            redirect,
+          ];
+        }
+        if (rendered.sql.includes('insert into "lh_website_audits"')) return [{ id: auditId }];
+        return [];
+      });
+      const { value } = database(execute);
+
+      const result = await persistWebsiteAuditResult(value, input({ checks: [
+        auditCheck("page_integrity", "fail", evidenceId, {
+          source: { sourceType: "official_site", sourceUrl: "https://redirected.example/a" },
+        }),
+        auditCheck("critical_content", "fail", secondEvidenceId, {
+          source: { sourceType: "website_scan", sourceUrl: "https://redirected.example/b" },
+        }),
+      ] }));
+
+      expect(result).toMatchObject({
+        status: "processed",
+        gateResult: redirect.status === "verified" ? "BAD_WEBSITE" : "UNVERIFIED",
+      });
+    }
   });
 
   it("recomputes qualification from the persisted strategy, evidence, audit and contact", async () => {
@@ -307,6 +500,70 @@ describe("LeadHunter qualification manager", () => {
     expect(statements.some(({ sql }) => (
       sql.includes('update "lh_leads"') && sql.includes("status = 'qualified'")
     ))).toBe(true);
+  });
+
+  it("rebuilds required answers from exact-version evidence instead of researchSummary", async () => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      const context = lockedContextResult(rendered.sql, lockedJob("qualify", {
+        researchSummary: {
+          findings: [{ key: "business_model", status: "verified", confidence: 100 }],
+        },
+      }));
+      if (context) return context;
+      if (rendered.sql.includes('from "lh_evidence"')) return [];
+      if (rendered.sql.includes('from "lh_contacts"')) return [{ emailConfidence: 100 }];
+      return [];
+    });
+    const { value } = database(execute);
+
+    const result = await persistQualificationResult(value, input({ assessments: [] }));
+
+    expect(result).toMatchObject({ status: "processed", decision: "needs_review" });
+    expect(result.detail?.gates).toContainEqual(expect.objectContaining({
+      type: "research_required",
+      key: "research:business_model",
+      status: "needs_review",
+    }));
+    const evidenceRead = statements.find(({ sql }) => sql.includes('from "lh_evidence"'));
+    expect(evidenceRead?.sql).toContain('"lh_evidence"."run_id" = $');
+    expect(evidenceRead?.sql).toContain('"lh_evidence"."campaign_version" = $');
+  });
+
+  it("uses persisted assessment confidence when the worker claims 100", async () => {
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      const context = lockedContextResult(rendered.sql, lockedJob("qualify"));
+      if (context) return context;
+      if (rendered.sql.includes('from "lh_evidence"')) {
+        return [evidenceRow(evidenceId, { confidence: 40 })];
+      }
+      if (rendered.sql.includes('from "lh_contacts"')) return [{ emailConfidence: 100 }];
+      return [];
+    });
+    const { value } = database(execute);
+
+    const result = await persistQualificationResult(value, input({
+      assessments: [{
+        criterion: "Tiene procesos manuales",
+        outcome: "met",
+        confidence: 100,
+        evidenceIds: [evidenceId],
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: "processed",
+      decision: "needs_review",
+      score: 55,
+      detail: {
+        commercialFit: 70,
+        evidenceConfidence: 40,
+        businessStrength: 40,
+      },
+    });
   });
 
   it("rejects a stale campaign version before applying a valid assessment", async () => {

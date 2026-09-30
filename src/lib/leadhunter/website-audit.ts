@@ -70,6 +70,11 @@ export interface WebsiteAuditResult {
   reasons: string[];
 }
 
+export interface WebsiteAuditContext {
+  website: string | null | undefined;
+  allowedWebsiteOrigins?: string[];
+}
+
 const minimumReliableConfidence = 75;
 const subjectiveKeys = new Set<WebsiteAuditCheck["key"]>([
   "aesthetic",
@@ -93,6 +98,22 @@ function normalizedUrl(value: string): string {
   url.hostname = url.hostname.toLowerCase();
   url.searchParams.sort();
   return url.toString();
+}
+
+function normalizedSourceOrigin(value: string): string {
+  const url = new URL(value);
+  const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+  const port = url.port && !(
+    (url.protocol === "https:" && url.port === "443")
+    || (url.protocol === "http:" && url.port === "80")
+  ) ? `:${url.port}` : "";
+  return `${hostname}${port}`;
+}
+
+function sourceIdentity(check: WebsiteAuditCheck): string {
+  return `${check.source.sourceType.toLocaleLowerCase()}:${normalizedSourceOrigin(
+    check.source.sourceUrl,
+  )}`;
 }
 
 function normalizedCheck(check: WebsiteAuditCheck): WebsiteAuditCheck {
@@ -121,11 +142,18 @@ function shareEvidence(left: WebsiteAuditCheck, right: WebsiteAuditCheck): boole
   return right.evidenceIds.some((id) => ids.has(id));
 }
 
+function independentEvidence(left: WebsiteAuditCheck, right: WebsiteAuditCheck): boolean {
+  return !shareEvidence(left, right) && sourceIdentity(left) !== sourceIdentity(right);
+}
+
 function reliable(check: WebsiteAuditCheck): boolean {
   return check.confidence >= minimumReliableConfidence && check.outcome !== "unknown";
 }
 
-export function evaluateWebsiteAudit(rawChecks: WebsiteAuditCheck[]): WebsiteAuditResult {
+export function evaluateWebsiteAudit(
+  rawChecks: WebsiteAuditCheck[],
+  context: WebsiteAuditContext = { website: undefined },
+): WebsiteAuditResult {
   const parsed = z.array(websiteAuditCheckSchema).max(100).parse(rawChecks);
   const unique = new Map<string, WebsiteAuditCheck>();
   for (const raw of parsed) {
@@ -160,6 +188,31 @@ export function evaluateWebsiteAudit(rawChecks: WebsiteAuditCheck[]): WebsiteAud
     };
   }
 
+  const allowedWebsiteOrigins = new Set([
+    ...(typeof context.website === "string" ? [context.website] : []),
+    ...(context.allowedWebsiteOrigins ?? []),
+  ].map(normalizedSourceOrigin));
+  const targetMismatch = checks.some((check) => {
+    const isPresentSiteObservation = check.key !== "active_commercial_presence"
+      && !(check.key === "official_site" && check.outcome !== "pass");
+    return reliable(check)
+      && isPresentSiteObservation
+      && (
+        typeof context.website !== "string"
+        || !allowedWebsiteOrigins.has(normalizedSourceOrigin(check.source.sourceUrl))
+      );
+  });
+  if (targetMismatch) {
+    return {
+      gateResult: "UNVERIFIED",
+      confidence: average(checks.map(({ confidence }) => confidence)),
+      checks,
+      evidenceIds,
+      summary: "Website observations do not match the trusted website target.",
+      reasons: ["website_target_mismatch"],
+    };
+  }
+
   const officialAbsent = checks.find((check) => (
     check.key === "official_site" && check.outcome === "fail" && reliable(check)
   ));
@@ -167,9 +220,9 @@ export function evaluateWebsiteAudit(rawChecks: WebsiteAuditCheck[]): WebsiteAud
     check.key === "active_commercial_presence"
     && check.outcome === "pass"
     && reliable(check)
-    && (!officialAbsent || !shareEvidence(check, officialAbsent))
+    && (!officialAbsent || independentEvidence(check, officialAbsent))
   ));
-  if (officialAbsent && activePresence) {
+  if (context.website === null && officialAbsent && activePresence) {
     return {
       gateResult: "NO_WEBSITE",
       confidence: Math.min(officialAbsent.confidence, activePresence.confidence),
@@ -192,10 +245,10 @@ export function evaluateWebsiteAudit(rawChecks: WebsiteAuditCheck[]): WebsiteAud
     materialFailures.some((candidate, candidateIndex) => (
       candidateIndex !== index
       && candidate.key !== check.key
-      && !shareEvidence(check, candidate)
+      && independentEvidence(check, candidate)
     ))
   ));
-  if (corroboratedFailures.length >= 2) {
+  if (typeof context.website === "string" && corroboratedFailures.length >= 2) {
     const selected = [...new Map(corroboratedFailures.map((check) => [check.key, check])).values()]
       .sort((left, right) => left.key.localeCompare(right.key));
     return {
@@ -216,7 +269,11 @@ export function evaluateWebsiteAudit(rawChecks: WebsiteAuditCheck[]): WebsiteAud
     && (check.severity === "material" || check.severity === "critical")
     && (check.outcome === "fail" || check.outcome === "unknown" || check.confidence < minimumReliableConfidence)
   ));
-  if (goodChecks.every((check) => check !== undefined) && !hasUnresolvedMaterialFailure) {
+  if (
+    typeof context.website === "string"
+    && goodChecks.every((check) => check !== undefined)
+    && !hasUnresolvedMaterialFailure
+  ) {
     const verified = goodChecks as WebsiteAuditCheck[];
     return {
       gateResult: "GOOD_ENOUGH_WEBSITE",

@@ -137,6 +137,7 @@ interface EvidenceRow {
   questionKey: string | null;
   field: string;
   value: string;
+  kind: "fact" | "hypothesis";
   status: "verified" | "inferred" | "conflicting";
   confidence: number;
   sourceUrl: string | null;
@@ -165,7 +166,7 @@ const jobPayloadSchema = z.object({
   leadId: z.string().uuid(),
   website: z.string().url().max(2_048).refine(
     (value) => /^https?:\/\//i.test(value),
-  ).optional(),
+  ).nullable().optional(),
 }).strict();
 
 const storedAuditResultSchema = z.object({
@@ -197,7 +198,7 @@ const storedQualificationDetailSchema = z.object({
   contactability: z.number().int().min(0).max(100),
   score: z.number().int().min(0).max(100),
   gates: z.array(z.object({
-    type: z.enum(["website", "required_finding"]),
+    type: z.enum(["website", "required_finding", "research_required"]),
     key: z.string().max(200),
     status: z.enum(["passed", "failed", "needs_review"]),
     reason: z.string().max(500),
@@ -367,6 +368,7 @@ async function readEvidence(
       ${leadHunterEvidence.questionKey} as "questionKey",
       ${leadHunterEvidence.field},
       ${leadHunterEvidence.value},
+      ${leadHunterEvidence.kind},
       ${leadHunterEvidence.status},
       ${leadHunterEvidence.confidence},
       ${leadHunterEvidence.sourceUrl} as "sourceUrl",
@@ -449,8 +451,11 @@ function evidenceMatchesCheck(
     const evidence = evidenceById.get(id);
     if (
       evidence === undefined
+      || evidence.kind !== "fact"
+      || evidence.status !== "verified"
       || evidence.sourceUrl === null
       || evidence.sourceType !== check.source.sourceType
+      || !evidenceSemanticallyMatchesCheck(check, evidence)
     ) return false;
     try {
       return normalizedUrl(evidence.sourceUrl) === normalizedUrl(check.source.sourceUrl)
@@ -461,16 +466,72 @@ function evidenceMatchesCheck(
   });
 }
 
+function evidenceSemanticallyMatchesCheck(
+  check: WebsiteAuditCheck,
+  evidence: EvidenceRow,
+): boolean {
+  const canonical = new Set<string>([
+    check.key,
+    `website.${check.key}`,
+  ]);
+  if (check.key === "official_site") {
+    canonical.add("digital_presence");
+    canonical.add("official_site");
+  }
+  if (check.key === "active_commercial_presence") {
+    canonical.add("digital_presence");
+    canonical.add("active_commercial_presence");
+  }
+  if (!canonical.has(evidence.field)) return false;
+  return evidence.questionKey === null
+    || evidence.questionKey === "digital_presence"
+    || canonical.has(evidence.questionKey);
+}
+
+function normalizedOrigin(value: string): string {
+  const url = new URL(value);
+  const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+  const port = url.port && !(
+    (url.protocol === "https:" && url.port === "443")
+    || (url.protocol === "http:" && url.port === "80")
+  ) ? `:${url.port}` : "";
+  return `${hostname}${port}`;
+}
+
+function verifiedRedirectOrigins(
+  website: string | null | undefined,
+  evidence: EvidenceRow[],
+): string[] {
+  if (typeof website !== "string") return [];
+  const sourceOrigin = normalizedOrigin(website);
+  const targets = new Set<string>();
+  for (const row of evidence) {
+    if (
+      row.kind !== "fact"
+      || row.status !== "verified"
+      || row.confidence < 75
+      || row.field !== "website.redirect_target"
+      || row.sourceUrl === null
+    ) continue;
+    try {
+      if (normalizedOrigin(row.sourceUrl) !== sourceOrigin) continue;
+      const target = new URL(row.value);
+      if (!/^https?:$/.test(target.protocol) || target.username || target.password) continue;
+      targets.add(target.toString());
+    } catch {
+      continue;
+    }
+  }
+  return [...targets].sort();
+}
+
 function evidenceBoundedChecks(
   checks: WebsiteAuditCheck[],
   evidenceById: ReadonlyMap<string, EvidenceRow>,
 ): WebsiteAuditCheck[] {
   return checks.map((check) => ({
     ...check,
-    confidence: Math.min(
-      check.confidence,
-      ...check.evidenceIds.map((id) => evidenceById.get(id)!.confidence),
-    ),
+    confidence: Math.min(...check.evidenceIds.map((id) => evidenceById.get(id)!.confidence)),
   }));
 }
 
@@ -515,10 +576,14 @@ export async function persistWebsiteAuditResultInTransaction(
       return { status: "rejected", auditId: null, gateResult: null };
     }
 
-    const audit = evaluateWebsiteAudit(evidenceBoundedChecks(
-      envelope.data.checks,
-      evidenceById,
-    ));
+    const payload = jobPayloadSchema.parse(job.payload);
+    const audit = evaluateWebsiteAudit(
+      evidenceBoundedChecks(envelope.data.checks, evidenceById),
+      {
+        website: payload.website,
+        allowedWebsiteOrigins: verifiedRedirectOrigins(payload.website, evidence),
+      },
+    );
     const deterministicAuditId = stableUuid([
       input.ownerId, job.runId, job.enrollmentId, "website-audit",
     ]);
@@ -578,34 +643,6 @@ export async function persistWebsiteAuditResultInTransaction(
     `);
     await settleLeadHunterRun(transaction, job.runId, input.now);
     return { status: "processed", auditId, gateResult: persistedGateResult };
-}
-
-function groupedFindings(evidence: EvidenceRow[]) {
-  const groups = new Map<string, EvidenceRow[]>();
-  for (const row of evidence) {
-    if (!row.questionKey) continue;
-    const group = groups.get(row.questionKey) ?? [];
-    group.push(row);
-    groups.set(row.questionKey, group);
-  }
-  return [...groups.entries()].map(([key, rows]) => {
-    const values = new Set(rows.map(({ value }) => value));
-    const conflicting = values.size > 1 || rows.some(({ status }) => status === "conflicting");
-    const verified = rows.filter(({ status }) => status === "verified");
-    const inferred = rows.filter(({ status }) => status === "inferred");
-    return {
-      key,
-      status: conflicting
-        ? "conflicting" as const
-        : verified.length > 0
-          ? "verified" as const
-          : inferred.length > 0
-            ? "inferred" as const
-            : "unknown" as const,
-      confidence: Math.max(0, ...rows.map(({ confidence }) => confidence)),
-      evidenceIds: rows.map(({ id }) => id).sort(),
-    };
-  }).sort((left, right) => left.key.localeCompare(right.key));
 }
 
 function strategyFromSnapshot(snapshot: LeadHunterCampaignSnapshot): CampaignStrategy {
@@ -688,9 +725,19 @@ export async function persistQualificationResultInTransaction(
       detail = evaluateQualification({
         gates: strategy.qualification.gates,
         rules: strategy.qualification.rules,
-        findings: groupedFindings(evidence),
+        researchQuestions: strategy.research.questions,
+        evidence: evidence.map((row) => ({
+          id: row.id,
+          questionKey: row.questionKey,
+          field: row.field,
+          value: row.value,
+          kind: row.kind,
+          status: row.status,
+          confidence: row.confidence,
+          sourceType: row.sourceType,
+          sourceUrl: row.sourceUrl,
+        })),
         assessments: envelope.data.assessments,
-        knownEvidenceIds: evidence.map(({ id }) => id),
         websiteAudit: storedAuditForQualification(audit),
         publishedEmailConfidence: contacts[0]?.emailConfidence ?? null,
       });

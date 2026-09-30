@@ -108,7 +108,7 @@ const jobPayloadSchemas = {
     website: z.string().url().max(2_048).refine(
       (value) => /^https?:\/\//i.test(value),
       "Website must use HTTP(S)",
-    ).optional(),
+    ).nullable().optional(),
   }).strict(),
   qualify: leadPayloadSchema,
   enrich_contact: leadPayloadSchema,
