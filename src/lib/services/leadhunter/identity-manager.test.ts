@@ -532,4 +532,113 @@ describe("resolveSourceCandidateIdentity", () => {
     expect(statements).toHaveLength(1);
     expect(statements[0]).not.toContain("for update");
   });
+
+  it.each([
+    {
+      label: "seed URL",
+      sourceType: "seed_url",
+      url: "https://seed-business.example/",
+      rawRecord: {
+        sourceUrl: "https://seed-business.example/",
+        observedUrl: "https://seed-business.example/",
+        providerRank: 1,
+        observedName: null,
+        observedLocation: null,
+        metadata: { workId: "seed:1" },
+      },
+    },
+    {
+      label: "SearXNG result without a title",
+      sourceType: "web_search",
+      url: "https://directory.example/listing/nameless-business",
+      rawRecord: {
+        sourceUrl: "https://directory.example/listing/nameless-business",
+        observedUrl: "https://directory.example/listing/nameless-business",
+        providerRank: 1,
+        observedName: null,
+        observedLocation: null,
+        metadata: {},
+      },
+    },
+  ])("durably reviews a nameless $label without creating or dispatching", async ({
+    sourceType,
+    url,
+    rawRecord,
+  }) => {
+    let resolutionState = "pending";
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      if (rendered.sql.includes('from "lh_source_candidates"')) {
+        return [pendingCandidate({
+          sourceType,
+          rawRecord,
+          canonicalUrl: url,
+          resolutionState,
+        })];
+      }
+      if (rendered.sql.includes('from "lh_leads" as lead')) return [];
+      if (rendered.sql.includes('update "lh_source_candidates"')) {
+        resolutionState = "needs_review";
+        return [{ id: candidateId }];
+      }
+      return [];
+    });
+    const { database } = transactionalDatabase(execute);
+    const namelessObservation: BusinessIdentity = {
+      name: null,
+      emails: [],
+      urls: [{ url, role: "directory" }],
+      location: {},
+      organizationRole: "unknown",
+    };
+
+    const first = await resolveSourceCandidateIdentity(database, {
+      ownerId,
+      candidateId,
+      observation: namelessObservation,
+    });
+    const repeated = await resolveSourceCandidateIdentity(database, {
+      ownerId,
+      candidateId,
+      observation: namelessObservation,
+    });
+
+    expect(first).toMatchObject({
+      status: "needs_review",
+      leadId: null,
+      resolutionState: "needs_review",
+      decision: {
+        outcome: "needs_review",
+        reasons: ["missing_business_name"],
+      },
+    });
+    expect(repeated).toMatchObject({
+      status: "already_processed",
+      leadId: null,
+      resolutionState: "needs_review",
+      decision: null,
+    });
+    expect(statements.filter(({ sql }) => sql.includes('insert into "lh_activity"')))
+      .toHaveLength(1);
+    const activity = statements.find(({ sql }) => sql.includes('insert into "lh_activity"'));
+    expect(activity?.params).toEqual(expect.arrayContaining([
+      ownerId,
+      campaignId,
+      "identity.needs_review",
+    ]));
+    expect(JSON.parse(String(activity?.params.at(-1)))).toMatchObject({
+      candidateId,
+      outcome: "needs_review",
+      reasons: ["missing_business_name"],
+      missingFields: ["name"],
+    });
+    expect(statements.some(({ sql }) => sql.includes('insert into "lh_leads"')))
+      .toBe(false);
+    expect(statements.some(({ sql }) => sql.includes('insert into "lh_enrollments"')))
+      .toBe(false);
+    expect(statements.some(({ sql }) => sql.includes('insert into "lh_outbox"')))
+      .toBe(false);
+  });
 });

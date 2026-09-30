@@ -57,6 +57,7 @@ export const businessIdentitySchema = z.object({
 export type BusinessIdentity = z.infer<typeof businessIdentitySchema>;
 
 export type IdentitySignalCode =
+  | "missing_business_name"
   | "normalized_name_match"
   | "normalized_name_similar"
   | "normalized_name_conflict"

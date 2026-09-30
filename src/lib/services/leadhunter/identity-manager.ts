@@ -684,6 +684,36 @@ export async function resolveSourceCandidateIdentity(
       };
     }
 
+    if (!identity.name) {
+      const decision: IdentityResolution = {
+        outcome: "needs_review",
+        signals: [{ code: "missing_business_name", effect: "review" }],
+        reasons: ["missing_business_name"],
+      };
+      await queueForReview(transaction, input.ownerId, input.candidateId);
+      await recordActivity(transaction, {
+        ownerId: input.ownerId,
+        campaignId: candidate.campaignId,
+        leadId: null,
+        eventType: "identity.needs_review",
+        detail: {
+          candidateId: input.candidateId,
+          outcome: decision.outcome,
+          reasons: decision.reasons,
+          comparisons: activityComparisons(comparisons),
+          possibleLeadIds: [],
+          missingFields: ["name"],
+        },
+      });
+      return {
+        status: "needs_review",
+        leadId: null,
+        resolutionState: "needs_review",
+        decision,
+        outboundProtection: noProtection,
+      };
+    }
+
     const leadId = await createDistinctLead(
       transaction,
       {
