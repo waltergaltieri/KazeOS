@@ -11,8 +11,10 @@ import {
   leadHunterLeads,
 } from "@/db/schema";
 import {
+  acquireLeadOutboundTransitionLock,
   createLead,
   getLeadOutboundProtection,
+  leadOutboundTransitionLockKey,
   type LeadHunterLeadDatabase,
   type LeadHunterLeadProtectionDatabase,
 } from "./lead-manager";
@@ -203,5 +205,31 @@ describe("getLeadOutboundProtection", () => {
       ownerId,
       leadId,
     )).resolves.toEqual({ blocked: true, reason });
+  });
+});
+
+describe("lead outbound transition serialization", () => {
+  it("uses one deterministic transaction-scoped lock for an owner and lead", async () => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const execute = vi.fn(async (query: unknown) => {
+      statements.push(dialect.sqlToQuery(
+        query as Parameters<PgDialect["sqlToQuery"]>[0],
+      ));
+      return [];
+    });
+
+    expect(leadOutboundTransitionLockKey(ownerId, leadId)).toBe(
+      `leadhunter:outbound:${ownerId}:${leadId}`,
+    );
+    await acquireLeadOutboundTransitionLock(
+      { execute } as unknown as LeadHunterLeadProtectionDatabase,
+      ownerId,
+      leadId,
+    );
+
+    expect(statements).toEqual([expect.objectContaining({
+      sql: expect.stringContaining("pg_advisory_xact_lock(hashtextextended("),
+      params: [`leadhunter:outbound:${ownerId}:${leadId}`],
+    })]);
   });
 });

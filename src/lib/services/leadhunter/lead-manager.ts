@@ -43,6 +43,29 @@ interface LeadOutboundProtectionRow {
   activeOutbound: boolean;
 }
 
+export function leadOutboundTransitionLockKey(
+  ownerId: string,
+  leadId: string,
+): string {
+  return `leadhunter:outbound:${ownerId}:${leadId}`;
+}
+
+/**
+ * Acquires the transaction-scoped owner/lead lock shared by every outbound
+ * state transition. Callers acquire candidate and lead row locks first, then
+ * these advisory locks in key order, and only then enrollment/outbox locks.
+ */
+export async function acquireLeadOutboundTransitionLock(
+  database: LeadHunterLeadProtectionDatabase,
+  ownerId: string,
+  leadId: string,
+): Promise<void> {
+  const lockKey = leadOutboundTransitionLockKey(ownerId, leadId);
+  await database.execute(sql`
+    select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+  `);
+}
+
 export async function getLeadOutboundProtection(
   database: LeadHunterLeadProtectionDatabase,
   ownerId: string,

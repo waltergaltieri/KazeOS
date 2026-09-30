@@ -269,6 +269,8 @@ export function resolveBusinessIdentity(
   let outcome: IdentityOutcome;
   if (reasonSet.has("branch_parent_ambiguity")) {
     outcome = "needs_review";
+  } else if (reasonSet.has("normalized_name_conflict") && hasStrongMatch) {
+    outcome = "needs_review";
   } else if (reasonSet.has("country_conflict") && hasNameMatch && !hasStrongMatch) {
     outcome = "different";
   } else if (hasLocationConflict && (hasNameMatch || hasStrongMatch)) {

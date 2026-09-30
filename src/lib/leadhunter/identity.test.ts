@@ -51,6 +51,51 @@ describe("resolveBusinessIdentity", () => {
     }));
   });
 
+  it.each([
+    {
+      candidateName: "Northstar Logistics",
+      existingName: "Contoso Holdings",
+      candidateUrl: "https://northstar.contoso.com",
+      existingUrl: "https://www.contoso.com",
+    },
+    {
+      candidateName: "Acme Industrial Pumps",
+      existingName: "Acme Consumer Brands",
+      candidateUrl: "https://industrial.acme.com",
+      existingUrl: "https://consumer.acme.com",
+    },
+  ])(
+    "requires review when a corporate domain spans conflicting names: $candidateName",
+    ({ candidateName, existingName, candidateUrl, existingUrl }) => {
+      const result = resolveBusinessIdentity(
+        business({
+          name: candidateName,
+          urls: [{ url: candidateUrl, role: "official_website" }],
+          location: { countryCode: "US" },
+        }),
+        business({
+          name: existingName,
+          urls: [{ url: existingUrl, role: "official_website" }],
+          location: { countryCode: "US" },
+        }),
+      );
+
+      expect(result).toEqual({
+        outcome: "needs_review",
+        signals: [
+          { code: "normalized_name_conflict", effect: "conflict" },
+          { code: "official_registrable_domain_match", effect: "match" },
+          { code: "country_match", effect: "match" },
+        ],
+        reasons: [
+          "normalized_name_conflict",
+          "official_registrable_domain_match",
+          "country_match",
+        ],
+      });
+    },
+  );
+
   it("does not merge the same name across different countries", () => {
     const result = resolveBusinessIdentity(
       business({ location: { countryCode: "AR", address: "San Martin 100" } }),

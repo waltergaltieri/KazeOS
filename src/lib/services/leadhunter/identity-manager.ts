@@ -25,6 +25,7 @@ import {
   type OrganizationRole,
 } from "@/lib/leadhunter/identity";
 import {
+  acquireLeadOutboundTransitionLock,
   getLeadOutboundProtection,
   type LeadOutboundProtection,
 } from "./lead-manager";
@@ -348,6 +349,29 @@ async function ensureEnrollment(
   `);
 }
 
+async function ensureEnrollmentIfOutboundAllowed(
+  transaction: LeadHunterIdentityTransaction,
+  input: {
+    ownerId: string;
+    campaignId: string;
+    campaignVersion: number;
+    leadId: string;
+  },
+): Promise<LeadOutboundProtection> {
+  await acquireLeadOutboundTransitionLock(
+    transaction,
+    input.ownerId,
+    input.leadId,
+  );
+  const protection = await getLeadOutboundProtection(
+    transaction,
+    input.ownerId,
+    input.leadId,
+  );
+  if (!protection.blocked) await ensureEnrollment(transaction, input);
+  return protection;
+}
+
 async function createDistinctLead(
   transaction: LeadHunterIdentityTransaction,
   provenance: {
@@ -610,19 +634,15 @@ export async function resolveSourceCandidateIdentity(
 
     if (same.length === 1) {
       const match = same[0]!;
-      const outboundProtection = await getLeadOutboundProtection(
+      const outboundProtection = await ensureEnrollmentIfOutboundAllowed(
         transaction,
-        input.ownerId,
-        match.lead.id,
-      );
-      if (!outboundProtection.blocked) {
-        await ensureEnrollment(transaction, {
+        {
           ownerId: input.ownerId,
           campaignId: candidate.campaignId,
           campaignVersion: candidate.campaignVersion,
           leadId: match.lead.id,
-        });
-      }
+        },
+      );
       await updateCandidate(transaction, {
         ownerId: input.ownerId,
         candidateId: input.candidateId,
@@ -724,7 +744,7 @@ export async function resolveSourceCandidateIdentity(
       },
       identity,
     );
-    await ensureEnrollment(transaction, {
+    const outboundProtection = await ensureEnrollmentIfOutboundAllowed(transaction, {
       ownerId: input.ownerId,
       campaignId: candidate.campaignId,
       campaignVersion: candidate.campaignVersion,
@@ -748,7 +768,8 @@ export async function resolveSourceCandidateIdentity(
         outcome: "different",
         reasons: decision.reasons,
         comparisons: activityComparisons(comparisons),
-        outboundBlocked: false,
+        outboundBlocked: outboundProtection.blocked,
+        outboundBlockReason: outboundProtection.reason,
       },
     });
     return {
@@ -756,7 +777,7 @@ export async function resolveSourceCandidateIdentity(
       leadId,
       resolutionState: "resolved",
       decision: { ...decision, outcome: "different" },
-      outboundProtection: noProtection,
+      outboundProtection,
     };
   });
 }

@@ -133,7 +133,19 @@ describe("resolveSourceCandidateIdentity", () => {
       `${ownerId}:domain:acme.com.ar`,
       `${ownerId}:email:ventas@acme.com.ar`,
       `${ownerId}:name:acme distribuciones:ar`,
+      `leadhunter:outbound:${ownerId}:${existingLeadId}`,
     ]);
+    const outboundLockIndex = statements.findIndex(({ sql, params }) => (
+      sql.includes("pg_advisory_xact_lock")
+      && params[0] === `leadhunter:outbound:${ownerId}:${existingLeadId}`
+    ));
+    const protectionIndex = statements.findIndex(({ sql }) =>
+      sql.includes("as contacted"));
+    const enrollmentIndex = statements.findIndex(({ sql }) =>
+      sql.includes('insert into "lh_enrollments"'));
+    expect(outboundLockIndex).toBeGreaterThan(-1);
+    expect(protectionIndex).toBeGreaterThan(outboundLockIndex);
+    expect(enrollmentIndex).toBeGreaterThan(protectionIndex);
     const possibleLeadQuery = statements.find(({ sql }) =>
       sql.includes('from "lh_leads" as lead'));
     expect(possibleLeadQuery?.sql).toContain("like '%.' || candidate_domain.value");
@@ -274,6 +286,14 @@ describe("resolveSourceCandidateIdentity", () => {
         })];
       }
       if (rendered.sql.includes('insert into "lh_leads"')) return [{ id: newLeadId }];
+      if (rendered.sql.includes("as contacted")) {
+        return [{
+          convertedOrClient: false,
+          suppressed: false,
+          contacted: false,
+          activeOutbound: false,
+        }];
+      }
       if (rendered.sql.includes('update "lh_source_candidates"')) {
         return [{ id: candidateId }];
       }
@@ -296,6 +316,19 @@ describe("resolveSourceCandidateIdentity", () => {
     });
     expect(statements.some(({ sql }) => sql.includes('insert into "lh_enrollments"')))
       .toBe(true);
+    const leadInsertIndex = statements.findIndex(({ sql }) =>
+      sql.includes('insert into "lh_leads"'));
+    const outboundLockIndex = statements.findIndex(({ sql, params }) => (
+      sql.includes("pg_advisory_xact_lock")
+      && params[0] === `leadhunter:outbound:${ownerId}:${newLeadId}`
+    ));
+    const protectionIndex = statements.findIndex(({ sql }) =>
+      sql.includes("as contacted"));
+    const enrollmentIndex = statements.findIndex(({ sql }) =>
+      sql.includes('insert into "lh_enrollments"'));
+    expect(outboundLockIndex).toBeGreaterThan(leadInsertIndex);
+    expect(protectionIndex).toBeGreaterThan(outboundLockIndex);
+    expect(enrollmentIndex).toBeGreaterThan(protectionIndex);
     const identityEvidence = statements.find(({ sql }) =>
       sql.includes('insert into "lh_evidence"'));
     expect(identityEvidence?.params).toEqual(expect.arrayContaining([
