@@ -29,10 +29,16 @@ export type LeadOutboundProtection =
   | { blocked: false; reason: null }
   | {
     blocked: true;
-    reason: "previously_contacted" | "active_outbound";
+    reason:
+      | "converted_or_client"
+      | "suppressed"
+      | "previously_contacted"
+      | "active_outbound";
   };
 
 interface LeadOutboundProtectionRow {
+  convertedOrClient: boolean;
+  suppressed: boolean;
   contacted: boolean;
   activeOutbound: boolean;
 }
@@ -47,6 +53,32 @@ export async function getLeadOutboundProtection(
       select ${ownerId}::uuid as owner_id, ${leadId}::uuid as lead_id
     )
     select
+      exists (
+        select 1
+        from ${leadHunterLeads}, target
+        where ${leadHunterLeads.ownerId} = target.owner_id
+          and ${leadHunterLeads.id} = target.lead_id
+          and (
+            ${leadHunterLeads.status} = 'converted'
+            or ${leadHunterLeads.linkedClientId} is not null
+          )
+      ) as "convertedOrClient",
+      exists (
+        select 1
+        from ${leadHunterLeads}, target
+        where ${leadHunterLeads.ownerId} = target.owner_id
+          and ${leadHunterLeads.id} = target.lead_id
+          and ${leadHunterLeads.status} in ('excluded', 'archived')
+      ) or exists (
+        select 1
+        from ${leadHunterEnrollments}, target
+        where ${leadHunterEnrollments.ownerId} = target.owner_id
+          and ${leadHunterEnrollments.leadId} = target.lead_id
+          and (
+            ${leadHunterEnrollments.evaluation} = 'excluded'
+            or ${leadHunterEnrollments.status} = 'stopped'
+          )
+      ) as suppressed,
       exists (
         select 1
         from ${leadHunterEnrollments}, target
@@ -77,6 +109,12 @@ export async function getLeadOutboundProtection(
   `) as unknown as LeadOutboundProtectionRow[];
   const protection = rows[0];
   if (!protection) throw new Error("Lead outbound protection could not be determined");
+  if (protection.convertedOrClient) {
+    return { blocked: true, reason: "converted_or_client" };
+  }
+  if (protection.suppressed) {
+    return { blocked: true, reason: "suppressed" };
+  }
   if (protection.contacted) {
     return { blocked: true, reason: "previously_contacted" };
   }

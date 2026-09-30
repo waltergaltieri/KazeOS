@@ -1,7 +1,7 @@
-export type IdentityOutcome =
-  | "same_business"
-  | "different_business"
-  | "needs_review";
+import { getDomain } from "tldts";
+import { z } from "zod";
+
+export type IdentityOutcome = "same" | "different" | "needs_review";
 
 export type IdentityUrlRole =
   | "official_website"
@@ -10,18 +10,51 @@ export type IdentityUrlRole =
 
 export type OrganizationRole = "branch" | "parent" | "independent" | "unknown";
 
-export interface BusinessIdentity {
-  name: string | null;
-  emails: readonly string[];
-  urls: readonly { url: string; role: IdentityUrlRole }[];
-  location: {
-    countryCode?: string | null;
-    city?: string | null;
-    address?: string | null;
-  };
-  organizationRole: OrganizationRole;
-  parentName?: string | null;
+function validHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+      return false;
+    }
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    if (
+      hostname === "localhost"
+      || hostname.endsWith(".localhost")
+      || /^\d+(?:\.\d+){3}$/.test(hostname)
+      || hostname.includes(":")
+    ) {
+      return false;
+    }
+    return getDomain(hostname, { allowPrivateDomains: true }) !== null;
+  } catch {
+    return false;
+  }
 }
+
+const optionalIdentityText = (maximum: number) => z.string()
+  .trim()
+  .min(1)
+  .max(maximum)
+  .nullable()
+  .optional();
+
+export const businessIdentitySchema = z.object({
+  name: z.string().trim().min(1).max(240).nullable(),
+  emails: z.array(z.string().trim().toLowerCase().email().max(254)).max(20),
+  urls: z.array(z.object({
+    url: z.string().trim().max(2_048).refine(validHttpUrl, "Invalid public HTTP(S) URL"),
+    role: z.enum(["official_website", "directory", "social_profile"]),
+  }).strict()).max(20),
+  location: z.object({
+    countryCode: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/).nullable().optional(),
+    city: optionalIdentityText(160),
+    address: optionalIdentityText(500),
+  }).strict(),
+  organizationRole: z.enum(["branch", "parent", "independent", "unknown"]),
+  parentName: optionalIdentityText(240),
+}).strict();
+
+export type BusinessIdentity = z.infer<typeof businessIdentitySchema>;
 
 export type IdentitySignalCode =
   | "normalized_name_match"
@@ -62,31 +95,13 @@ const organizationSuffixes = new Set([
   "sas",
 ]);
 
-const compoundPublicSuffixes = new Set([
-  "com.ar",
-  "net.ar",
-  "org.ar",
-  "gob.ar",
-  "gov.ar",
-  "edu.ar",
-  "co.uk",
-  "com.au",
-  "com.br",
-  "com.mx",
-]);
-
 const sharedProfileAndDirectoryHosts = new Set([
-  "blogspot.com",
   "facebook.com",
-  "github.io",
   "google.com",
   "instagram.com",
   "linkedin.com",
-  "myshopify.com",
   "paginasamarillas.com.ar",
   "tripadvisor.com",
-  "wixsite.com",
-  "wordpress.com",
   "yelp.com",
   "yellowpages.com",
 ]);
@@ -136,28 +151,20 @@ function nameSignal(
 }
 
 export function registrableDomainForOfficialUrl(urlValue: string): string | null {
-  let hostname: string;
+  let url: URL;
   try {
-    hostname = new URL(urlValue).hostname.toLowerCase().replace(/\.$/, "");
+    url = new URL(urlValue);
   } catch {
     return null;
   }
+  if (!validHttpUrl(urlValue)) return null;
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
   if ([...sharedProfileAndDirectoryHosts].some((sharedHost) => (
     hostname === sharedHost || hostname.endsWith(`.${sharedHost}`)
   ))) {
     return null;
   }
-  if (/^\d+(?:\.\d+){3}$/.test(hostname)) return null;
-  const labels = hostname.split(".").filter(Boolean);
-  if (labels.length < 2) return null;
-  const suffix = labels.slice(-2).join(".");
-  const hasCompoundSuffix = compoundPublicSuffixes.has(suffix)
-    || (
-      labels.at(-1)?.length === 2
-      && ["co", "com", "edu", "gov", "net", "org"].includes(labels.at(-2) ?? "")
-    );
-  const labelCount = hasCompoundSuffix ? 3 : 2;
-  return labels.length >= labelCount ? labels.slice(-labelCount).join(".") : null;
+  return getDomain(hostname, { allowPrivateDomains: true });
 }
 
 function officialDomains(identity: BusinessIdentity): Set<string> {
@@ -215,6 +222,8 @@ export function resolveBusinessIdentity(
   candidate: BusinessIdentity,
   existing: BusinessIdentity,
 ): IdentityResolution {
+  candidate = businessIdentitySchema.parse(candidate);
+  existing = businessIdentitySchema.parse(existing);
   const signals: IdentitySignal[] = [];
   const candidateEmails = normalizedValues(candidate.emails);
   const existingEmails = normalizedValues(existing.emails);
@@ -260,15 +269,15 @@ export function resolveBusinessIdentity(
   if (reasonSet.has("branch_parent_ambiguity")) {
     outcome = "needs_review";
   } else if (reasonSet.has("country_conflict") && hasNameMatch && !hasStrongMatch) {
-    outcome = "different_business";
+    outcome = "different";
   } else if (hasLocationConflict && (hasNameMatch || hasStrongMatch)) {
     outcome = "needs_review";
   } else if (hasStrongMatch) {
-    outcome = "same_business";
+    outcome = "same";
   } else if (hasNameMatch) {
     outcome = "needs_review";
   } else {
-    outcome = "different_business";
+    outcome = "different";
   }
 
   return {

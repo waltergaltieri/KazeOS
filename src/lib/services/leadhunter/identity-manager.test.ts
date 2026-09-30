@@ -33,7 +33,18 @@ function queryText(query: unknown) {
   return dialect.sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]);
 }
 
-function pendingCandidate() {
+function persistedRawRecord(identity: BusinessIdentity = observation) {
+  return {
+    sourceUrl: "https://acme.com.ar",
+    observedUrl: "https://acme.com.ar",
+    providerRank: 1,
+    observedName: identity.name,
+    observedLocation: identity.location.city ?? null,
+    metadata: { identity },
+  };
+}
+
+function pendingCandidate(overrides: Record<string, unknown> = {}) {
   return {
     id: candidateId,
     runId,
@@ -41,8 +52,10 @@ function pendingCandidate() {
     leadId: null,
     campaignId,
     campaignVersion: 3,
-    rawRecord: { observedName: "Acme Distribuciones" },
+    rawRecord: persistedRawRecord(),
     canonicalUrl: "https://acme.com.ar",
+    sourceType: "web_search",
+    ...overrides,
   };
 }
 
@@ -83,7 +96,7 @@ describe("resolveSourceCandidateIdentity", () => {
         return [pendingCandidate()];
       }
       if (rendered.sql.includes("pg_advisory_xact_lock")) return [];
-      if (rendered.sql.includes('from "lh_leads"')) return [existingLead()];
+      if (rendered.sql.includes('from "lh_leads" as lead')) return [existingLead()];
       if (rendered.sql.includes("as contacted")) {
         return [{ contacted: false, activeOutbound: false }];
       }
@@ -105,12 +118,12 @@ describe("resolveSourceCandidateIdentity", () => {
       leadId: existingLeadId,
       resolutionState: "duplicate",
       outboundProtection: { blocked: false, reason: null },
-      decision: { outcome: "same_business" },
+      decision: { outcome: "same" },
     });
     expect(transaction).toHaveBeenCalledOnce();
 
     const candidateLock = statements.find(({ sql }) =>
-      sql.includes('from "lh_source_candidates"'));
+      sql.includes('from "lh_source_candidates"') && sql.includes("for update"));
     expect(candidateLock?.sql).toContain("for update of candidate");
     expect(candidateLock?.params).toEqual([ownerId, candidateId]);
 
@@ -122,7 +135,7 @@ describe("resolveSourceCandidateIdentity", () => {
       `${ownerId}:name:acme distribuciones:ar`,
     ]);
     const possibleLeadQuery = statements.find(({ sql }) =>
-      sql.includes('from "lh_leads"'));
+      sql.includes('from "lh_leads" as lead'));
     expect(possibleLeadQuery?.sql).toContain("like '%.' || candidate_domain.value");
 
     const candidateUpdate = statements.find(({ sql }) =>
@@ -143,12 +156,12 @@ describe("resolveSourceCandidateIdentity", () => {
     ]));
     expect(JSON.parse(String(activity?.params.at(-1)))).toMatchObject({
       candidateId,
-      outcome: "same_business",
+      outcome: "same",
       outboundBlocked: false,
     });
   });
 
-  it("links a contacted business for enrichment but creates no new enrollment", async () => {
+  it("links a converted business for enrichment but creates no new enrollment", async () => {
     const statements: string[] = [];
     const execute = vi.fn(async (query: unknown) => {
       const rendered = queryText(query);
@@ -156,9 +169,14 @@ describe("resolveSourceCandidateIdentity", () => {
       if (rendered.sql.includes('from "lh_source_candidates"')) {
         return [pendingCandidate()];
       }
-      if (rendered.sql.includes('from "lh_leads"')) return [existingLead()];
+      if (rendered.sql.includes('from "lh_leads" as lead')) return [existingLead()];
       if (rendered.sql.includes("as contacted")) {
-        return [{ contacted: true, activeOutbound: false }];
+        return [{
+          convertedOrClient: true,
+          suppressed: false,
+          contacted: false,
+          activeOutbound: false,
+        }];
       }
       if (rendered.sql.includes('update "lh_source_candidates"')) {
         return [{ id: candidateId }];
@@ -178,22 +196,28 @@ describe("resolveSourceCandidateIdentity", () => {
       leadId: existingLeadId,
       outboundProtection: {
         blocked: true,
-        reason: "previously_contacted",
+        reason: "converted_or_client",
       },
     });
     expect(statements.some((sql) => sql.includes('insert into "lh_enrollments"')))
       .toBe(false);
+    expect(statements.some((sql) => sql.includes('insert into "lh_activity"')))
+      .toBe(true);
   });
 
   it("queues ambiguous branch and parent matches for review without linking", async () => {
+    const branchObservation: BusinessIdentity = {
+      ...observation,
+      organizationRole: "branch",
+    };
     const statements: Array<{ sql: string; params: unknown[] }> = [];
     const execute = vi.fn(async (query: unknown) => {
       const rendered = queryText(query);
       statements.push(rendered);
       if (rendered.sql.includes('from "lh_source_candidates"')) {
-        return [pendingCandidate()];
+        return [pendingCandidate({ rawRecord: persistedRawRecord(branchObservation) })];
       }
-      if (rendered.sql.includes('from "lh_leads"')) {
+      if (rendered.sql.includes('from "lh_leads" as lead')) {
         return [existingLead({ organizationRole: "parent" })];
       }
       if (rendered.sql.includes('update "lh_source_candidates"')) {
@@ -206,7 +230,7 @@ describe("resolveSourceCandidateIdentity", () => {
     const result = await resolveSourceCandidateIdentity(database, {
       ownerId,
       candidateId,
-      observation: { ...observation, organizationRole: "branch" },
+      observation: branchObservation,
     });
 
     expect(result).toMatchObject({
@@ -224,14 +248,22 @@ describe("resolveSourceCandidateIdentity", () => {
   });
 
   it("creates a distinct lead and enrollment when every existing comparison differs", async () => {
+    const parentObservation: BusinessIdentity = {
+      ...observation,
+      location: {
+        ...observation.location,
+        address: "San Martin 100",
+      },
+      organizationRole: "parent",
+    };
     const statements: Array<{ sql: string; params: unknown[] }> = [];
     const execute = vi.fn(async (query: unknown) => {
       const rendered = queryText(query);
       statements.push(rendered);
       if (rendered.sql.includes('from "lh_source_candidates"')) {
-        return [pendingCandidate()];
+        return [pendingCandidate({ rawRecord: persistedRawRecord(parentObservation) })];
       }
-      if (rendered.sql.includes('from "lh_leads"')) {
+      if (rendered.sql.includes('from "lh_leads" as lead')) {
         return [existingLead({
           name: "Another Business",
           normalizedName: "another business",
@@ -252,14 +284,7 @@ describe("resolveSourceCandidateIdentity", () => {
     const result = await resolveSourceCandidateIdentity(database, {
       ownerId,
       candidateId,
-      observation: {
-        ...observation,
-        location: {
-          ...observation.location,
-          address: "San Martin 100",
-        },
-        organizationRole: "parent",
-      },
+      observation: parentObservation,
     });
 
     expect(result).toMatchObject({
@@ -267,7 +292,7 @@ describe("resolveSourceCandidateIdentity", () => {
       leadId: newLeadId,
       resolutionState: "resolved",
       outboundProtection: { blocked: false, reason: null },
-      decision: { outcome: "different_business" },
+      decision: { outcome: "different" },
     });
     expect(statements.some(({ sql }) => sql.includes('insert into "lh_enrollments"')))
       .toBe(true);
@@ -340,6 +365,55 @@ describe("resolveSourceCandidateIdentity", () => {
       observation,
     })).rejects.toThrow("Source candidate not found");
     expect(statements).toHaveLength(1);
-    expect(statements[0]).toContain("for update of candidate");
+    expect(statements[0]).not.toContain("for update");
+  });
+
+  it("rejects a manipulated observation before identity locks or lead lookups", async () => {
+    const statements: string[] = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered.sql);
+      if (rendered.sql.includes('from "lh_source_candidates"')) {
+        return [pendingCandidate()];
+      }
+      return [];
+    });
+    const { database } = transactionalDatabase(execute);
+
+    await expect(resolveSourceCandidateIdentity(database, {
+      ownerId,
+      candidateId,
+      observation: {
+        ...observation,
+        name: "Manipulated Business",
+        emails: ["attacker@example.com"],
+      },
+    })).rejects.toThrow("does not match persisted provenance");
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).not.toContain('from "lh_leads"');
+  });
+
+  it("rejects unknown observation fields before identity work", async () => {
+    const statements: string[] = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered.sql);
+      if (rendered.sql.includes('from "lh_source_candidates"')) {
+        return [pendingCandidate()];
+      }
+      return [];
+    });
+    const { database } = transactionalDatabase(execute);
+
+    await expect(resolveSourceCandidateIdentity(database, {
+      ownerId,
+      candidateId,
+      observation: {
+        ...observation,
+        injectedOwnerId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      } as BusinessIdentity,
+    })).rejects.toThrow();
+    expect(statements).toHaveLength(0);
   });
 });

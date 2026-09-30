@@ -2,6 +2,7 @@ import "server-only";
 
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { z } from "zod";
 
 import * as schema from "@/db/schema";
 import {
@@ -18,6 +19,7 @@ import {
   normalizeIdentityText,
   registrableDomainForOfficialUrl,
   resolveBusinessIdentity,
+  businessIdentitySchema,
   type BusinessIdentity,
   type IdentityResolution,
   type OrganizationRole,
@@ -41,7 +43,7 @@ export interface LeadHunterIdentityDatabase {
 export interface ResolveSourceCandidateIdentityInput {
   ownerId: string;
   candidateId: string;
-  observation: BusinessIdentity;
+  observation: unknown;
 }
 
 type CandidateResolutionState =
@@ -68,6 +70,7 @@ interface CandidateRow {
   campaignVersion: number;
   rawRecord: Record<string, unknown>;
   canonicalUrl: string | null;
+  sourceType: string;
 }
 
 interface ExistingLeadRow {
@@ -102,6 +105,20 @@ const allowedOrganizationRoles = new Set<OrganizationRole>([
 
 const noProtection: LeadOutboundProtection = { blocked: false, reason: null };
 
+const provenanceUrlSchema = z.string().url().max(2_048).refine(
+  (value) => /^https?:\/\//i.test(value),
+  "Source provenance URL must use HTTP(S)",
+);
+
+const candidateRawRecordSchema = z.object({
+  sourceUrl: provenanceUrlSchema,
+  observedUrl: provenanceUrlSchema,
+  providerRank: z.number().int().positive(),
+  observedName: z.string().trim().min(1).max(240).nullable(),
+  observedLocation: z.string().trim().min(1).max(500).nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+}).strict();
+
 function organizationRole(value: string | null): OrganizationRole {
   return value && allowedOrganizationRoles.has(value as OrganizationRole)
     ? value as OrganizationRole
@@ -131,6 +148,64 @@ function identityForLead(lead: ExistingLeadRow): BusinessIdentity {
     organizationRole: organizationRole(lead.organizationRole),
     parentName: lead.parentName,
   };
+}
+
+function comparableIdentity(identity: BusinessIdentity): string {
+  return JSON.stringify({
+    name: identity.name,
+    emails: [...identity.emails].sort(),
+    urls: identity.urls
+      .map(({ url, role }) => ({ url: new URL(url).toString(), role }))
+      .sort((left, right) => `${left.role}:${left.url}`.localeCompare(`${right.role}:${right.url}`)),
+    location: {
+      countryCode: identity.location.countryCode ?? null,
+      city: identity.location.city ?? null,
+      address: identity.location.address ?? null,
+    },
+    organizationRole: identity.organizationRole,
+    parentName: identity.parentName ?? null,
+  });
+}
+
+function identityFromProvenance(candidate: CandidateRow): BusinessIdentity {
+  const raw = candidateRawRecordSchema.parse(candidate.rawRecord);
+  const persistedIdentity = raw.metadata.identity;
+  if (persistedIdentity !== undefined) {
+    const identity = businessIdentitySchema.parse(persistedIdentity);
+    if (
+      raw.observedName
+      && identity.name
+      && normalizeIdentityText(raw.observedName) !== normalizeIdentityText(identity.name)
+    ) {
+      throw new TypeError("Persisted identity conflicts with source candidate provenance");
+    }
+    return identity;
+  }
+
+  const sourceUrl = candidate.canonicalUrl ?? raw.observedUrl;
+  return businessIdentitySchema.parse({
+    name: raw.observedName,
+    emails: [],
+    urls: [{
+      url: sourceUrl,
+      role: registrableDomainForOfficialUrl(sourceUrl)
+        ? "official_website"
+        : candidate.sourceType === "seed_url" ? "directory" : "social_profile",
+    }],
+    location: raw.observedLocation ? { city: raw.observedLocation } : {},
+    organizationRole: "unknown",
+  });
+}
+
+function reconcileObservation(
+  candidate: CandidateRow,
+  supplied: BusinessIdentity,
+): BusinessIdentity {
+  const persisted = identityFromProvenance(candidate);
+  if (comparableIdentity(persisted) !== comparableIdentity(supplied)) {
+    throw new TypeError("Supplied identity does not match persisted provenance");
+  }
+  return persisted;
 }
 
 function officialWebsites(identity: BusinessIdentity): string[] {
@@ -384,7 +459,30 @@ export async function resolveSourceCandidateIdentity(
   database: LeadHunterIdentityDatabase,
   input: ResolveSourceCandidateIdentityInput,
 ): Promise<ResolveSourceCandidateIdentityResult> {
+  const suppliedObservation = businessIdentitySchema.parse(input.observation);
   return database.transaction(async (transaction) => {
+    const preflightRows = await transaction.execute(sql<CandidateRow>`
+      select
+        candidate.id,
+        candidate.run_id as "runId",
+        candidate.resolution_state as "resolutionState",
+        candidate.lead_id as "leadId",
+        candidate.raw_record as "rawRecord",
+        candidate.canonical_url as "canonicalUrl",
+        candidate.source_type as "sourceType",
+        run.campaign_id as "campaignId",
+        run.campaign_version as "campaignVersion"
+      from ${leadHunterSourceCandidates} as candidate
+      inner join ${leadHunterRuns} as run
+        on run.owner_id = candidate.owner_id
+       and run.id = candidate.run_id
+      where candidate.owner_id = ${input.ownerId}
+        and candidate.id = ${input.candidateId}
+    `) as unknown as CandidateRow[];
+    const preflight = preflightRows[0];
+    if (!preflight) throw new Error("Source candidate not found");
+    const identity = reconcileObservation(preflight, suppliedObservation);
+
     const candidateRows = await transaction.execute(sql<CandidateRow>`
       select
         candidate.id,
@@ -393,6 +491,7 @@ export async function resolveSourceCandidateIdentity(
         candidate.lead_id as "leadId",
         candidate.raw_record as "rawRecord",
         candidate.canonical_url as "canonicalUrl",
+        candidate.source_type as "sourceType",
         run.campaign_id as "campaignId",
         run.campaign_version as "campaignVersion"
       from ${leadHunterSourceCandidates} as candidate
@@ -405,6 +504,7 @@ export async function resolveSourceCandidateIdentity(
     `) as unknown as CandidateRow[];
     const candidate = candidateRows[0];
     if (!candidate) throw new Error("Source candidate not found");
+    reconcileObservation(candidate, suppliedObservation);
 
     if (candidate.resolutionState !== "pending") {
       const outboundProtection = candidate.leadId
@@ -419,7 +519,7 @@ export async function resolveSourceCandidateIdentity(
       };
     }
 
-    const lockKeys = identityLockKeys(input.ownerId, input.observation);
+    const lockKeys = identityLockKeys(input.ownerId, identity);
     if (lockKeys.length === 0) lockKeys.push(`${input.ownerId}:candidate:${input.candidateId}`);
     for (const lockKey of lockKeys) {
       await transaction.execute(sql`
@@ -427,9 +527,9 @@ export async function resolveSourceCandidateIdentity(
       `);
     }
 
-    const name = normalizeIdentityText(input.observation.name);
-    const domains = officialDomains(input.observation);
-    const emails = normalizedEmails(input.observation);
+    const name = normalizeIdentityText(identity.name);
+    const domains = officialDomains(identity);
+    const emails = normalizedEmails(identity);
     const possibleLeads = await transaction.execute(sql<ExistingLeadRow>`
       select
         lead.id,
@@ -506,10 +606,10 @@ export async function resolveSourceCandidateIdentity(
 
     const comparisons = possibleLeads.map((lead) => ({
       lead,
-      decision: resolveBusinessIdentity(input.observation, identityForLead(lead)),
+      decision: resolveBusinessIdentity(identity, identityForLead(lead)),
     }));
     const same = comparisons.filter(({ decision }) =>
-      decision.outcome === "same_business");
+      decision.outcome === "same");
     const review = comparisons.filter(({ decision }) =>
       decision.outcome === "needs_review");
 
@@ -576,7 +676,7 @@ export async function resolveSourceCandidateIdentity(
           reasons: decision.reasons,
           comparisons: activityComparisons(comparisons),
           possibleLeadIds: comparisons
-            .filter(({ decision: item }) => item.outcome !== "different_business")
+            .filter(({ decision: item }) => item.outcome !== "different")
             .map(({ lead }) => lead.id),
         },
       });
@@ -597,7 +697,7 @@ export async function resolveSourceCandidateIdentity(
         campaignId: candidate.campaignId,
         sourceUrl: candidate.canonicalUrl,
       },
-      input.observation,
+      identity,
     );
     await ensureEnrollment(transaction, {
       ownerId: input.ownerId,
@@ -612,7 +712,7 @@ export async function resolveSourceCandidateIdentity(
       leadId,
     });
     const decision = comparisons[0]?.decision
-      ?? resolveBusinessIdentity(input.observation, emptyIdentity());
+      ?? resolveBusinessIdentity(identity, emptyIdentity());
     await recordActivity(transaction, {
       ownerId: input.ownerId,
       campaignId: candidate.campaignId,
@@ -620,7 +720,7 @@ export async function resolveSourceCandidateIdentity(
       eventType: "identity.created",
       detail: {
         candidateId: input.candidateId,
-        outcome: "different_business",
+        outcome: "different",
         reasons: decision.reasons,
         comparisons: activityComparisons(comparisons),
         outboundBlocked: false,
@@ -630,7 +730,7 @@ export async function resolveSourceCandidateIdentity(
       status: "created",
       leadId,
       resolutionState: "resolved",
-      decision: { ...decision, outcome: "different_business" },
+      decision: { ...decision, outcome: "different" },
       outboundProtection: noProtection,
     };
   });

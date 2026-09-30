@@ -59,6 +59,9 @@ importers:
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
+      tldts:
+        specifier: ^7.4.11
+        version: 7.4.11
       zod:
         specifier: ^4.5.4
         version: 4.5.4

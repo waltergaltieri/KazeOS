@@ -29,7 +29,7 @@ describe("resolveBusinessIdentity", () => {
       }),
     );
 
-    expect(result.outcome).toBe("same_business");
+    expect(result.outcome).toBe("same");
     expect(result.reasons).toEqual([
       "normalized_name_match",
       "official_registrable_domain_match",
@@ -44,7 +44,7 @@ describe("resolveBusinessIdentity", () => {
       business({ emails: ["ventas@acme.com"] }),
     );
 
-    expect(result.outcome).toBe("same_business");
+    expect(result.outcome).toBe("same");
     expect(result.signals).toContainEqual(expect.objectContaining({
       code: "normalized_email_match",
       effect: "match",
@@ -57,7 +57,7 @@ describe("resolveBusinessIdentity", () => {
       business({ location: { countryCode: "US", address: "100 Main Street" } }),
     );
 
-    expect(result.outcome).toBe("different_business");
+    expect(result.outcome).toBe("different");
     expect(result.reasons).toContain("country_conflict");
   });
 
@@ -96,7 +96,7 @@ describe("resolveBusinessIdentity", () => {
       }),
     );
 
-    expect(result.outcome).toBe("different_business");
+    expect(result.outcome).toBe("different");
     expect(result.reasons).not.toContain("official_registrable_domain_match");
   });
 
@@ -112,7 +112,7 @@ describe("resolveBusinessIdentity", () => {
       }),
     );
 
-    expect(result.outcome).toBe("different_business");
+    expect(result.outcome).toBe("different");
     expect(result.reasons).toContain("normalized_name_conflict");
     expect(result.reasons).not.toContain("official_registrable_domain_match");
   });
@@ -139,5 +139,55 @@ describe("resolveBusinessIdentity", () => {
       "country_match",
       "city_match",
     ]);
+  });
+
+  it("uses the public suffix list for multi-label and private suffixes", () => {
+    expect(resolveBusinessIdentity(
+      business({
+        name: "Example UK",
+        urls: [{ url: "https://sales.example.co.uk", role: "official_website" }],
+      }),
+      business({
+        name: "Example UK",
+        urls: [{ url: "https://www.example.co.uk", role: "official_website" }],
+      }),
+    ).outcome).toBe("same");
+
+    expect(resolveBusinessIdentity(
+      business({
+        name: "Tenant One",
+        urls: [{ url: "https://tenant-one.blogspot.com", role: "official_website" }],
+      }),
+      business({
+        name: "Tenant Two",
+        urls: [{ url: "https://tenant-two.blogspot.com", role: "official_website" }],
+      }),
+    ).outcome).toBe("different");
+  });
+
+  it("rejects non-HTTP, IP and localhost identity URLs", () => {
+    expect(() => resolveBusinessIdentity(
+      business({ urls: [{ url: "ftp://example.com", role: "official_website" }] }),
+      business(),
+    )).toThrow();
+    expect(() => resolveBusinessIdentity(
+      business({ urls: [{ url: "http://127.0.0.1", role: "official_website" }] }),
+      business(),
+    )).toThrow();
+    expect(() => resolveBusinessIdentity(
+      business({ urls: [{ url: "http://localhost", role: "official_website" }] }),
+      business(),
+    )).toThrow();
+  });
+
+  it.each([
+    { emails: ["not-an-email"] },
+    { location: { countryCode: "Argentina" } },
+    { location: { address: " ".repeat(10) } },
+    { organizationRole: "subsidiary" },
+    { unknownField: "injected" },
+  ])("rejects malformed or unknown identity fields: %o", (overrides) => {
+    const malformed = { ...business(), ...overrides } as BusinessIdentity;
+    expect(() => resolveBusinessIdentity(malformed, business())).toThrow();
   });
 });

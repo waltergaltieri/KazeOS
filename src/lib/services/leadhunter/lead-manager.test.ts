@@ -126,6 +126,13 @@ describe("getLeadOutboundProtection", () => {
       expect(rendered.sql).toContain(
         '"lh_enrollments"."lead_id" = target.lead_id',
       );
+      expect(rendered.sql).toContain('"lh_leads"."status" = \'converted\'');
+      expect(rendered.sql).toContain('"lh_leads"."linked_client_id" is not null');
+      expect(rendered.sql).toContain(
+        '"lh_leads"."status" in (\'excluded\', \'archived\')',
+      );
+      expect(rendered.sql).toContain('"lh_enrollments"."evaluation" = \'excluded\'');
+      expect(rendered.sql).toContain('"lh_enrollments"."status" = \'stopped\'');
       expect(rendered.params).toEqual([ownerId, leadId]);
       return [{ contacted: true, activeOutbound: false }];
     });
@@ -167,5 +174,34 @@ describe("getLeadOutboundProtection", () => {
       ownerId,
       leadId,
     )).resolves.toEqual({ blocked: false, reason: null });
+  });
+
+  it.each([
+    {
+      row: {
+        convertedOrClient: true,
+        suppressed: false,
+        contacted: false,
+        activeOutbound: false,
+      },
+      reason: "converted_or_client",
+    },
+    {
+      row: {
+        convertedOrClient: false,
+        suppressed: true,
+        contacted: false,
+        activeOutbound: false,
+      },
+      reason: "suppressed",
+    },
+  ])("blocks durable lead protection: $reason", async ({ row, reason }) => {
+    const execute = vi.fn(async () => [row]);
+
+    await expect(getLeadOutboundProtection(
+      { execute } as unknown as LeadHunterLeadProtectionDatabase,
+      ownerId,
+      leadId,
+    )).resolves.toEqual({ blocked: true, reason });
   });
 });

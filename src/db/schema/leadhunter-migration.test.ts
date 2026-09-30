@@ -33,12 +33,26 @@ const runtimeSnapshotPath = resolve(
   process.cwd(),
   "supabase/migrations/meta/0011_snapshot.json",
 );
+const provenanceMigrationPath = resolve(
+  process.cwd(),
+  "supabase/migrations/0012_protect_leadhunter_source_provenance.sql",
+);
+const provenanceSnapshotPath = resolve(
+  process.cwd(),
+  "supabase/migrations/meta/0012_snapshot.json",
+);
 const migration = existsSync(migrationPath)
   ? normalizeSql(readFileSync(migrationPath, "utf8"))
   : "";
 const runtimeMigration = existsSync(runtimeMigrationPath)
   ? normalizeSql(readFileSync(runtimeMigrationPath, "utf8"))
   : "";
+const provenanceMigration = existsSync(provenanceMigrationPath)
+  ? normalizeSql(readFileSync(provenanceMigrationPath, "utf8"))
+  : "";
+const sourceCandidateGuard = provenanceMigration.match(
+  /create or replace function private\.guard_lh_source_candidate_provenance\(\)(.*?)\$\$;/,
+)?.[1] ?? "";
 const outboxGuard = migration.match(
   /create or replace function private\.guard_lh_outbox_command\(\)(.*?)\$\$;/,
 )?.[1] ?? "";
@@ -440,7 +454,9 @@ describe("LeadHunter job runtime migration", () => {
     const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
       entries: Array<{ idx: number; tag: string }>;
     };
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries.find(({ tag }) => (
+      tag === "0011_add_leadhunter_job_runtime"
+    ))).toMatchObject({
       idx: 11,
       tag: "0011_add_leadhunter_job_runtime",
     });
@@ -456,5 +472,60 @@ describe("LeadHunter job runtime migration", () => {
 
   it("is forward-only", () => {
     expect(runtimeMigration).not.toMatch(/drop\s+(?:table|type)|truncate/);
+  });
+});
+
+describe("LeadHunter source provenance migration", () => {
+  it("freezes discovered provenance while allowing resolution state", () => {
+    expect(provenanceMigration).toContain(
+      "create or replace function private.guard_lh_source_candidate_provenance()",
+    );
+    for (const column of [
+      "id",
+      "owner_id",
+      "run_id",
+      "source_type",
+      "source_identity",
+      "query",
+      "raw_record",
+      "canonical_url",
+      "discovered_at",
+      "created_at",
+    ]) {
+      expect(sourceCandidateGuard).toContain(
+        `new.${column} is distinct from old.${column}`,
+      );
+    }
+    for (const allowedColumn of ["resolution_state", "lead_id", "updated_at"]) {
+      expect(sourceCandidateGuard).not.toContain(
+        `new.${allowedColumn} is distinct from old.${allowedColumn}`,
+      );
+    }
+    expect(provenanceMigration).toContain(
+      "create trigger lh_source_candidates_guard_provenance before update on public.lh_source_candidates for each row execute function private.guard_lh_source_candidate_provenance()",
+    );
+  });
+
+  it("is forward-only", () => {
+    expect(provenanceMigration).not.toMatch(/drop\s+(?:table|type)|truncate/);
+  });
+
+  it("records 0012 after the job runtime migration", () => {
+    expect(existsSync(provenanceSnapshotPath)).toBe(true);
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 12,
+      tag: "0012_protect_leadhunter_source_provenance",
+    });
+
+    const provenanceSnapshot = JSON.parse(
+      readFileSync(provenanceSnapshotPath, "utf8"),
+    ) as { prevId: string };
+    const runtimeSnapshot = JSON.parse(
+      readFileSync(runtimeSnapshotPath, "utf8"),
+    ) as { id: string };
+    expect(provenanceSnapshot.prevId).toBe(runtimeSnapshot.id);
   });
 });

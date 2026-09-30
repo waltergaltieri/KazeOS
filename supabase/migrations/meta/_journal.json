@@ -85,6 +85,13 @@
       "when": 1790776102300,
       "tag": "0011_add_leadhunter_job_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790793700843,
+      "tag": "0012_protect_leadhunter_source_provenance",
+      "breakpoints": true
     }
   ]
 }
