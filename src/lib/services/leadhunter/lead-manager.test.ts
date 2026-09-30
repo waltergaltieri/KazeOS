@@ -1,3 +1,4 @@
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -9,11 +10,17 @@ import {
   leadHunterEvidence,
   leadHunterLeads,
 } from "@/db/schema";
-import { createLead, type LeadHunterLeadDatabase } from "./lead-manager";
+import {
+  createLead,
+  getLeadOutboundProtection,
+  type LeadHunterLeadDatabase,
+  type LeadHunterLeadProtectionDatabase,
+} from "./lead-manager";
 
 const ownerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const campaignId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const leadId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const dialect = new PgDialect();
 
 const input = {
   campaignId,
@@ -103,5 +110,62 @@ describe("createLead", () => {
       input,
     )).rejects.toThrow("Campaign not found");
     expect(inserts).toHaveLength(0);
+  });
+});
+
+describe("getLeadOutboundProtection", () => {
+  it("blocks a lead that has already reached a contacted state", async () => {
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = dialect.sqlToQuery(
+        query as Parameters<PgDialect["sqlToQuery"]>[0],
+      );
+      expect(rendered.sql).toContain("select $1::uuid as owner_id, $2::uuid as lead_id");
+      expect(rendered.sql).toContain(
+        '"lh_enrollments"."owner_id" = target.owner_id',
+      );
+      expect(rendered.sql).toContain(
+        '"lh_enrollments"."lead_id" = target.lead_id',
+      );
+      expect(rendered.params).toEqual([ownerId, leadId]);
+      return [{ contacted: true, activeOutbound: false }];
+    });
+
+    await expect(getLeadOutboundProtection(
+      { execute } as unknown as LeadHunterLeadProtectionDatabase,
+      ownerId,
+      leadId,
+    )).resolves.toEqual({
+      blocked: true,
+      reason: "previously_contacted",
+    });
+  });
+
+  it("blocks duplicate outbound while another command is queued or leased", async () => {
+    const execute = vi.fn(async () => [{
+      contacted: false,
+      activeOutbound: true,
+    }]);
+
+    await expect(getLeadOutboundProtection(
+      { execute } as unknown as LeadHunterLeadProtectionDatabase,
+      ownerId,
+      leadId,
+    )).resolves.toEqual({
+      blocked: true,
+      reason: "active_outbound",
+    });
+  });
+
+  it("allows a lead with no prior contact or active outbound", async () => {
+    const execute = vi.fn(async () => [{
+      contacted: false,
+      activeOutbound: false,
+    }]);
+
+    await expect(getLeadOutboundProtection(
+      { execute } as unknown as LeadHunterLeadProtectionDatabase,
+      ownerId,
+      leadId,
+    )).resolves.toEqual({ blocked: false, reason: null });
   });
 });

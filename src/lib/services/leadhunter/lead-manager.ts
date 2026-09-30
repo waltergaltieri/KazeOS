@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import * as schema from "@/db/schema";
@@ -11,6 +11,7 @@ import {
   leadHunterEnrollments,
   leadHunterEvidence,
   leadHunterLeads,
+  leadHunterOutbox,
 } from "@/db/schema";
 import type { LeadFormValues } from "@/lib/validations/leadhunter";
 
@@ -18,6 +19,72 @@ export type LeadHunterLeadDatabase = Pick<
   PostgresJsDatabase<typeof schema>,
   "select" | "insert"
 >;
+
+export type LeadHunterLeadProtectionDatabase = Pick<
+  PostgresJsDatabase<typeof schema>,
+  "execute"
+>;
+
+export type LeadOutboundProtection =
+  | { blocked: false; reason: null }
+  | {
+    blocked: true;
+    reason: "previously_contacted" | "active_outbound";
+  };
+
+interface LeadOutboundProtectionRow {
+  contacted: boolean;
+  activeOutbound: boolean;
+}
+
+export async function getLeadOutboundProtection(
+  database: LeadHunterLeadProtectionDatabase,
+  ownerId: string,
+  leadId: string,
+): Promise<LeadOutboundProtection> {
+  const rows = await database.execute(sql<LeadOutboundProtectionRow>`
+    with target as (
+      select ${ownerId}::uuid as owner_id, ${leadId}::uuid as lead_id
+    )
+    select
+      exists (
+        select 1
+        from ${leadHunterEnrollments}, target
+        where ${leadHunterEnrollments.ownerId} = target.owner_id
+          and ${leadHunterEnrollments.leadId} = target.lead_id
+          and (
+            ${leadHunterEnrollments.status} in ('contacting', 'replied', 'completed')
+            or exists (
+              select 1
+              from ${leadHunterOutbox}
+              where ${leadHunterOutbox.ownerId} = target.owner_id
+                and ${leadHunterOutbox.enrollmentId} = ${leadHunterEnrollments.id}
+                and ${leadHunterOutbox.state} in ('provider_accepted', 'unknown')
+            )
+          )
+      ) as contacted,
+      exists (
+        select 1
+        from target
+        inner join ${leadHunterEnrollments}
+          on ${leadHunterEnrollments.ownerId} = target.owner_id
+         and ${leadHunterEnrollments.leadId} = target.lead_id
+        inner join ${leadHunterOutbox}
+          on ${leadHunterOutbox.ownerId} = target.owner_id
+         and ${leadHunterOutbox.enrollmentId} = ${leadHunterEnrollments.id}
+        where ${leadHunterOutbox.state} in ('queued', 'leased')
+      ) as "activeOutbound"
+  `) as unknown as LeadOutboundProtectionRow[];
+  const protection = rows[0];
+  if (!protection) throw new Error("Lead outbound protection could not be determined");
+  if (protection.contacted) {
+    return { blocked: true, reason: "previously_contacted" };
+  }
+  if (protection.activeOutbound) {
+    return { blocked: true, reason: "active_outbound" };
+  }
+  return { blocked: false, reason: null };
+}
 
 export function normalizeBusinessName(name: string): string {
   return name
