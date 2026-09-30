@@ -294,10 +294,10 @@ Completion must check job ID, lease token, current lease state and payload schem
 
 **Step 4: Run integration test only with explicit isolation**
 
-If `TEST_DATABASE_URL` is absent, leave the integration test skipped with an explicit message. If present and verified as non-production:
+If `TEST_DATABASE_URL` is absent, leave the integration test skipped with an explicit message. The test URL must identify an isolated test database, resolve to a different canonical host/port/database target than `DATABASE_URL`, and be accompanied by the explicit mutation opt-in. The test connects directly with `TEST_DATABASE_URL`; do not replace `DATABASE_URL`:
 
 ```powershell
-$env:DATABASE_URL=$env:TEST_DATABASE_URL
+$env:LEADHUNTER_TEST_DATABASE_CONFIRM="leadhunter-test-only"
 pnpm exec vitest run src/lib/services/leadhunter/job-manager.integration.test.ts
 ```
 

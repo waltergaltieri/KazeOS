@@ -540,6 +540,13 @@ describe("database integration guard", () => {
       confirmation: "leadhunter-test-only",
     },
     {
+      testUrl:
+        "postgresql://test_role:test_password@LOCALHOST/kazeos_test?sslmode=require#worker",
+      databaseUrl:
+        "postgres://app_role:app_password@localhost:5432/kazeos_test?application_name=kazeos",
+      confirmation: "leadhunter-test-only",
+    },
+    {
       testUrl: "postgresql://user:password@localhost/kazeos_test",
       databaseUrl: "postgresql://user:password@localhost/kazeos_prod",
       confirmation: "wrong-confirmation",
@@ -575,10 +582,41 @@ describe("database integration guard", () => {
       skipReason: undefined,
     });
   });
+
+  it("accepts a different canonical database target without overwriting DATABASE_URL", () => {
+    const value = "postgresql://test_role@localhost:5433/kazeos_test?sslmode=require";
+
+    expect(databaseTestConfiguration(
+      value,
+      "postgresql://app_role@localhost:5432/kazeos_test?sslmode=require",
+      "leadhunter-test-only",
+    )).toEqual({
+      databaseUrl: value,
+      skipReason: undefined,
+    });
+    expect(databaseTestConfiguration(
+      value,
+      undefined,
+      "leadhunter-test-only",
+    )).toEqual({
+      databaseUrl: value,
+      skipReason: undefined,
+    });
+  });
 });
 
 const integrationDatabaseSkipReason =
   "LeadHunter PostgreSQL integration skipped: an explicit isolated TEST_DATABASE_URL is required.";
+
+function canonicalPostgresTarget(url: URL): string | undefined {
+  if (!["postgres:", "postgresql:"].includes(url.protocol)) return undefined;
+  if (!url.hostname || url.pathname.length <= 1) return undefined;
+
+  const hostname = url.hostname.toLowerCase();
+  const port = url.port || "5432";
+  const databasePath = decodeURIComponent(url.pathname);
+  return `postgresql://${hostname}:${port}${databasePath}`;
+}
 
 function databaseTestConfiguration(
   value: string | undefined,
@@ -597,6 +635,7 @@ function databaseTestConfiguration(
 
   try {
     const url = new URL(value);
+    const testTarget = canonicalPostgresTarget(url);
     const databaseName = decodeURIComponent(url.pathname.slice(1)).toLowerCase();
     const hasTestToken = /(^|[_-])test($|[_-])/.test(databaseName);
     const hasProductionToken = /(^|[_-])(main|prod|production|live)($|[_-])/
@@ -604,13 +643,16 @@ function databaseTestConfiguration(
     let matchesApplicationDatabase = false;
     if (applicationDatabaseUrl) {
       try {
-        matchesApplicationDatabase = new URL(applicationDatabaseUrl).href
-          === url.href;
+        const applicationTarget = canonicalPostgresTarget(
+          new URL(applicationDatabaseUrl),
+        );
+        matchesApplicationDatabase = !applicationTarget
+          || applicationTarget === testTarget;
       } catch {
         matchesApplicationDatabase = true;
       }
     }
-    const isolated = ["postgres:", "postgresql:"].includes(url.protocol)
+    const isolated = testTarget !== undefined
       && hasTestToken
       && !hasProductionToken
       && !matchesApplicationDatabase
