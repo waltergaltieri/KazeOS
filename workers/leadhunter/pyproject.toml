@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kazeos-leadhunter-worker"
+version = "0.1.0"
+description = "Bounded, evidence-backed extraction boundary for KazeOS LeadHunter"
+requires-python = ">=3.12,<4"
+dependencies = [
+  "pydantic==2.12.5",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest==9.0.2",
+]
+scrapegraph = [
+  "scrapegraphai==2.3.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["leadhunter_worker"]

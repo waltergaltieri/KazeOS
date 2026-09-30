@@ -41,6 +41,14 @@ const provenanceSnapshotPath = resolve(
   process.cwd(),
   "supabase/migrations/meta/0012_snapshot.json",
 );
+const researchMigrationPath = resolve(
+  process.cwd(),
+  "supabase/migrations/0013_add_leadhunter_research_provenance.sql",
+);
+const researchSnapshotPath = resolve(
+  process.cwd(),
+  "supabase/migrations/meta/0013_snapshot.json",
+);
 const migration = existsSync(migrationPath)
   ? normalizeSql(readFileSync(migrationPath, "utf8"))
   : "";
@@ -49,6 +57,9 @@ const runtimeMigration = existsSync(runtimeMigrationPath)
   : "";
 const provenanceMigration = existsSync(provenanceMigrationPath)
   ? normalizeSql(readFileSync(provenanceMigrationPath, "utf8"))
+  : "";
+const researchMigration = existsSync(researchMigrationPath)
+  ? normalizeSql(readFileSync(researchMigrationPath, "utf8"))
   : "";
 const sourceCandidateGuard = provenanceMigration.match(
   /create or replace function private\.guard_lh_source_candidate_provenance\(\)(.*?)\$\$;/,
@@ -428,6 +439,32 @@ describe("LeadHunter pipeline migration", () => {
   });
 });
 
+describe("LeadHunter research provenance migration", () => {
+  it("adds evidence status and campaign-question provenance forward-only", () => {
+    expect(researchMigration).toContain(
+      "create type public.lh_evidence_status as enum('verified', 'inferred', 'conflicting')",
+    );
+    expect(researchMigration).toContain("alter table lh_evidence add column campaign_version integer");
+    expect(researchMigration).toContain("alter table lh_evidence add column question_key text");
+    expect(researchMigration).toContain("alter table lh_evidence add column status public.lh_evidence_status");
+    expect(researchMigration).toContain(
+      "foreign key (owner_id,campaign_id,campaign_version) references public.lh_campaign_versions(owner_id,campaign_id,version)",
+    );
+    expect(researchMigration).not.toMatch(/drop\s+(?:table|type)|truncate/);
+  });
+
+  it("tracks the forward migration and snapshot", () => {
+    expect(existsSync(researchSnapshotPath)).toBe(true);
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 13,
+      tag: "0013_add_leadhunter_research_provenance",
+    });
+  });
+});
+
 describe("LeadHunter job runtime migration", () => {
   it("adds a durable run slot and a digest-only lease credential", () => {
     expect(runtimeMigration).toContain(
@@ -515,7 +552,7 @@ describe("LeadHunter source provenance migration", () => {
     const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
       entries: Array<{ idx: number; tag: string }>;
     };
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries.find(({ idx }) => idx === 12)).toMatchObject({
       idx: 12,
       tag: "0012_protect_leadhunter_source_provenance",
     });

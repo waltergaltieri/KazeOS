@@ -69,6 +69,12 @@ export const leadHunterEvidenceKindEnum = pgEnum("lh_evidence_kind", [
   "hypothesis",
 ]);
 
+export const leadHunterEvidenceStatusEnum = pgEnum("lh_evidence_status", [
+  "verified",
+  "inferred",
+  "conflicting",
+]);
+
 export const leadHunterActorTypeEnum = pgEnum("lh_actor_type", [
   "human",
   "system",
@@ -395,7 +401,10 @@ export const leadHunterEvidence = pgTable(
     leadId: uuid("lead_id").notNull(),
     runId: uuid("run_id"),
     campaignId: uuid("campaign_id"),
+    campaignVersion: integer("campaign_version"),
+    questionKey: text("question_key"),
     kind: leadHunterEvidenceKindEnum("kind").notNull(),
+    status: leadHunterEvidenceStatusEnum("status").notNull(),
     sourceType: text("source_type").notNull(),
     sourceUrl: text("source_url"),
     field: text("field").notNull(),
@@ -414,6 +423,18 @@ export const leadHunterEvidence = pgTable(
     check(
       "lh_evidence_content_hash_not_blank",
       sql`${table.contentHash} is null or btrim(${table.contentHash}) <> ''`,
+    ),
+    check(
+      "lh_evidence_campaign_version_coherence",
+      sql`(${table.campaignId} is null and ${table.campaignVersion} is null) or (${table.campaignId} is not null and (${table.campaignVersion} is null or ${table.campaignVersion} > 0))`,
+    ),
+    check(
+      "lh_evidence_question_key_format",
+      sql`${table.questionKey} is null or ${table.questionKey} ~ '^[a-z][a-z0-9_]{1,79}$'`,
+    ),
+    check(
+      "lh_evidence_status_kind_coherence",
+      sql`(${table.status} = 'verified' and ${table.kind} = 'fact') or (${table.status} in ('inferred', 'conflicting') and ${table.kind} = 'hypothesis')`,
     ),
     check("lh_evidence_confidence_range", sql`${table.confidence} between 0 and 100`),
     unique("lh_evidence_owner_id_id_unique").on(table.ownerId, table.id),
@@ -438,9 +459,26 @@ export const leadHunterEvidence = pgTable(
     })
       .onDelete("restrict")
       .onUpdate("cascade"),
+    foreignKey({
+      name: "lh_evidence_owner_campaign_version_campaign_versions_owner_campaign_version_fk",
+      columns: [table.ownerId, table.campaignId, table.campaignVersion],
+      foreignColumns: [
+        leadHunterCampaignVersions.ownerId,
+        leadHunterCampaignVersions.campaignId,
+        leadHunterCampaignVersions.version,
+      ],
+    })
+      .onDelete("restrict")
+      .onUpdate("cascade"),
     index("lh_evidence_owner_lead_idx").on(table.ownerId, table.leadId),
     index("lh_evidence_owner_run_idx").on(table.ownerId, table.runId),
     index("lh_evidence_owner_campaign_idx").on(table.ownerId, table.campaignId),
+    index("lh_evidence_owner_lead_campaign_version_idx").on(
+      table.ownerId,
+      table.leadId,
+      table.campaignId,
+      table.campaignVersion,
+    ),
     ...backendPolicies("lh_evidence", table.ownerId),
   ],
 ).enableRLS();

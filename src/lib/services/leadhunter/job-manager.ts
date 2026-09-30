@@ -76,11 +76,33 @@ const discoverPayloadSchema = z.discriminatedUnion("kind", [
   seedUrlPayloadSchema,
 ]);
 const leadPayloadSchema = z.object({ leadId: z.string().uuid() }).strict();
+const researchPayloadSchema = z.object({
+  leadId: z.string().uuid(),
+  source: z.object({
+    sourceUrl: z.string().url().max(2_048).refine(
+      (value) => /^https?:\/\//i.test(value),
+      "Source URL must use HTTP(S)",
+    ).refine((value) => {
+      const url = new URL(value);
+      return !url.username && !url.password;
+    }, "Source URL must not contain credentials"),
+    sourceType: z.string().trim().min(1).max(80),
+    suppliedAt: z.string().datetime({ offset: true }),
+    contentSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  }).strict().optional(),
+  budget: z.object({
+    maxRuntimeMs: z.number().int().min(50).max(120_000),
+    maxModelCalls: z.number().int().min(0).max(10),
+    maxInputTokens: z.number().int().min(0).max(200_000),
+    maxOutputTokens: z.number().int().min(0).max(20_000),
+    maxCostUsd: z.number().min(0).max(100),
+  }).strict().optional(),
+}).strict();
 
 const jobPayloadSchemas = {
   discover: discoverPayloadSchema,
   resolve_identity: z.object({ candidateId: z.string().uuid() }).strict(),
-  research: leadPayloadSchema,
+  research: researchPayloadSchema,
   audit_website: z.object({
     leadId: z.string().uuid(),
     website: z.string().url().max(2_048).refine(

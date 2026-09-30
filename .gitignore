@@ -29,3 +29,6 @@ Thumbs.db
 .idea/
 .vscode/
 .vercel
+workers/leadhunter/.venv/
+workers/leadhunter/.pytest_cache/
+workers/leadhunter/**/__pycache__/

@@ -33,6 +33,8 @@ const leadHunterMessageVersions = (schema as Record<string, unknown>)
   .leadHunterMessageVersions as OptionalTable;
 const leadHunterOutbox = (schema as Record<string, unknown>)
   .leadHunterOutbox as OptionalTable;
+const leadHunterEvidenceStatusEnum = (schema as Record<string, unknown>)
+  .leadHunterEvidenceStatusEnum as OptionalEnum;
 
 const pipelineTables = [
   leadHunterRuns,
@@ -259,9 +261,20 @@ describe("LeadHunter schema contract", () => {
     expect(columnNames(leadHunterEvidence)).toEqual(expect.arrayContaining([
       "run_id",
       "campaign_id",
+      "campaign_version",
+      "question_key",
+      "status",
       "extract",
       "content_hash",
     ]));
+    expect(leadHunterEvidenceStatusEnum?.enumValues).toEqual([
+      "verified",
+      "inferred",
+      "conflicting",
+    ]);
+    expect(foreignKeyNames(leadHunterEvidence)).toContain(
+      "lh_evidence_owner_campaign_version_campaign_versions_owner_campaign_version_fk",
+    );
   });
 
   it("keeps every pipeline table owner-scoped with backend-only writes", () => {

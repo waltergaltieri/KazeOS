@@ -1,0 +1,44 @@
+{
+  "active-official.html": {
+    "source_url": "https://andes.example/nosotros",
+    "expected": {
+      "business.name": ["Andes Industrial"],
+      "business.activity": ["Distribución mayorista de equipamiento gastronómico"],
+      "business.status": ["Activo"],
+      "business.address": ["San Martín 1200, Rosario, Santa Fe"]
+    }
+  },
+  "directory-only.html": {
+    "source_url": "https://directorio.example/taller-norte",
+    "expected": {"business.name": ["Taller Norte"]}
+  },
+  "ambiguous-name.html": {
+    "source_url": "https://listado.example/el-molino",
+    "expected": {"business.name": ["El Molino"]}
+  },
+  "prompt-injection.html": {
+    "source_url": "https://rioclaro.example/empresa",
+    "expected": {
+      "business.name": ["Río Claro Logística"],
+      "business.activity": ["Logística y almacenamiento para comercios regionales"]
+    }
+  },
+  "conflicting-addresses.html": {
+    "source_url": "https://directorio.example/mercado-delta",
+    "expected": {
+      "business.name": ["Mercado Delta"],
+      "business.address": ["Belgrano 450, Córdoba", "Belgrano 540, Córdoba"]
+    }
+  },
+  "empty.html": {
+    "source_url": "https://empty.example/",
+    "expected": {}
+  },
+  "published-email.html": {
+    "source_url": "https://patagonia-envases.example/contacto",
+    "expected": {
+      "business.name": ["Patagonia Envases"],
+      "business.email": ["ventas@patagonia-envases.example"]
+    }
+  }
+}

@@ -224,6 +224,7 @@ export async function createLead(
     ownerId,
     leadId: lead.id,
     kind: "fact",
+    status: "verified",
     sourceType: values.sourceType,
     sourceUrl: values.sourceUrl,
     field: "business.identity",
