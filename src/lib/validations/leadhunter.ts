@@ -147,6 +147,25 @@ export const campaignFormSchema = z
         message: "Un criterio no puede ser positivo y negativo a la vez.",
       });
     }
+
+    if (campaign.strategy) {
+      const combinedSignals = new Set(
+        campaign.strategy.qualification.rules.map((rule) =>
+          normalizedCriterion(rule.criterion)),
+      );
+      campaign.positiveCriteria.forEach((criterion) =>
+        combinedSignals.add(normalizedCriterion(criterion)));
+      campaign.negativeCriteria.forEach((criterion) =>
+        combinedSignals.add(normalizedCriterion(criterion)));
+
+      if (combinedSignals.size > 100) {
+        context.addIssue({
+          code: "custom",
+          path: ["strategy", "qualification", "rules"],
+          message: "La estrategia combinada no puede superar 100 criterios únicos.",
+        });
+      }
+    }
   });
 
 export const campaignStatusTransitionSchema = z

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   campaignStrategySchema,
   createDefaultCampaignStrategy,
+  reconcileCampaignStrategy,
   selectMessagePolicy,
 } from "./contracts";
 
@@ -181,7 +182,8 @@ describe("LeadHunter campaign strategy contracts", () => {
     });
 
     expect(arThenUs.message).toEqual(usThenAr.message);
-    expect(arThenUs.messageByCountry).toEqual(usThenAr.messageByCountry);
+    expect(arThenUs.message.language).toBe("auto");
+    expect("messageByCountry" in arThenUs).toBe(false);
     expect(selectMessagePolicy(arThenUs, "AR")).toMatchObject({
       language: "es-AR",
       signature: "Equipo KazeCode",
@@ -192,5 +194,59 @@ describe("LeadHunter campaign strategy contracts", () => {
       signature: "KazeCode Team",
       cta: "Ask whether a brief conversation would be useful.",
     });
+  });
+
+  it("preserves an explicitly authored singular message policy", () => {
+    const strategy = createDefaultCampaignStrategy({
+      objective: "Encontrar distribuidores con procesos manuales.",
+      serviceFocus: "automation",
+      countries: ["US"],
+      sources: ["web_search"],
+      positiveCriteria: [],
+      negativeCriteria: [],
+    });
+    strategy.message = {
+      ...strategy.message,
+      language: "en-US",
+      tone: "Warm and precise",
+      cta: "Reply with the right contact if someone else owns this process.",
+      signature: "Alex from KazeCode",
+    };
+
+    const reconciled = reconcileCampaignStrategy({
+      objective: "Encontrar distribuidores con procesos manuales.",
+      serviceFocus: "automation",
+      countries: ["AR"],
+      sources: ["directories"],
+      positiveCriteria: [],
+      negativeCriteria: [],
+      strategy,
+    });
+
+    expect(reconciled.message).toEqual(strategy.message);
+    expect(selectMessagePolicy(reconciled, "AR")).toEqual(strategy.message);
+  });
+
+  it("keeps generated single-country policies explicit", () => {
+    const input = {
+      objective: "Encontrar distribuidores con procesos manuales.",
+      serviceFocus: "automation",
+      sources: ["web_search" as const],
+      positiveCriteria: [],
+      negativeCriteria: [],
+    };
+    const argentina = createDefaultCampaignStrategy({
+      ...input,
+      countries: ["AR"],
+    });
+    const unitedStates = createDefaultCampaignStrategy({
+      ...input,
+      countries: ["US"],
+    });
+
+    expect(argentina.message.language).toBe("es-AR");
+    expect(selectMessagePolicy(argentina, "AR")).toEqual(argentina.message);
+    expect(unitedStates.message.language).toBe("en-US");
+    expect(selectMessagePolicy(unitedStates, "US")).toEqual(unitedStates.message);
   });
 });

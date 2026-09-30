@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { createDefaultCampaignStrategy } from "@/lib/leadhunter/contracts";
+
 import {
   campaignFormSchema,
   campaignStatusTransitionSchema,
@@ -113,6 +115,54 @@ describe("LeadHunter campaign validation", () => {
     expect(result.error?.flatten().fieldErrors.negativeCriteria).toContain(
       "Un criterio no puede ser positivo y negativo a la vez.",
     );
+  });
+
+  it("rejects more than 100 unique reconciled qualification rules", () => {
+    const strategy = createDefaultCampaignStrategy({
+      ...validCampaign,
+      sources: ["web_search"],
+      positiveCriteria: [],
+      negativeCriteria: [],
+    });
+    strategy.qualification.rules = Array.from({ length: 100 }, (_, index) => ({
+      criterion: `Señal ${index}`,
+      weight: 1,
+    }));
+
+    const result = campaignFormSchema.safeParse({
+      ...validCampaign,
+      positiveCriteria: ["Señal adicional"],
+      negativeCriteria: [],
+      strategy,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toContainEqual(expect.objectContaining({
+      path: ["strategy", "qualification", "rules"],
+      message: "La estrategia combinada no puede superar 100 criterios únicos.",
+    }));
+  });
+
+  it("does not count duplicate reconciled rules toward the limit", () => {
+    const strategy = createDefaultCampaignStrategy({
+      ...validCampaign,
+      sources: ["web_search"],
+      positiveCriteria: [],
+      negativeCriteria: [],
+    });
+    strategy.qualification.rules = Array.from({ length: 100 }, (_, index) => ({
+      criterion: `Señal ${index}`,
+      weight: 1,
+    }));
+
+    const result = campaignFormSchema.safeParse({
+      ...validCampaign,
+      positiveCriteria: ["  SEÑAL   0  "],
+      negativeCriteria: [],
+      strategy,
+    });
+
+    expect(result.success).toBe(true);
   });
 
   it("rejects a sending window whose end is not after its start", () => {

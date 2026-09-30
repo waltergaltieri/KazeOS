@@ -120,7 +120,7 @@ const requiredMessageSectionsSchema = z
 
 export const messagePolicySchema = z
   .object({
-    language: z.enum(["es-AR", "en-US"]),
+    language: z.enum(["es-AR", "en-US", "auto"]),
     tone: nonBlankText(240),
     minimumSpecificFacts: z.number().int().min(1).max(20),
     wordRange: z
@@ -141,27 +141,6 @@ export const messagePolicySchema = z
     restrictedPhrases: uniqueTextArray(240, 100),
   })
   .strict();
-
-const messageByCountrySchema = z
-  .record(
-    z.string().regex(/^[A-Z]{2}$/),
-    messagePolicySchema,
-  )
-  .default({})
-  .superRefine((policies, context) => {
-    const expectedLocales = { AR: "es-AR", US: "en-US" } as const;
-
-    for (const [country, language] of Object.entries(expectedLocales)) {
-      const policy = policies[country];
-      if (policy && policy.language !== language) {
-        context.addIssue({
-          code: "custom",
-          path: [country, "language"],
-          message: `La política de ${country} debe usar ${language}.`,
-        });
-      }
-    }
-  });
 
 const researchStrategySchema = z
   .object({
@@ -206,7 +185,6 @@ export const campaignStrategySchema = z
     research: researchStrategySchema,
     qualification: qualificationStrategySchema,
     message: messagePolicySchema,
-    messageByCountry: messageByCountrySchema,
   })
   .strict();
 
@@ -286,21 +264,16 @@ function messagePolicyForCountry(country: string): MessagePolicy {
   };
 }
 
-function messagePoliciesForCountries(
-  countries: string[],
-): Record<string, MessagePolicy> {
-  return Object.fromEntries(
-    [...new Set(countries)]
-      .sort()
-      .map((country) => [country, messagePolicyForCountry(country)]),
-  );
-}
-
 function defaultMessagePolicy(countries: string[]): MessagePolicy {
-  const uniqueCountries = new Set(countries);
-  return messagePolicyForCountry(
-    uniqueCountries.size === 1 && uniqueCountries.has("US") ? "US" : "AR",
-  );
+  const uniqueCountries = [...new Set(countries)];
+  if (uniqueCountries.length === 1) {
+    return messagePolicyForCountry(uniqueCountries[0] ?? "AR");
+  }
+
+  return {
+    ...messagePolicyForCountry("AR"),
+    language: "auto",
+  };
 }
 
 function normalizedSignal(value: string): string {
@@ -328,25 +301,12 @@ function reconcileQualificationRules(
   return [...preservedRules, ...formRules];
 }
 
-function reconciledMessagePolicies(
-  strategy: CampaignStrategy,
-  countries: string[],
-): Record<string, MessagePolicy> {
-  return Object.fromEntries(
-    [...new Set(countries)]
-      .sort()
-      .map((country) => [
-        country,
-        strategy.messageByCountry[country] ?? messagePolicyForCountry(country),
-      ]),
-  );
-}
-
 export function selectMessagePolicy(
   strategy: CampaignStrategy,
   country: string,
 ): MessagePolicy {
-  return strategy.messageByCountry[country.trim().toUpperCase()] ?? strategy.message;
+  if (strategy.message.language !== "auto") return strategy.message;
+  return messagePolicyForCountry(country.trim().toUpperCase());
 }
 
 export function createDefaultCampaignStrategy(
@@ -396,7 +356,6 @@ export function createDefaultCampaignStrategy(
       ],
     },
     message: defaultMessagePolicy(values.countries),
-    messageByCountry: messagePoliciesForCountries(values.countries),
   });
 }
 
@@ -420,6 +379,5 @@ export function reconcileCampaignStrategy(
         values.negativeCriteria,
       ),
     },
-    messageByCountry: reconciledMessagePolicies(strategy, values.countries),
   });
 }
