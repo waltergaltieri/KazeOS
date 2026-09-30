@@ -10,6 +10,15 @@ import {
   type ResearchQuestion,
 } from "./contracts";
 
+// Contracts permit 50 configured gates and 100 required research questions.
+// At most one assessment reason is emitted for each of 100 configured rules,
+// plus one reason for each non-passing gate. Terminal reasons are mutually
+// exclusive with those branches, so the true result maxima are 150 gates and
+// 250 reasons. Every referenced ID must come from the 500-row evidence input.
+export const maximumQualificationGateResults = 150;
+export const maximumQualificationReasons = 250;
+export const maximumQualificationEvidenceIds = 500;
+
 const httpUrlSchema = z.string().trim().url().max(2_048).refine(
   (value) => /^https?:\/\//i.test(value),
   "Evidence URL must use HTTP(S)",
@@ -52,7 +61,7 @@ export const qualificationEvidenceSchema = z.object({
 const websiteAuditInputSchema = z.object({
   gateResult: websiteGateStateSchema,
   confidence: z.number().int().min(0).max(100),
-  evidenceIds: z.array(z.string().uuid()).max(500).transform(
+  evidenceIds: z.array(z.string().uuid()).max(maximumQualificationEvidenceIds).transform(
     (values) => [...new Set(values)].sort(),
   ),
 }).strict();
@@ -69,15 +78,6 @@ export interface QualificationInput {
   websiteAudit: z.input<typeof websiteAuditInputSchema> | null;
   publishedEmailConfidence: number | null;
 }
-
-// Contracts permit 50 configured gates and 100 required research questions.
-// At most one assessment reason is emitted for each of 100 configured rules,
-// plus one reason for each non-passing gate. Terminal reasons are mutually
-// exclusive with those branches, so the true result maxima are 150 gates and
-// 250 reasons. Every referenced ID must come from the 500-row evidence input.
-export const maximumQualificationGateResults = 150;
-export const maximumQualificationReasons = 250;
-export const maximumQualificationEvidenceIds = 500;
 
 export const qualificationGateResultSchema = z.object({
   type: z.enum(["website", "required_finding", "research_required"]),
@@ -197,7 +197,9 @@ export function evaluateQualification(rawInput: QualificationInput): Qualificati
   const researchQuestions = z.array(researchQuestionSchema).max(100).parse(
     rawInput.researchQuestions,
   );
-  const evidence = z.array(qualificationEvidenceSchema).max(500).parse(rawInput.evidence);
+  const evidence = z.array(qualificationEvidenceSchema)
+    .max(maximumQualificationEvidenceIds)
+    .parse(rawInput.evidence);
   const assessments = z.array(qualificationAssessmentSchema).max(100).parse(
     rawInput.assessments,
   );

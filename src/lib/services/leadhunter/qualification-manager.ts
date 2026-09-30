@@ -23,6 +23,7 @@ import {
 import { campaignStrategySchema, type CampaignStrategy } from "@/lib/leadhunter/contracts";
 import {
   evaluateQualification,
+  maximumQualificationEvidenceIds,
   qualificationAssessmentEnvelopeSchema,
   qualificationResultSchema,
   type QualificationResult,
@@ -644,7 +645,7 @@ function storedAuditForQualification(
       "NO_WEBSITE", "BAD_WEBSITE", "GOOD_ENOUGH_WEBSITE", "UNVERIFIED",
     ]),
     confidence: z.number().int().min(0).max(100),
-    evidenceIds: z.array(z.string().uuid()).max(100),
+    evidenceIds: z.array(z.string().uuid()).max(maximumQualificationEvidenceIds),
   }).strict().parse({
     gateResult: audit.gateResult,
     confidence: audit.confidence,

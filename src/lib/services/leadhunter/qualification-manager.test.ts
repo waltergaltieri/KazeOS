@@ -553,6 +553,91 @@ describe("LeadHunter qualification manager", () => {
     expect(stored).toEqual({ kind: "qualify", output: { decision: "eligible", score: 93 } });
   });
 
+  it.each([101, 500])(
+    "accepts a persisted website audit with %i owned evidence IDs",
+    async (count) => {
+      const ids = Array.from(
+        { length: count },
+        (_, index) => `00000000-0000-5000-8003-${index.toString().padStart(12, "0")}`,
+      );
+      const auditStrategy = {
+        ...strategy(),
+        qualification: {
+          gates: [{ type: "website" as const, allowed: ["GOOD_ENOUGH_WEBSITE" as const] }],
+          rules: [],
+        },
+      };
+      const execute = vi.fn(async (query: unknown) => {
+        const rendered = queryText(query);
+        const context = lockedContextResult(rendered.sql, lockedJob("qualify", {
+          snapshot: { strategy: auditStrategy },
+        }));
+        if (context) return context;
+        if (rendered.sql.includes('from "lh_website_audits"')) {
+          return [{
+            id: auditId,
+            gateResult: "GOOD_ENOUGH_WEBSITE",
+            checks: [],
+            summary: "Verified website",
+            confidence: 100,
+            evidenceIds: ids,
+          }];
+        }
+        if (rendered.sql.includes('from "lh_evidence"')) {
+          return ids.map((id) => evidenceRow(id, {
+            questionKey: "business_model",
+            field: "business_model",
+            value: "Wholesale distributor",
+            confidence: 100,
+          }));
+        }
+        if (rendered.sql.includes('from "lh_contacts"')) return [{ emailConfidence: 100 }];
+        return [];
+      });
+      const { value } = database(execute);
+
+      const result = await persistQualificationResult(value, input({ assessments: [] }));
+
+      expect(result).toMatchObject({ status: "processed", decision: "eligible" });
+      expect(result.detail?.evidenceIds).toHaveLength(count);
+      expect(result.detail?.gates[0]?.evidenceIds).toHaveLength(count);
+    },
+  );
+
+  it("rejects a persisted audit with 501 evidence IDs before enrollment writes", async () => {
+    const statements: string[] = [];
+    const ids = Array.from(
+      { length: 501 },
+      (_, index) => `00000000-0000-5000-8004-${index.toString().padStart(12, "0")}`,
+    );
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered.sql);
+      const context = lockedContextResult(rendered.sql, lockedJob("qualify"));
+      if (context) return context;
+      if (rendered.sql.includes('from "lh_website_audits"')) {
+        return [{
+          id: auditId,
+          gateResult: "GOOD_ENOUGH_WEBSITE",
+          checks: [],
+          summary: "Oversized audit",
+          confidence: 100,
+          evidenceIds: ids,
+        }];
+      }
+      if (rendered.sql.includes('from "lh_evidence"')) {
+        return ids.slice(0, 500).map((id) => evidenceRow(id));
+      }
+      if (rendered.sql.includes('from "lh_contacts"')) return [{ emailConfidence: 100 }];
+      return [];
+    });
+    const { value } = database(execute);
+
+    await expect(persistQualificationResult(value, input({ assessments: [] })))
+      .resolves.toMatchObject({ status: "rejected" });
+    expect(statements.some((sql) => sql.includes('update "lh_enrollments"'))).toBe(false);
+  });
+
   it("records commercial merit without inventing an email", async () => {
     const statements: Array<{ sql: string; params: unknown[] }> = [];
     const execute = vi.fn(async (query: unknown) => {
