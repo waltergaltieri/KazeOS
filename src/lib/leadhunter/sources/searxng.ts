@@ -193,9 +193,9 @@ export function createSearxngAdapter({
         }, timeoutMs);
       });
 
-      let response: Response;
+      let payload: unknown;
       try {
-        response = await Promise.race([
+        const response = await Promise.race([
           fetchOperatorUrl(requestUrl.toString(), {
             fetch,
             maxRedirects,
@@ -206,6 +206,17 @@ export function createSearxngAdapter({
           }),
           timeout,
         ]);
+        if (!response.ok) {
+          throw new SearxngRequestError(
+            `SearXNG request failed with status ${response.status}`,
+          );
+        }
+        try {
+          payload = await Promise.race([response.json(), timeout]);
+        } catch (error) {
+          if (error instanceof SearxngRequestError) throw error;
+          throw new SearxngRequestError("SearXNG returned invalid JSON");
+        }
       } catch (error) {
         if (error instanceof SearxngRequestError) throw error;
         throw new SearxngRequestError(
@@ -215,18 +226,6 @@ export function createSearxngAdapter({
         if (timer) clearTimeout(timer);
       }
 
-      if (!response.ok) {
-        throw new SearxngRequestError(
-          `SearXNG request failed with status ${response.status}`,
-        );
-      }
-
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        throw new SearxngRequestError("SearXNG returned invalid JSON");
-      }
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         throw new SearxngRequestError("SearXNG returned an invalid response");
       }

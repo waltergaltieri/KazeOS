@@ -67,7 +67,7 @@ function parseUrl(input: string): URL {
 }
 
 function plainHostname(url: URL): string {
-  const hostname = url.hostname.toLowerCase();
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
   return hostname.startsWith("[") && hostname.endsWith("]")
     ? hostname.slice(1, -1)
     : hostname;

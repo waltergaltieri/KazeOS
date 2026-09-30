@@ -48,6 +48,17 @@ describe("safe public URLs", () => {
       .rejects.toBeInstanceOf(SafeUrlError);
   });
 
+  it.each([
+    "http://localhost./",
+    "http://api.localhost./",
+  ])("rejects localhost with a trailing DNS root dot: %s", async (url) => {
+    const misleadingResolver = vi.fn(async () => ["93.184.216.34"]);
+
+    await expect(validatePublicUrl(url, { resolve: misleadingResolver }))
+      .rejects.toThrow("blocked");
+    expect(misleadingResolver).not.toHaveBeenCalled();
+  });
+
   it.each(["10.1.2.3", "169.254.1.1", "::1", "fd00::1", "ff02::1"])(
     "rejects a hostname when DNS resolves to blocked address %s",
     async (address) => {

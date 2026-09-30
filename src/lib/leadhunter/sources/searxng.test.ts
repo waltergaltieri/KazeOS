@@ -172,4 +172,29 @@ describe("SearXNG source adapter", () => {
 
     await result;
   });
+
+  it("keeps the timeout active while the response body is being parsed", async () => {
+    vi.useFakeTimers();
+    const response = new Response(null, { status: 200 });
+    vi.spyOn(response, "json").mockImplementation(
+      () => new Promise<never>(() => undefined),
+    );
+    const fetch = vi.fn<FetchLike>(async () => response);
+    const adapter = createSearxngAdapter({
+      endpoint: "https://search.example.com/search",
+      fetch,
+      resolve: publicResolver,
+      timeoutMs: 50,
+    });
+    let outcome: unknown = "pending";
+    void adapter.discover(initialWork).then(
+      (value) => { outcome = value; },
+      (error: unknown) => { outcome = error; },
+    );
+
+    await vi.advanceTimersByTimeAsync(51);
+
+    expect(outcome).toBeInstanceOf(SearxngRequestError);
+    expect(outcome).toMatchObject({ message: "SearXNG request timed out" });
+  });
 });
