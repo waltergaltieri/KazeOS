@@ -4,7 +4,6 @@ import {
   campaignStrategySchema,
   createDefaultCampaignStrategy,
   reconcileCampaignStrategy,
-  selectMessagePolicy,
 } from "./contracts";
 
 const validStrategy = {
@@ -108,6 +107,13 @@ describe("LeadHunter campaign strategy contracts", () => {
     })).toThrow();
   });
 
+  it("rejects automatic message locales", () => {
+    expect(() => campaignStrategySchema.parse({
+      ...validStrategy,
+      message: { ...validStrategy.message, language: "auto" },
+    })).toThrow();
+  });
+
   it("rejects blank restricted phrases", () => {
     expect(() => campaignStrategySchema.parse({
       ...validStrategy,
@@ -164,7 +170,7 @@ describe("LeadHunter campaign strategy contracts", () => {
     })).toThrow();
   });
 
-  it("builds order-independent message policies for mixed AR and US campaigns", () => {
+  it("builds the same supported fallback for mixed AR and US campaigns", () => {
     const input = {
       objective: "Encontrar distribuidores con procesos de venta manuales.",
       serviceFocus: "automation",
@@ -182,17 +188,11 @@ describe("LeadHunter campaign strategy contracts", () => {
     });
 
     expect(arThenUs.message).toEqual(usThenAr.message);
-    expect(arThenUs.message.language).toBe("auto");
+    expect(arThenUs.message.language).toBe("es-AR");
     expect("messageByCountry" in arThenUs).toBe(false);
-    expect(selectMessagePolicy(arThenUs, "AR")).toMatchObject({
-      language: "es-AR",
+    expect(arThenUs.message).toMatchObject({
       signature: "Equipo KazeCode",
       cta: "Preguntar si tiene sentido conversar brevemente.",
-    });
-    expect(selectMessagePolicy(arThenUs, "US")).toMatchObject({
-      language: "en-US",
-      signature: "KazeCode Team",
-      cta: "Ask whether a brief conversation would be useful.",
     });
   });
 
@@ -224,7 +224,6 @@ describe("LeadHunter campaign strategy contracts", () => {
     });
 
     expect(reconciled.message).toEqual(strategy.message);
-    expect(selectMessagePolicy(reconciled, "AR")).toEqual(strategy.message);
   });
 
   it("keeps generated single-country policies explicit", () => {
@@ -245,8 +244,6 @@ describe("LeadHunter campaign strategy contracts", () => {
     });
 
     expect(argentina.message.language).toBe("es-AR");
-    expect(selectMessagePolicy(argentina, "AR")).toEqual(argentina.message);
     expect(unitedStates.message.language).toBe("en-US");
-    expect(selectMessagePolicy(unitedStates, "US")).toEqual(unitedStates.message);
   });
 });

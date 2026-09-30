@@ -120,7 +120,7 @@ const requiredMessageSectionsSchema = z
 
 export const messagePolicySchema = z
   .object({
-    language: z.enum(["es-AR", "en-US", "auto"]),
+    language: z.enum(["es-AR", "en-US"]),
     tone: nonBlankText(240),
     minimumSpecificFacts: z.number().int().min(1).max(20),
     wordRange: z
@@ -265,15 +265,10 @@ function messagePolicyForCountry(country: string): MessagePolicy {
 }
 
 function defaultMessagePolicy(countries: string[]): MessagePolicy {
-  const uniqueCountries = [...new Set(countries)];
-  if (uniqueCountries.length === 1) {
-    return messagePolicyForCountry(uniqueCountries[0] ?? "AR");
-  }
-
-  return {
-    ...messagePolicyForCountry("AR"),
-    language: "auto",
-  };
+  const uniqueCountries = new Set(countries);
+  return messagePolicyForCountry(
+    uniqueCountries.size === 1 && uniqueCountries.has("US") ? "US" : "AR",
+  );
 }
 
 function normalizedSignal(value: string): string {
@@ -299,14 +294,6 @@ function reconcileQualificationRules(
   });
 
   return [...preservedRules, ...formRules];
-}
-
-export function selectMessagePolicy(
-  strategy: CampaignStrategy,
-  country: string,
-): MessagePolicy {
-  if (strategy.message.language !== "auto") return strategy.message;
-  return messagePolicyForCountry(country.trim().toUpperCase());
 }
 
 export function createDefaultCampaignStrategy(
