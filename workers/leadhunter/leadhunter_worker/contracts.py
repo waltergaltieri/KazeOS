@@ -43,7 +43,7 @@ class ExtractionRequest(StrictModel):
     source_type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
     supplied_at: datetime
     content: str = Field(max_length=100_000)
-    questions: list[ResearchQuestion] = Field(min_length=1, max_length=20)
+    questions: list[ResearchQuestion] = Field(min_length=1, max_length=100)
     budget: ExtractionBudget
 
     @field_validator("source_url")

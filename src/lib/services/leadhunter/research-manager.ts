@@ -20,6 +20,12 @@ import {
   type AcceptedResearchEvidence,
   type ResearchDossier,
 } from "@/lib/leadhunter/research";
+import {
+  databaseDate,
+  digestLeaseToken,
+  exactDigestMatch,
+  JobCompletionRejectedError,
+} from "./job-manager";
 
 const sourceProvenanceSchema = z.object({
   sourceUrl: z.string().trim().url().max(2_048)
@@ -74,6 +80,9 @@ interface ResearchJobRow {
   result: unknown;
   researchSummary: ResearchDossier | null;
   questions: unknown;
+  leaseTokenDigest: string | null;
+  leaseExpiresAt: Date | string | null;
+  leaseOwner: string | null;
 }
 
 interface PersistedEvidenceRow {
@@ -93,6 +102,8 @@ interface PersistedEvidenceRow {
 export interface PersistResearchResultInput {
   ownerId: string;
   jobId: string;
+  leaseToken: string;
+  now: Date;
   output: unknown;
 }
 
@@ -162,6 +173,9 @@ export async function persistResearchResult(
         job.kind,
         job.payload,
         job.result,
+        job.lease_token_digest as "leaseTokenDigest",
+        job.lease_expires_at as "leaseExpiresAt",
+        job.lease_owner as "leaseOwner",
         enrollment.research_summary as "researchSummary",
         version.snapshot->'strategy'->'research'->'questions' as questions
       from ${leadHunterJobs} as job
@@ -186,7 +200,10 @@ export async function persistResearchResult(
       for update of job, enrollment
     `) as unknown as ResearchJobRow[];
     const job = rows[0];
-    if (!job) throw new Error("Research job not found");
+    const suppliedDigest = digestLeaseToken(input.leaseToken);
+    if (!job || !exactDigestMatch(job.leaseTokenDigest, suppliedDigest)) {
+      throw new JobCompletionRejectedError();
+    }
     if (job.kind !== "research") throw new Error("Job is not a research job");
 
     if (job.state === "succeeded") {
@@ -199,7 +216,23 @@ export async function persistResearchResult(
         dossier: job.researchSummary,
       };
     }
-    if (job.state !== "leased") throw new Error("Research job is not leased");
+    const trustedNow = input.now.getTime();
+    let activeLease = false;
+    if (
+      !Number.isNaN(trustedNow)
+      && job.state === "leased"
+      && job.leaseOwner === "worker-api"
+      && job.leaseExpiresAt !== null
+    ) {
+      try {
+        activeLease = databaseDate(job.leaseExpiresAt).getTime() > trustedNow;
+      } catch {
+        activeLease = false;
+      }
+    }
+    if (!activeLease) {
+      throw new JobCompletionRejectedError();
+    }
 
     const payload = researchPayloadSchema.safeParse(job.payload);
     if (!payload.success || payload.data.leadId !== job.leadId) {

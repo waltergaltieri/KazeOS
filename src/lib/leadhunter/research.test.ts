@@ -145,6 +145,28 @@ describe("LeadHunter research worker boundary", () => {
       rejected: [expect.objectContaining({ code: "budget_exceeded" })],
     });
   });
+
+  it("rejects more than 50 findings at the worker boundary", () => {
+    const result = validateResearchWorkerOutput(
+      context,
+      workerOutput(Array.from({ length: 51 }, () => finding())),
+    );
+
+    expect(result).toMatchObject({
+      fatal: true,
+      rejected: [expect.objectContaining({ code: "invalid_envelope" })],
+    });
+  });
+
+  it("accepts exactly 50 findings at the worker boundary", () => {
+    const result = validateResearchWorkerOutput(
+      context,
+      workerOutput(Array.from({ length: 50 }, () => finding())),
+    );
+
+    expect(result.fatal).toBe(false);
+    expect(result.accepted).toHaveLength(50);
+  });
 });
 
 function evidence(

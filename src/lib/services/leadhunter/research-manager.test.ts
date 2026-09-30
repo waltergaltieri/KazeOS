@@ -10,6 +10,10 @@ import {
   type LeadHunterResearchDatabase,
   type LeadHunterResearchTransaction,
 } from "./research-manager";
+import {
+  digestLeaseToken,
+  JobCompletionRejectedError,
+} from "./job-manager";
 
 const dialect = new PgDialect();
 const ownerId = "00000000-0000-4000-8000-000000000001";
@@ -21,6 +25,8 @@ const campaignId = "00000000-0000-4000-8000-000000000006";
 const sourceUrl = "https://Example.com/about?b=2&a=1#team";
 const suppliedAt = "2026-09-30T12:00:00.000Z";
 const contentSha256 = "a".repeat(64);
+const leaseToken = "task7-research-lease-token";
+const now = new Date("2026-09-30T12:01:00.000Z");
 
 function queryText(query: unknown) {
   return dialect.sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]);
@@ -58,6 +64,9 @@ function lockedJob(overrides: Record<string, unknown> = {}) {
       },
     },
     result: null,
+    leaseTokenDigest: digestLeaseToken(leaseToken),
+    leaseExpiresAt: "2026-09-30T12:05:00.000Z",
+    leaseOwner: "worker-api",
     researchSummary: null,
     questions: [
       { key: "business_name", prompt: "Nombre", required: true },
@@ -98,6 +107,10 @@ function finding(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function persistenceInput(output: unknown) {
+  return { ownerId, jobId, leaseToken, now, output };
+}
+
 describe("LeadHunter research manager", () => {
   it("locks trusted state and stores evidence, dossier, activity and completion atomically", async () => {
     const statements: Array<{ sql: string; params: unknown[] }> = [];
@@ -109,11 +122,10 @@ describe("LeadHunter research manager", () => {
     });
     const { database, transaction } = transactionalDatabase(execute);
 
-    const result = await persistResearchResult(database, {
-      ownerId,
-      jobId,
-      output: workerOutput([finding()]),
-    });
+    const result = await persistResearchResult(
+      database,
+      persistenceInput(workerOutput([finding()])),
+    );
 
     expect(result).toMatchObject({ status: "processed", evidenceIds: [expect.any(String)] });
     expect(transaction).toHaveBeenCalledOnce();
@@ -123,6 +135,10 @@ describe("LeadHunter research manager", () => {
     expect(lock?.sql).toContain('version.owner_id = job.owner_id');
     expect(lock?.sql).toContain('version.campaign_id = enrollment.campaign_id');
     expect(lock?.sql).toContain('version.version = enrollment.campaign_version');
+    expect(lock?.sql).toContain('job.lease_token_digest as "leaseTokenDigest"');
+    expect(lock?.sql).toContain('job.lease_expires_at as "leaseExpiresAt"');
+    expect(lock?.sql).toContain('job.lease_owner as "leaseOwner"');
+    expect(JSON.stringify(statements)).not.toContain(leaseToken);
 
     const evidenceInsert = statements.find(({ sql }) => sql.includes('insert into "lh_evidence"'));
     expect(evidenceInsert?.sql).toContain("on conflict (id) do nothing");
@@ -163,14 +179,12 @@ describe("LeadHunter research manager", () => {
     });
     const { database } = transactionalDatabase(execute);
 
-    const result = await persistResearchResult(database, {
-      ownerId,
-      jobId,
-      output: workerOutput([
+    const result = await persistResearchResult(database, persistenceInput(
+      workerOutput([
         finding(),
         finding({ field: "business_secret", value: "do not store", extract: "do not store" }),
       ]),
-    });
+    ));
 
     expect(result).toMatchObject({ status: "processed", rejectedCount: 1 });
     expect(statements.filter(({ sql }) => sql.includes('insert into "lh_evidence"'))).toHaveLength(1);
@@ -210,11 +224,7 @@ describe("LeadHunter research manager", () => {
     });
     const { database } = transactionalDatabase(execute);
 
-    await persistResearchResult(database, {
-      ownerId,
-      jobId,
-      output: workerOutput([finding()]),
-    });
+    await persistResearchResult(database, persistenceInput(workerOutput([finding()])));
 
     const enrollmentUpdate = statements.find(({ sql }) => sql.includes('update "lh_enrollments"'));
     const dossier = JSON.parse(String(enrollmentUpdate?.params[0]));
@@ -236,11 +246,10 @@ describe("LeadHunter research manager", () => {
     });
     const { database } = transactionalDatabase(execute);
 
-    const result = await persistResearchResult(database, {
-      ownerId,
-      jobId,
-      output: { ...workerOutput([finding()]), sendMail: true },
-    });
+    const result = await persistResearchResult(
+      database,
+      persistenceInput({ ...workerOutput([finding()]), sendMail: true }),
+    );
 
     expect(result).toMatchObject({ status: "rejected", evidenceIds: [] });
     expect(statements.some(({ sql }) => sql.includes('insert into "lh_evidence"'))).toBe(false);
@@ -266,11 +275,10 @@ describe("LeadHunter research manager", () => {
     });
     const { database } = transactionalDatabase(execute);
 
-    const result = await persistResearchResult(database, {
-      ownerId,
-      jobId,
-      output: workerOutput([finding()]),
-    });
+    const result = await persistResearchResult(
+      database,
+      persistenceInput(workerOutput([finding()])),
+    );
 
     expect(result).toMatchObject({ status: "already_processed", evidenceIds: [evidenceId] });
     expect(execute).toHaveBeenCalledOnce();
@@ -280,10 +288,9 @@ describe("LeadHunter research manager", () => {
     const missingExecute = vi.fn(async () => []);
     const { database: missingDatabase } = transactionalDatabase(missingExecute);
     await expect(persistResearchResult(missingDatabase, {
+      ...persistenceInput(workerOutput([])),
       ownerId: "00000000-0000-4000-8000-000000000099",
-      jobId,
-      output: workerOutput([]),
-    })).rejects.toThrow("Research job not found");
+    })).rejects.toBeInstanceOf(JobCompletionRejectedError);
 
     const wrongKindExecute = vi.fn(async (query: unknown) => {
       const rendered = queryText(query);
@@ -291,10 +298,61 @@ describe("LeadHunter research manager", () => {
       return [];
     });
     const { database: wrongKindDatabase } = transactionalDatabase(wrongKindExecute);
-    await expect(persistResearchResult(wrongKindDatabase, {
+    await expect(persistResearchResult(
+      wrongKindDatabase,
+      persistenceInput(workerOutput([])),
+    )).rejects.toThrow("not a research job");
+  });
+
+  it.each([
+    {
+      name: "wrong token",
+      input: { leaseToken: "superseded-research-lease-token", now },
+      row: {},
+    },
+    {
+      name: "expired lease",
+      input: { leaseToken, now: new Date("2026-09-30T12:05:00.000Z") },
+      row: {},
+    },
+    {
+      name: "superseded digest",
+      input: { leaseToken, now },
+      row: { leaseTokenDigest: digestLeaseToken("newer-lease-token") },
+    },
+    {
+      name: "invalid trusted clock",
+      input: { leaseToken, now: new Date("invalid") },
+      row: {},
+    },
+    {
+      name: "invalid persisted expiry",
+      input: { leaseToken, now },
+      row: { leaseExpiresAt: "not-a-database-date" },
+    },
+    {
+      name: "unexpected lease owner",
+      input: { leaseToken, now },
+      row: { leaseOwner: "another-worker-boundary" },
+    },
+  ])("rejects a $name without persisting anything", async ({ input: leaseInput, row }) => {
+    const statements: string[] = [];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered.sql);
+      if (rendered.sql.includes('from "lh_jobs" as job')) return [lockedJob(row)];
+      throw new Error("unexpected write");
+    });
+    const { database } = transactionalDatabase(execute);
+
+    await expect(persistResearchResult(database, {
       ownerId,
       jobId,
-      output: workerOutput([]),
-    })).rejects.toThrow("not a research job");
+      output: { ...workerOutput([finding()]), sendMail: true },
+      ...leaseInput,
+    })).rejects.toBeInstanceOf(JobCompletionRejectedError);
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain('from "lh_jobs" as job');
   });
 });

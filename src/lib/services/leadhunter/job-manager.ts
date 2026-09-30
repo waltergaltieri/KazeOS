@@ -126,7 +126,7 @@ const jobResultSchemas = {
     confidence: z.number().min(0).max(1),
   }).strict()),
   research: resultSchema("research", z.object({
-    evidenceIds: z.array(z.string().uuid()),
+    evidenceIds: z.array(z.string().uuid()).max(50),
   }).strict()),
   audit_website: resultSchema("audit_website", z.object({
     auditId: z.string().uuid(),
@@ -136,14 +136,14 @@ const jobResultSchemas = {
     score: z.number().min(0).max(100),
   }).strict()),
   enrich_contact: resultSchema("enrich_contact", z.object({
-    contactIds: z.array(z.string().uuid()),
+    contactIds: z.array(z.string().uuid()).max(50),
   }).strict()),
   prepare_message: resultSchema("prepare_message", z.object({
     messageVersionId: z.string().uuid(),
   }).strict()),
   validate_message: resultSchema("validate_message", z.object({
     valid: z.boolean(),
-    issues: z.array(z.string().trim().min(1).max(500)),
+    issues: z.array(z.string().trim().min(1).max(500)).max(100),
   }).strict()),
 };
 
@@ -222,11 +222,11 @@ export class JobCompletionValidationError extends Error {
   }
 }
 
-function digestLeaseToken(token: string) {
+export function digestLeaseToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function databaseDate(value: Date | string) {
+export function databaseDate(value: Date | string) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new TypeError("Database returned an invalid timestamp");
@@ -234,7 +234,7 @@ function databaseDate(value: Date | string) {
   return date;
 }
 
-function exactDigestMatch(stored: string | null, actual: string) {
+export function exactDigestMatch(stored: string | null, actual: string) {
   if (stored === null) return false;
   const expectedBytes = Buffer.from(stored);
   const actualBytes = Buffer.from(actual);

@@ -186,22 +186,25 @@ class ScrapeGraphAIExtractor:
         provider_config: Mapping[str, Any] | None,
         runner: Callable[[ExtractionRequest, Mapping[str, Any]], Mapping[str, Any]] | None = None,
     ) -> None:
-        self._provider_config = dict(provider_config) if provider_config else None
-        self._runner = runner
-        self.available = self._provider_config is not None
-        self.unavailable_reason = (
-            "ScrapeGraphAI provider configuration is missing"
-            if not self.available
-            else ""
+        candidate_config = dict(provider_config) if provider_config else None
+        configured_model = candidate_config.get("model") if candidate_config else None
+        self._provider_config = (
+            candidate_config
+            if isinstance(configured_model, str) and configured_model.strip()
+            else None
         )
+        self._runner = runner if callable(runner) else None
+        self.available = self._provider_config is not None and self._runner is not None
+        reasons: list[str] = []
+        if self._provider_config is None:
+            reasons.append("provider configuration is missing or incompatible")
+        if self._runner is None:
+            reasons.append("approved executable runner is missing")
+        self.unavailable_reason = "; ".join(reasons)
 
     def extract(self, request: ExtractionRequest) -> ExtractionResponse:
-        if not self.available or self._provider_config is None:
+        if not self.available or self._provider_config is None or self._runner is None:
             raise RuntimeError(f"ScrapeGraphAI adapter unavailable: {self.unavailable_reason}")
-        if self._runner is None:
-            raise RuntimeError(
-                "ScrapeGraphAI adapter unavailable: no approved provider runner is configured",
-            )
         started = perf_counter()
         raw_result = self._runner(request, self._provider_config)
         try:

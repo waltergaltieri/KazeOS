@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from pydantic import ValidationError
 from leadhunter_worker.contracts import (
     ExtractionBudget,
     ExtractionRequest,
+    ExtractionResponse,
     Finding,
     ResearchQuestion,
 )
@@ -21,6 +23,7 @@ from leadhunter_worker.extract import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+WORKER_ROOT = FIXTURES.parent.parent
 
 
 def request_for(name: str, keys: list[str] | None = None) -> ExtractionRequest:
@@ -44,6 +47,15 @@ def request_for(name: str, keys: list[str] | None = None) -> ExtractionRequest:
             max_cost_usd=0,
         ),
     )
+
+
+def test_worker_metadata_enforces_python_3_12_runtime() -> None:
+    metadata = tomllib.loads((WORKER_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert metadata["project"]["requires-python"] == ">=3.12,<3.13"
+    assert (WORKER_ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.12"
+    assert metadata["project"]["optional-dependencies"]["scrapegraph"] == [
+        "scrapegraphai==2.3.0",
+    ]
 
 
 def test_contracts_are_strict_and_bounded() -> None:
@@ -71,6 +83,34 @@ def test_contracts_are_strict_and_bounded() -> None:
             **request_for("active-official.html").model_dump(mode="json"),
             "source_url": "https://user:password@andes.example/nosotros",
         })
+
+
+def test_question_limit_matches_the_campaign_contract() -> None:
+    base = request_for("active-official.html").model_dump(mode="json")
+    hundred = [
+        {"key": f"field_{index}", "prompt": f"Find field {index}", "required": False}
+        for index in range(100)
+    ]
+    accepted = ExtractionRequest.model_validate({**base, "questions": hundred})
+    assert len(accepted.questions) == 100
+    with pytest.raises(ValidationError):
+        ExtractionRequest.model_validate({
+            **base,
+            "questions": [
+                {"key": f"field_{index}", "prompt": f"Find field {index}", "required": False}
+                for index in range(101)
+            ],
+        })
+
+
+def test_finding_limit_accepts_50_and_rejects_51() -> None:
+    response = extract_offline(request_for("active-official.html"))
+    payload = response.model_dump(mode="json")
+    finding = payload["findings"][0]
+    accepted = ExtractionResponse.model_validate({**payload, "findings": [finding] * 50})
+    assert len(accepted.findings) == 50
+    with pytest.raises(ValidationError):
+        ExtractionResponse.model_validate({**payload, "findings": [finding] * 51})
 
 
 def test_offline_extractor_is_deterministic_grounded_and_injection_safe() -> None:
@@ -150,6 +190,42 @@ def test_scrapegraph_adapter_is_explicitly_unavailable_without_provider_config()
     assert "provider configuration" in adapter.unavailable_reason.lower()
     with pytest.raises(RuntimeError, match="unavailable"):
         adapter.extract(request_for("active-official.html"))
+
+
+@pytest.mark.parametrize(
+    ("provider_config", "runner", "available", "reason"),
+    [
+        (None, None, False, "provider configuration"),
+        ({"model": "provider/model"}, None, False, "runner"),
+        (None, lambda _request, _config: {"findings": [], "usage": {}}, False, "provider configuration"),
+        ({"model": ""}, lambda _request, _config: {"findings": [], "usage": {}}, False, "provider configuration"),
+        ({"model": "provider/model"}, "not executable", False, "runner"),
+        ({"model": "provider/model"}, lambda _request, _config: {"findings": [], "usage": {}}, True, ""),
+    ],
+)
+def test_scrapegraph_availability_requires_config_and_executable_runner(
+    provider_config: dict[str, str] | None,
+    runner: object,
+    available: bool,
+    reason: str,
+) -> None:
+    adapter = ScrapeGraphAIExtractor(provider_config=provider_config, runner=runner)  # type: ignore[arg-type]
+    assert adapter.available is available
+    assert reason in adapter.unavailable_reason.lower()
+
+
+def test_unavailable_scrapegraph_fails_before_calling_a_runner() -> None:
+    called = False
+
+    def runner(_request: ExtractionRequest, _config: dict[str, object]) -> dict[str, object]:
+        nonlocal called
+        called = True
+        return {"findings": [], "usage": {}}
+
+    adapter = ScrapeGraphAIExtractor(provider_config=None, runner=runner)
+    with pytest.raises(RuntimeError, match="unavailable"):
+        adapter.extract(request_for("active-official.html"))
+    assert called is False
 
 
 def test_scrapegraph_adapter_uses_reported_usage_and_the_same_grounding_validator() -> None:

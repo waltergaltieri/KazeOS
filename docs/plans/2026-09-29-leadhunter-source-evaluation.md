@@ -12,14 +12,15 @@ El contenido se trata como datos no confiables. Una página no puede agregar cam
 
 ## Dependencias y versión evaluable
 
-- Python declarado: `>=3.12,<4`. La verificación local se ejecutó con Python 3.13 porque Python 3.12 no está instalado en este equipo.
+- Runtime productivo fijado a Python `>=3.12,<3.13`, con `.python-version` en `3.12`.
+- Python 3.12 no está instalado en este equipo. Las pruebas locales se ejecutaron desde el código fuente con Python 3.13 solamente como comprobación auxiliar; la validación del runtime exacto 3.12 continúa pendiente y no se considera aprobada por esta corrida.
 - Contrato base: `pydantic==2.12.5`.
 - Pruebas: `pytest==9.0.2`.
 - Adaptador opcional: extra `scrapegraph`, fijado a `scrapegraphai==2.3.0`.
 
 La versión 2.3.0 era la versión estable actual al 2026-09-30. PyPI declara compatibilidad con Python 3.12 o posterior y publicó el artefacto 2.3.0 el 2026-09-25: [PyPI](https://pypi.org/project/scrapegraphai/2.3.0/). El repositorio oficial registra la misma versión y fecha: [GitHub Releases](https://github.com/ScrapeGraphAI/Scrapegraph-ai/releases/tag/v2.3.0).
 
-ScrapeGraphAI está detrás de un adaptador reemplazable y no se instala con las dependencias normales. Sin configuración explícita del proveedor y un runner aprobado, el adaptador informa que no está disponible y falla de forma visible. Nunca responde con un resultado vacío que pueda confundirse con una investigación válida.
+ScrapeGraphAI está detrás de un adaptador reemplazable y no se instala con las dependencias normales. Su disponibilidad sólo es verdadera cuando existen simultáneamente una configuración compatible del proveedor y un runner ejecutable aprobado. Con ninguno, con sólo uno o con un runner no ejecutable, el adaptador informa que no está disponible y falla antes de procesar contenido. Nunca responde con un resultado vacío que pueda confundirse con una investigación válida.
 
 ## Corpus local
 
@@ -41,7 +42,7 @@ Comando de verificación: `workers/leadhunter/.venv/Scripts/python -m pytest wor
 
 | Medida | Resultado |
 |---|---:|
-| Casos de prueba Python | 14 aprobados |
+| Casos de prueba Python | 24 aprobados |
 | Documentos del corpus | 7 |
 | Afirmaciones esperadas | 13 |
 | Afirmaciones correctas | 13 |
