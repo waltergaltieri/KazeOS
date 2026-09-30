@@ -169,6 +169,7 @@ describe("LeadHunter schema contract", () => {
     expect(columnNames(requireTable(leadHunterRuns))).toEqual(expect.arrayContaining([
       "campaign_id",
       "campaign_version",
+      "scheduled_for",
       "plan",
       "cursor",
       "state",
@@ -186,6 +187,7 @@ describe("LeadHunter schema contract", () => {
       "result",
       "attempt_count",
       "lease_owner",
+      "lease_token_digest",
       "lease_expires_at",
       "idempotency_key",
       "last_error",
@@ -344,6 +346,10 @@ describe("LeadHunter schema contract", () => {
   });
 
   it("deduplicates jobs, discoveries, message versions and active transport commands", () => {
+    expect(indexContract(
+      requireTable(leadHunterRuns),
+      "lh_runs_active_slot_unique",
+    )).toEqual({ unique: true, partial: true });
     expect(uniqueConstraintNames(requireTable(leadHunterJobs))).toContain(
       "lh_jobs_owner_idempotency_key_unique",
     );

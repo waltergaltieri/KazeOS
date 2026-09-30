@@ -25,8 +25,19 @@ const journalPath = resolve(
   process.cwd(),
   "supabase/migrations/meta/_journal.json",
 );
+const runtimeMigrationPath = resolve(
+  process.cwd(),
+  "supabase/migrations/0011_add_leadhunter_job_runtime.sql",
+);
+const runtimeSnapshotPath = resolve(
+  process.cwd(),
+  "supabase/migrations/meta/0011_snapshot.json",
+);
 const migration = existsSync(migrationPath)
   ? normalizeSql(readFileSync(migrationPath, "utf8"))
+  : "";
+const runtimeMigration = existsSync(runtimeMigrationPath)
+  ? normalizeSql(readFileSync(runtimeMigrationPath, "utf8"))
   : "";
 const outboxGuard = migration.match(
   /create or replace function private\.guard_lh_outbox_command\(\)(.*?)\$\$;/,
@@ -383,10 +394,10 @@ describe("LeadHunter pipeline migration", () => {
     const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
       entries: Array<{ idx: number; tag: string }>;
     };
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries).toContainEqual(expect.objectContaining({
       idx: 10,
       tag: "0010_add_leadhunter_pipeline",
-    });
+    }));
 
     const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as {
       prevId: string;
@@ -400,5 +411,50 @@ describe("LeadHunter pipeline migration", () => {
 
   it("is forward-only", () => {
     expect(migration).not.toMatch(/drop\s+(?:table|type)|truncate/);
+  });
+});
+
+describe("LeadHunter job runtime migration", () => {
+  it("adds a durable run slot and a digest-only lease credential", () => {
+    expect(runtimeMigration).toContain(
+      "alter table lh_runs add column scheduled_for timestamp with time zone",
+    );
+    expect(runtimeMigration).toContain(
+      "alter table lh_runs alter column scheduled_for set not null",
+    );
+    expect(runtimeMigration).toContain(
+      "alter table lh_jobs add column lease_token_digest text",
+    );
+    expect(runtimeMigration).toContain(
+      "create unique index lh_runs_active_slot_unique on lh_runs using btree (owner_id,campaign_id,campaign_version,scheduled_for)",
+    );
+    expect(runtimeMigration).toContain(
+      "where lh_runs.state in ('planned', 'running')",
+    );
+    expect(runtimeMigration).toContain("lh_jobs_lease_token_digest_format");
+    expect(runtimeMigration).not.toContain("lease_token text");
+  });
+
+  it("records 0011 without rewriting the committed 0010 history", () => {
+    expect(existsSync(runtimeSnapshotPath)).toBe(true);
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 11,
+      tag: "0011_add_leadhunter_job_runtime",
+    });
+
+    const runtimeSnapshot = JSON.parse(
+      readFileSync(runtimeSnapshotPath, "utf8"),
+    ) as { prevId: string };
+    const pipelineSnapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as {
+      id: string;
+    };
+    expect(runtimeSnapshot.prevId).toBe(pipelineSnapshot.id);
+  });
+
+  it("is forward-only", () => {
+    expect(runtimeMigration).not.toMatch(/drop\s+(?:table|type)|truncate/);
   });
 });

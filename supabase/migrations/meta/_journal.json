@@ -78,6 +78,13 @@
       "when": 1790740216335,
       "tag": "0010_add_leadhunter_pipeline",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790776102300,
+      "tag": "0011_add_leadhunter_job_runtime",
+      "breakpoints": true
     }
   ]
 }

@@ -136,6 +136,20 @@ describe("updateSession", () => {
     expect(createServerClientMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "/api/cron/leadhunter",
+    "/api/internal/leadhunter/jobs/next",
+    "/api/internal/leadhunter/jobs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/complete",
+  ])("allows the exact LeadHunter machine route %s without a session", async (path) => {
+    const response = await updateSession(
+      new NextRequest(`https://app.local${path}`, { method: "POST" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(createServerClientMock).not.toHaveBeenCalled();
+  });
+
   it("allows only the exact response-capable auth endpoints without a session", async () => {
     for (const path of ["/auth/login", "/auth/logout"]) {
       createServerClientMock.mockClear();
@@ -164,6 +178,23 @@ describe("updateSession", () => {
 
     const response = await updateSession(
       new NextRequest("https://app.local/api/cron/generate-charges/extra"),
+    );
+
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/login");
+  });
+
+  it.each([
+    "/api/cron/leadhunter/extra",
+    "/api/cron/leadhunterx",
+    "/api/internal/leadhunter/jobs/next/extra",
+    "/api/internal/leadhunter/jobs/not-a-uuid/complete",
+    "/api/internal/leadhunter/jobs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaax/complete",
+    "/api/internal/leadhunter/jobs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/complete/extra",
+  ])("keeps the LeadHunter near-match %s session-protected", async (path) => {
+    mockClaims(null);
+
+    const response = await updateSession(
+      new NextRequest(`https://app.local${path}`, { method: "POST" }),
     );
 
     expect(new URL(response.headers.get("location")!).pathname).toBe("/login");

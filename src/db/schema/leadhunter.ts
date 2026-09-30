@@ -252,6 +252,8 @@ export const leadHunterRuns = pgTable(
     ownerId: ownerIdColumn(),
     campaignId: uuid("campaign_id").notNull(),
     campaignVersion: integer("campaign_version").notNull(),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true, mode: "date" })
+      .notNull(),
     plan: jsonb("plan").$type<Record<string, unknown>>().notNull(),
     cursor: jsonb("cursor")
       .$type<Record<string, unknown>>()
@@ -293,6 +295,14 @@ export const leadHunterRuns = pgTable(
       table.createdAt,
     ),
     index("lh_runs_owner_state_idx").on(table.ownerId, table.state),
+    uniqueIndex("lh_runs_active_slot_unique")
+      .on(
+        table.ownerId,
+        table.campaignId,
+        table.campaignVersion,
+        table.scheduledFor,
+      )
+      .where(sql`${table.state} in ('planned', 'running')`),
     ...backendPolicies("lh_runs", table.ownerId),
   ],
 ).enableRLS();
@@ -558,6 +568,7 @@ export const leadHunterJobs = pgTable(
     result: jsonb("result").$type<Record<string, unknown>>(),
     attemptCount: integer("attempt_count").default(0).notNull(),
     leaseOwner: text("lease_owner"),
+    leaseTokenDigest: text("lease_token_digest"),
     leaseExpiresAt: timestamp("lease_expires_at", {
       withTimezone: true,
       mode: "date",
@@ -571,7 +582,11 @@ export const leadHunterJobs = pgTable(
     check("lh_jobs_idempotency_key_not_blank", sql`btrim(${table.idempotencyKey}) <> ''`),
     check(
       "lh_jobs_lease_consistency",
-      sql`${table.state} <> 'leased' or (${table.leaseOwner} is not null and ${table.leaseExpiresAt} is not null)`,
+      sql`${table.state} <> 'leased' or (${table.leaseOwner} is not null and ${table.leaseTokenDigest} is not null and ${table.leaseExpiresAt} is not null)`,
+    ),
+    check(
+      "lh_jobs_lease_token_digest_format",
+      sql`${table.leaseTokenDigest} is null or ${table.leaseTokenDigest} ~ '^[0-9a-f]{64}$'`,
     ),
     unique("lh_jobs_owner_id_id_unique").on(table.ownerId, table.id),
     unique("lh_jobs_owner_idempotency_key_unique").on(
@@ -603,7 +618,7 @@ export const leadHunterJobs = pgTable(
     index("lh_jobs_owner_enrollment_idx").on(table.ownerId, table.enrollmentId),
     index("lh_jobs_owner_lead_idx").on(table.ownerId, table.leadId),
     index("lh_jobs_claimable_idx")
-      .on(table.ownerId, table.state, table.leaseExpiresAt, table.createdAt)
+      .on(table.state, table.leaseExpiresAt, table.createdAt)
       .where(sql`${table.state} in ('queued', 'leased')`),
     ...backendPolicies("lh_jobs", table.ownerId),
   ],

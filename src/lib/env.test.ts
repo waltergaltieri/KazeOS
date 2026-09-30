@@ -75,6 +75,7 @@ describe("parseEnv", () => {
           "https://example.supabase.co/auth/v1/.well-known/jwks.json",
         SUPABASE_SECRET_KEY: "",
         CRON_SECRET: "",
+        LEADHUNTER_WORKER_SECRET: "",
       }),
     ).toEqual({
       ...validEnv,
@@ -82,6 +83,7 @@ describe("parseEnv", () => {
         "https://example.supabase.co/auth/v1/.well-known/jwks.json",
       SUPABASE_SECRET_KEY: undefined,
       CRON_SECRET: undefined,
+      LEADHUNTER_WORKER_SECRET: undefined,
     });
   });
 
@@ -122,10 +124,12 @@ describe("parseEnv", () => {
         ...validEnv,
         SUPABASE_SECRET_KEY: "   ",
         CRON_SECRET: "  cron-value  ",
+        LEADHUNTER_WORKER_SECRET: "  worker-value  ",
       }),
     ).toMatchObject({
       SUPABASE_SECRET_KEY: undefined,
       CRON_SECRET: "cron-value",
+      LEADHUNTER_WORKER_SECRET: "worker-value",
     });
   });
 });

@@ -3,7 +3,20 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createResponseClient } from "./response";
 
 const CHARGE_GENERATION_CRON_PATH = "/api/cron/generate-charges";
+const LEADHUNTER_MACHINE_PATHS = new Set([
+  "/api/cron/leadhunter",
+  "/api/internal/leadhunter/jobs/next",
+]);
+const LEADHUNTER_COMPLETION_PATH =
+  /^\/api\/internal\/leadhunter\/jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/complete$/i;
 const RESPONSE_AUTH_PATHS = new Set(["/auth/login", "/auth/logout"]);
+
+function isSessionExemptPath(pathname: string) {
+  return pathname === CHARGE_GENERATION_CRON_PATH
+    || LEADHUNTER_MACHINE_PATHS.has(pathname)
+    || LEADHUNTER_COMPLETION_PATH.test(pathname)
+    || RESPONSE_AUTH_PATHS.has(pathname);
+}
 
 export function getSafeNextPath(pathname: string, search: string) {
   const candidate = `${pathname}${search}`;
@@ -14,10 +27,7 @@ export function getSafeNextPath(pathname: string, search: string) {
 }
 
 export async function updateSession(request: NextRequest) {
-  if (
-    request.nextUrl.pathname === CHARGE_GENERATION_CRON_PATH ||
-    RESPONSE_AUTH_PATHS.has(request.nextUrl.pathname)
-  ) {
+  if (isSessionExemptPath(request.nextUrl.pathname)) {
     return NextResponse.next({ request });
   }
 

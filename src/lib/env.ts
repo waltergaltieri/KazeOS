@@ -98,6 +98,7 @@ export const serverEnvSchema = z.object({
   SUPABASE_JWKS_URL: optionalHttpsUrl,
   SUPABASE_SECRET_KEY: optionalString,
   CRON_SECRET: optionalString,
+  LEADHUNTER_WORKER_SECRET: optionalString,
   APP_ORIGIN: appOriginSchema,
 });
 
