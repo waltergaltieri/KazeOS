@@ -206,43 +206,46 @@ describe("claimNextJob query contract", () => {
 });
 
 describe("completeJob", () => {
-  it.each(validJobContracts)("accepts the declared $kind payload and result contract", async ({
-    kind,
-    output,
-    payload,
-  }) => {
-    const leaseToken = "current-lease-token";
-    let statementCount = 0;
-    const execute = vi.fn(async () => {
-      statementCount += 1;
-      if (statementCount === 1) {
-        return [{
-          id: jobId,
-          runId,
-          kind,
-          state: "leased",
-          result: null,
-          payload,
-          attemptCount: 1,
-          leaseExpiresAt: leaseExpiresAt.toISOString(),
-          leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
-        }];
-      }
-      return [];
-    });
-    const result = { kind, output };
+  it.each(validJobContracts.filter(({ kind }) => kind !== "research"))(
+    "accepts the declared $kind payload and result contract",
+    async ({
+      kind,
+      output,
+      payload,
+    }) => {
+      const leaseToken = "current-lease-token";
+      let statementCount = 0;
+      const execute = vi.fn(async () => {
+        statementCount += 1;
+        if (statementCount === 1) {
+          return [{
+            id: jobId,
+            runId,
+            kind,
+            state: "leased",
+            result: null,
+            payload,
+            attemptCount: 1,
+            leaseExpiresAt: leaseExpiresAt.toISOString(),
+            leaseTokenDigest: createHash("sha256").update(leaseToken).digest("hex"),
+          }];
+        }
+        return [];
+      });
+      const result = { kind, output };
 
-    await expect(completeJob(
-      { execute } as unknown as LeadHunterJobDatabase,
-      {
-        id: jobId,
-        leaseToken,
-        completion: { result },
-        now,
-        maxAttempts: 3,
-      },
-    )).resolves.toEqual({ status: "succeeded", result });
-  });
+      await expect(completeJob(
+        { execute } as unknown as LeadHunterJobDatabase,
+        {
+          id: jobId,
+          leaseToken,
+          completion: { result },
+          now,
+          maxAttempts: 3,
+        },
+      )).resolves.toEqual({ status: "succeeded", result });
+    },
+  );
 
   it.each(validJobContracts)("rejects an output that does not match the $kind contract", async ({
     kind,

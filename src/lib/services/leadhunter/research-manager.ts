@@ -25,6 +25,7 @@ import {
   digestLeaseToken,
   exactDigestMatch,
   JobCompletionRejectedError,
+  settleLeadHunterRun,
 } from "./job-manager";
 
 const sourceProvenanceSchema = z.object({
@@ -160,8 +161,15 @@ export async function persistResearchResult(
   database: LeadHunterResearchDatabase,
   input: PersistResearchResultInput,
 ): Promise<PersistResearchResultResult> {
-  return database.transaction(async (transaction) => {
-    const rows = await transaction.execute(sql<ResearchJobRow>`
+  return database.transaction((transaction) =>
+    persistResearchResultInTransaction(transaction, input));
+}
+
+export async function persistResearchResultInTransaction(
+  transaction: LeadHunterResearchTransaction,
+  input: PersistResearchResultInput,
+): Promise<PersistResearchResultResult> {
+  const rows = await transaction.execute(sql<ResearchJobRow>`
       select
         job.id,
         job.run_id as "runId",
@@ -283,6 +291,7 @@ export async function persistResearchResult(
           and ${leadHunterJobs.id} = ${input.jobId}
           and ${leadHunterJobs.state} = 'leased'
       `);
+      await settleLeadHunterRun(transaction, job.runId, input.now);
       return {
         status: "rejected",
         evidenceIds: [],
@@ -406,12 +415,12 @@ export async function persistResearchResult(
         and ${leadHunterJobs.id} = ${input.jobId}
         and ${leadHunterJobs.state} = 'leased'
     `);
+    await settleLeadHunterRun(transaction, job.runId, input.now);
 
-    return {
-      status: "processed",
-      evidenceIds,
-      rejectedCount: validated.rejected.length,
-      dossier,
-    };
-  });
+  return {
+    status: "processed",
+    evidenceIds,
+    rejectedCount: validated.rejected.length,
+    dossier,
+  };
 }

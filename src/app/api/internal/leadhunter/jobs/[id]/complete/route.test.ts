@@ -119,6 +119,81 @@ describe("POST /api/internal/leadhunter/jobs/[id]/complete", () => {
     });
   });
 
+  it.each([
+    [
+      "valid research envelope",
+      {
+        source_url: "https://example.com/about",
+        source_type: "official_site",
+        supplied_at: "2026-09-30T12:00:00.000Z",
+        content_sha256: "a".repeat(64),
+        findings: [],
+        diagnostics: [],
+        usage: {
+          extractor: "offline-v1",
+          elapsed_ms: 1,
+          model_calls: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          estimated_cost_usd: 0,
+        },
+      },
+      { status: "processed", evidenceIds: [] },
+    ],
+    [
+      "malformed research envelope",
+      { sendMail: true },
+      { status: "rejected", evidenceIds: [], rejectedCount: 1 },
+    ],
+  ])("passes a %s to the trusted completion service", async (_name, result, stored) => {
+    mocks.completeLeadHunterJob.mockResolvedValue(stored);
+
+    const response = await invokePost(request(JSON.stringify({
+      leaseToken: "raw-research-token",
+      result,
+    })));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(stored);
+    expect(mocks.completeLeadHunterJob).toHaveBeenCalledWith({
+      id: jobId,
+      leaseToken: "raw-research-token",
+      completion: { result },
+    });
+  });
+
+  it("maps a wrong research lease without exposing token or output", async () => {
+    const { JobCompletionRejectedError } =
+      await import("@/lib/services/leadhunter/job-manager");
+    mocks.completeLeadHunterJob.mockRejectedValue(new JobCompletionRejectedError());
+    const output = { source_url: "https://example.com", findings: [] };
+
+    const response = await invokePost(request(JSON.stringify({
+      leaseToken: "wrong-research-token",
+      result: output,
+    })));
+
+    expect(response.status).toBe(409);
+    const body = JSON.stringify(await response.json());
+    expect(body).toBe(JSON.stringify({ error: "Job completion rejected" }));
+    expect(body).not.toContain("wrong-research-token");
+    expect(body).not.toContain("source_url");
+  });
+
+  it("maps a generic evidence-id submission to an invalid result", async () => {
+    const { JobCompletionValidationError } =
+      await import("@/lib/services/leadhunter/job-manager");
+    mocks.completeLeadHunterJob.mockRejectedValue(new JobCompletionValidationError());
+
+    const response = await invokePost(request(JSON.stringify({
+      leaseToken: "raw-research-token",
+      result: { kind: "research", output: { evidenceIds: [] } },
+    })));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid job result" });
+  });
+
   it("maps rejected or invalid completions to generic responses", async () => {
     const { JobCompletionRejectedError, JobCompletionValidationError } =
       await import("@/lib/services/leadhunter/job-manager");

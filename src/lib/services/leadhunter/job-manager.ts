@@ -256,7 +256,7 @@ function safeLastError(value: string) {
   return (normalized || "Worker reported a failure").slice(0, 500);
 }
 
-async function settleRun(
+export async function settleLeadHunterRun(
   database: LeadHunterJobDatabase,
   runId: string,
   now: Date,
@@ -328,7 +328,7 @@ export async function claimNextJob(
       .map(({ runId }) => runId),
   );
   for (const failedRunId of [...failedRunIds].sort()) {
-    await settleRun(database, failedRunId, options.now);
+    await settleLeadHunterRun(database, failedRunId, options.now);
   }
 
   const leaseToken = randomBytes(32).toString("base64url");
@@ -414,6 +414,10 @@ export async function completeJob(
     throw new JobCompletionRejectedError();
   }
 
+  if ("result" in input.completion && job.kind === "research") {
+    throw new JobCompletionValidationError();
+  }
+
   if (job.state === "succeeded" && job.result) {
     return { status: "succeeded", result: job.result };
   }
@@ -481,7 +485,7 @@ export async function completeJob(
         `);
       }
     }
-    await settleRun(database, job.runId, input.now);
+    await settleLeadHunterRun(database, job.runId, input.now);
     return { status: "succeeded", result: parsed.data };
   }
 
@@ -498,7 +502,7 @@ export async function completeJob(
       and ${leadHunterJobs.state} = 'leased'
   `);
   if (nextState === "failed") {
-    await settleRun(database, job.runId, input.now);
+    await settleLeadHunterRun(database, job.runId, input.now);
   }
 
   return { status: nextState, result: null };

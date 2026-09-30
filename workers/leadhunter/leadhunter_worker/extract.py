@@ -3,15 +3,18 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from inspect import signature
 from time import perf_counter
 from typing import Any
 
 from pydantic import ValidationError
 
 from .contracts import (
+    ExtractionBudget,
     ExtractionRequest,
     ExtractionResponse,
     ExtractionUsage,
@@ -19,9 +22,42 @@ from .contracts import (
     ProviderRunResult,
 )
 
+ProviderRunner = Callable[
+    [ExtractionRequest, Mapping[str, Any], ExtractionBudget],
+    Mapping[str, Any],
+]
+
 
 def _normalized_text(value: str) -> str:
-    return " ".join(value.split()).casefold()
+    return " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
+
+
+def _is_unicode_word(character: str) -> bool:
+    return character == "_" or character.isalnum()
+
+
+def _contains_bounded_span(container: str, candidate: str) -> bool:
+    haystack = _normalized_text(container)
+    needle = _normalized_text(candidate)
+    if not needle:
+        return False
+    if re.fullmatch(r"[a-z0-9]+", needle) and needle in {"a", "an", "the"}:
+        return False
+    start = 0
+    while (index := haystack.find(needle, start)) >= 0:
+        end = index + len(needle)
+        left_bounded = (
+            index == 0
+            or not (_is_unicode_word(needle[0]) and _is_unicode_word(haystack[index - 1]))
+        )
+        right_bounded = (
+            end == len(haystack)
+            or not (_is_unicode_word(needle[-1]) and _is_unicode_word(haystack[end]))
+        )
+        if left_bounded and right_bounded:
+            return True
+        start = index + 1
+    return False
 
 
 class ProviderOutputRejected(ValueError):
@@ -105,7 +141,6 @@ def validate_provider_output(
         raise ProviderOutputRejected("provider returned too many findings")
     allowed_fields = {question.key for question in request.questions}
     grounded_content, _ = _parse_annotated_content(request.content)
-    grounded = _normalized_text(grounded_content)
     accepted: list[Finding] = []
 
     for raw in raw_findings:
@@ -117,10 +152,12 @@ def validate_provider_output(
             raise ProviderOutputRejected("provider returned an unsupported field")
         if not _same_source(str(finding.source_url), str(request.source_url)):
             raise ProviderOutputRejected("provider substituted the evidence source")
-        if _normalized_text(finding.value) not in grounded:
-            raise ProviderOutputRejected("finding value is not grounded in supplied content")
-        if finding.extract is not None and _normalized_text(finding.extract) not in grounded:
+        if finding.extract is None:
+            raise ProviderOutputRejected("finding requires an exact evidence extract")
+        if not _contains_bounded_span(grounded_content, finding.extract):
             raise ProviderOutputRejected("finding extract is not grounded in supplied content")
+        if not _contains_bounded_span(finding.extract, finding.value):
+            raise ProviderOutputRejected("finding value is not grounded within its extract")
         accepted.append(finding)
 
     return accepted
@@ -184,7 +221,7 @@ class ScrapeGraphAIExtractor:
     def __init__(
         self,
         provider_config: Mapping[str, Any] | None,
-        runner: Callable[[ExtractionRequest, Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        runner: ProviderRunner | None = None,
     ) -> None:
         candidate_config = dict(provider_config) if provider_config else None
         configured_model = candidate_config.get("model") if candidate_config else None
@@ -193,24 +230,36 @@ class ScrapeGraphAIExtractor:
             if isinstance(configured_model, str) and configured_model.strip()
             else None
         )
-        self._runner = runner if callable(runner) else None
+        candidate_runner = runner if callable(runner) else None
+        supports_budget = False
+        if candidate_runner is not None:
+            try:
+                signature(candidate_runner).bind(None, None, None)
+                supports_budget = True
+            except (TypeError, ValueError):
+                supports_budget = False
+        self._runner = candidate_runner if supports_budget else None
         self.available = self._provider_config is not None and self._runner is not None
         reasons: list[str] = []
         if self._provider_config is None:
             reasons.append("provider configuration is missing or incompatible")
         if self._runner is None:
-            reasons.append("approved executable runner is missing")
+            reasons.append("approved runner with a predeclared budget contract is missing")
         self.unavailable_reason = "; ".join(reasons)
 
     def extract(self, request: ExtractionRequest) -> ExtractionResponse:
         if not self.available or self._provider_config is None or self._runner is None:
             raise RuntimeError(f"ScrapeGraphAI adapter unavailable: {self.unavailable_reason}")
         started = perf_counter()
-        raw_result = self._runner(request, self._provider_config)
+        raw_result = self._runner(request, self._provider_config, request.budget)
         try:
             provider_result = ProviderRunResult.model_validate(raw_result)
         except ValidationError as error:
-            raise ProviderOutputRejected("provider usage report is invalid") from error
+            raise ProviderOutputRejected(
+                "provider usage or budget acknowledgement is invalid",
+            ) from error
+        if provider_result.enforced_budget != request.budget:
+            raise ProviderOutputRejected("provider did not acknowledge the requested budget")
         findings = validate_provider_output(request, provider_result.findings)
         elapsed_ms = int((perf_counter() - started) * 1_000)
         usage = provider_result.usage

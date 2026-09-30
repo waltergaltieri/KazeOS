@@ -107,6 +107,7 @@ class ProviderUsageReport(StrictModel):
 class ProviderRunResult(StrictModel):
     findings: list[dict[str, Any]] = Field(max_length=50)
     usage: ProviderUsageReport
+    enforced_budget: ExtractionBudget
 
 
 class ExtractionResponse(StrictModel):

@@ -167,6 +167,14 @@ describe("LeadHunter research manager", () => {
       kind: "research",
       output: { evidenceIds: result.evidenceIds },
     });
+    const runLock = statements.find(({ sql }) => (
+      sql.includes('select "lh_runs"."id"') && sql.includes("for update")
+    ));
+    expect(runLock?.params).toContain(runId);
+    const runSettlement = statements.find(({ sql }) => (
+      sql.includes('update "lh_runs" as run') && sql.includes("summary.active_count = 0")
+    ));
+    expect(runSettlement?.sql).toContain("when summary.failed_count > 0 then 'partial'");
   });
 
   it("persists bounded rejected diagnostics while retaining valid findings", async () => {
@@ -256,6 +264,9 @@ describe("LeadHunter research manager", () => {
     const jobUpdate = statements.find(({ sql }) => sql.includes('update "lh_jobs"'));
     expect(jobUpdate?.sql).toContain("state = 'failed'");
     expect(jobUpdate?.sql).toContain("last_error = 'research_output_rejected'");
+    expect(statements.some(({ sql }) => (
+      sql.includes('update "lh_runs" as run') && sql.includes("summary.active_count = 0")
+    ))).toBe(true);
   });
 
   it("returns a succeeded job without duplicating evidence or activity", async () => {

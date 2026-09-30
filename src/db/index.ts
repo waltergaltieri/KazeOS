@@ -7,9 +7,9 @@ import { adminDb } from "./internal/admin";
 import { runRecurringChargeCron } from "./internal/recurring-charge-cron";
 import {
   claimNextJob,
-  completeJob,
   type JobCompletion,
 } from "@/lib/services/leadhunter/job-manager";
+import { completeClaimedJob } from "@/lib/services/leadhunter/completion-manager";
 import { planDueRuns } from "@/lib/services/leadhunter/run-manager";
 
 /**
@@ -42,7 +42,7 @@ export function completeLeadHunterJob(input: {
   leaseToken: string;
   completion: JobCompletion;
 }) {
-  return adminDb.transaction((transaction) => completeJob(transaction, {
+  return adminDb.transaction((transaction) => completeClaimedJob(transaction, {
     ...input,
     now: new Date(),
     maxAttempts: leadHunterMaximumAttempts,

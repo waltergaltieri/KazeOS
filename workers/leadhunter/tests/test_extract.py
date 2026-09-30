@@ -154,7 +154,7 @@ def test_published_email_keeps_exact_source_and_extract() -> None:
     assert str(email.source_url) == "https://patagonia-envases.example/contacto"
 
 
-def test_extract_is_optional_at_the_worker_boundary() -> None:
+def test_extract_is_required_for_grounded_provider_findings() -> None:
     raw = [{
         "field": "business.name",
         "value": "Andes Industrial",
@@ -162,8 +162,8 @@ def test_extract_is_optional_at_the_worker_boundary() -> None:
         "confidence": 90,
         "source_url": "https://andes.example/nosotros",
     }]
-    accepted = validate_provider_output(request_for("active-official.html"), raw)
-    assert accepted[0].extract is None
+    with pytest.raises(ProviderOutputRejected, match="requires an exact evidence extract"):
+        validate_provider_output(request_for("active-official.html"), raw)
 
 
 @pytest.mark.parametrize(
@@ -197,10 +197,11 @@ def test_scrapegraph_adapter_is_explicitly_unavailable_without_provider_config()
     [
         (None, None, False, "provider configuration"),
         ({"model": "provider/model"}, None, False, "runner"),
-        (None, lambda _request, _config: {"findings": [], "usage": {}}, False, "provider configuration"),
-        ({"model": ""}, lambda _request, _config: {"findings": [], "usage": {}}, False, "provider configuration"),
+        (None, lambda _request, _config, _budget: {}, False, "provider configuration"),
+        ({"model": ""}, lambda _request, _config, _budget: {}, False, "provider configuration"),
         ({"model": "provider/model"}, "not executable", False, "runner"),
-        ({"model": "provider/model"}, lambda _request, _config: {"findings": [], "usage": {}}, True, ""),
+        ({"model": "provider/model"}, lambda _request, _config: {}, False, "budget"),
+        ({"model": "provider/model"}, lambda _request, _config, _budget: {}, True, ""),
     ],
 )
 def test_scrapegraph_availability_requires_config_and_executable_runner(
@@ -217,7 +218,11 @@ def test_scrapegraph_availability_requires_config_and_executable_runner(
 def test_unavailable_scrapegraph_fails_before_calling_a_runner() -> None:
     called = False
 
-    def runner(_request: ExtractionRequest, _config: dict[str, object]) -> dict[str, object]:
+    def runner(
+        _request: ExtractionRequest,
+        _config: dict[str, object],
+        _budget: ExtractionBudget,
+    ) -> dict[str, object]:
         nonlocal called
         called = True
         return {"findings": [], "usage": {}}
@@ -232,7 +237,7 @@ def test_scrapegraph_adapter_uses_reported_usage_and_the_same_grounding_validato
     request = request_for("active-official.html")
     adapter = ScrapeGraphAIExtractor(
         provider_config={"model": "provider/model"},
-        runner=lambda _request, _config: {
+        runner=lambda _request, _config, budget: {
             "findings": [{
                 "field": "business.name",
                 "value": "Andes Industrial",
@@ -247,6 +252,7 @@ def test_scrapegraph_adapter_uses_reported_usage_and_the_same_grounding_validato
                 "output_tokens": 40,
                 "estimated_cost_usd": 0.012,
             },
+            "enforced_budget": budget.model_dump(),
         },
     )
     request = request.model_copy(update={
@@ -267,13 +273,206 @@ def test_scrapegraph_adapter_uses_reported_usage_and_the_same_grounding_validato
     assert response.usage.estimated_cost_usd == 0.012
 
 
+@pytest.mark.parametrize(
+    "finding",
+    [
+        {
+            "field": "business.name",
+            "value": "Andes Industrial",
+            "status": "verified",
+            "confidence": 90,
+            "source_url": "https://andes.example/nosotros",
+            "extract": None,
+        },
+        {
+            "field": "business.name",
+            "value": "a",
+            "status": "verified",
+            "confidence": 90,
+            "source_url": "https://andes.example/nosotros",
+            "extract": "Andes Industrial",
+        },
+        {
+            "field": "business.name",
+            "value": "us",
+            "status": "verified",
+            "confidence": 90,
+            "source_url": "https://andes.example/nosotros",
+            "extract": "Industrial business solutions",
+        },
+        {
+            "field": "business.name",
+            "value": "Andes Industrial",
+            "status": "verified",
+            "confidence": 90,
+            "source_url": "https://andes.example/nosotros",
+            "extract": "Estado: Activo",
+        },
+        {
+            "field": "business.name",
+            "value": "Andes",
+            "status": "verified",
+            "confidence": 90,
+            "source_url": "https://andes.example/nosotros",
+            "extract": "AndesIndustrial",
+        },
+    ],
+)
+def test_grounding_rejects_missing_or_unlinked_substring_evidence(
+    finding: dict[str, object],
+) -> None:
+    request = request_for("active-official.html")
+    request = request.model_copy(update={
+        "content": "<p>Andes Industrial</p><p>Industrial business solutions</p><p>Estado: Activo</p>",
+    })
+
+    with pytest.raises(ProviderOutputRejected, match="grounded|extract"):
+        validate_provider_output(request, [finding])
+
+
+def test_grounding_preserves_unicode_punctuation_email_url_and_address() -> None:
+    request = request_for("active-official.html", keys=[
+        "business.name",
+        "business.address",
+        "business.email",
+        "business.website",
+    ]).model_copy(update={
+        "content": (
+            "<p>Nombre: Río Claro S.A. — Dirección: San Martín 1200, Córdoba. "
+            "Correo: ventas@rio-claro.example. Sitio: https://rio.example/catálogo?x=1</p>"
+        ),
+    })
+    findings = [
+        {
+            "field": "business.name",
+            "value": "Río Claro S.A.",
+            "status": "verified",
+            "confidence": 90,
+            "source_url": str(request.source_url),
+            "extract": "Nombre: Río Claro S.A.",
+        },
+        {
+            "field": "business.address",
+            "value": "San Martín 1200, Córdoba",
+            "status": "verified",
+            "confidence": 90,
+            "source_url": str(request.source_url),
+            "extract": "Dirección: San Martín 1200, Córdoba.",
+        },
+        {
+            "field": "business.email",
+            "value": "ventas@rio-claro.example",
+            "status": "verified",
+            "confidence": 90,
+            "source_url": str(request.source_url),
+            "extract": "Correo: ventas@rio-claro.example.",
+        },
+        {
+            "field": "business.website",
+            "value": "https://rio.example/catálogo?x=1",
+            "status": "verified",
+            "confidence": 90,
+            "source_url": str(request.source_url),
+            "extract": "Sitio: https://rio.example/catálogo?x=1",
+        },
+    ]
+
+    assert validate_provider_output(request, findings) == [
+        Finding.model_validate(finding) for finding in findings
+    ]
+
+
 def test_scrapegraph_adapter_rejects_unreported_or_over_budget_usage() -> None:
     request = request_for("active-official.html")
     adapter = ScrapeGraphAIExtractor(
         provider_config={"model": "provider/model"},
-        runner=lambda _request, _config: {"findings": [], "usage": {"model_calls": 1}},
+        runner=lambda _request, _config, budget: {
+            "findings": [],
+            "usage": {"model_calls": 1},
+            "enforced_budget": budget.model_dump(),
+        },
     )
     with pytest.raises(ProviderOutputRejected, match="usage"):
+        adapter.extract(request)
+
+
+def test_scrapegraph_runner_receives_and_acknowledges_budget_before_invocation() -> None:
+    request = request_for("active-official.html").model_copy(update={
+        "budget": ExtractionBudget(
+            max_runtime_ms=1_500,
+            max_model_calls=1,
+            max_input_tokens=700,
+            max_output_tokens=120,
+            max_cost_usd=0.04,
+        ),
+    })
+    received: list[ExtractionBudget] = []
+
+    def runner(
+        _request: ExtractionRequest,
+        _config: dict[str, object],
+        budget: ExtractionBudget,
+    ) -> dict[str, object]:
+        received.append(budget)
+        return {
+            "findings": [],
+            "usage": {
+                "model_calls": 1,
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "estimated_cost_usd": 0.01,
+            },
+            "enforced_budget": budget.model_dump(),
+        }
+
+    adapter = ScrapeGraphAIExtractor(
+        provider_config={"model": "provider/model"},
+        runner=runner,
+    )
+    adapter.extract(request)
+    assert received == [request.budget]
+
+
+@pytest.mark.parametrize("acknowledgement", [None, "mismatch"])
+def test_scrapegraph_rejects_missing_or_mismatched_budget_acknowledgement(
+    acknowledgement: str | None,
+) -> None:
+    request = request_for("active-official.html").model_copy(update={
+        "budget": ExtractionBudget(
+            max_runtime_ms=2_000,
+            max_model_calls=1,
+            max_input_tokens=500,
+            max_output_tokens=100,
+            max_cost_usd=0.05,
+        ),
+    })
+
+    def runner(
+        _request: ExtractionRequest,
+        _config: dict[str, object],
+        budget: ExtractionBudget,
+    ) -> dict[str, object]:
+        result: dict[str, object] = {
+            "findings": [],
+            "usage": {
+                "model_calls": 1,
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "estimated_cost_usd": 0.01,
+            },
+        }
+        if acknowledgement == "mismatch":
+            result["enforced_budget"] = {
+                **budget.model_dump(),
+                "max_cost_usd": budget.max_cost_usd + 1,
+            }
+        return result
+
+    adapter = ScrapeGraphAIExtractor(
+        provider_config={"model": "provider/model"},
+        runner=runner,
+    )
+    with pytest.raises(ProviderOutputRejected, match="budget"):
         adapter.extract(request)
 
 

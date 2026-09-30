@@ -8,7 +8,7 @@
 
 El worker recibe contenido público que otro componente ya obtuvo. No abre URLs, no navega, no consulta la base de datos y no recibe credenciales de correo, administración de KazeOS ni Supabase. La URL, la fecha de suministro, el tipo de fuente, el hash del contenido, las preguntas autorizadas y los límites de ejecución forman parte de un contrato estricto.
 
-El contenido se trata como datos no confiables. Una página no puede agregar campos, cambiar el esquema, pedir acciones ni sustituir la URL de evidencia. Todo resultado pasa por la misma validación de campos, fuente y arraigo textual antes de cruzar el límite del worker.
+El contenido se trata como datos no confiables. Una página no puede agregar campos, cambiar el esquema, pedir acciones ni sustituir la URL de evidencia. Todo resultado pasa por la misma validación de campos, fuente y arraigo textual antes de cruzar el límite del worker. Cada afirmación debe incluir un extracto exacto y acotado presente en el contenido suministrado; el valor debe aparecer dentro de ese mismo extracto con límites Unicode de palabra o frase. Se rechazan extractos ausentes, valores triviales y coincidencias parciales como `a` o `us` dentro de `business`.
 
 ## Dependencias y versión evaluable
 
@@ -20,7 +20,7 @@ El contenido se trata como datos no confiables. Una página no puede agregar cam
 
 La versión 2.3.0 era la versión estable actual al 2026-09-30. PyPI declara compatibilidad con Python 3.12 o posterior y publicó el artefacto 2.3.0 el 2026-09-25: [PyPI](https://pypi.org/project/scrapegraphai/2.3.0/). El repositorio oficial registra la misma versión y fecha: [GitHub Releases](https://github.com/ScrapeGraphAI/Scrapegraph-ai/releases/tag/v2.3.0).
 
-ScrapeGraphAI está detrás de un adaptador reemplazable y no se instala con las dependencias normales. Su disponibilidad sólo es verdadera cuando existen simultáneamente una configuración compatible del proveedor y un runner ejecutable aprobado. Con ninguno, con sólo uno o con un runner no ejecutable, el adaptador informa que no está disponible y falla antes de procesar contenido. Nunca responde con un resultado vacío que pueda confundirse con una investigación válida.
+ScrapeGraphAI está detrás de un adaptador reemplazable y no se instala con las dependencias normales. Su disponibilidad sólo es verdadera cuando existen simultáneamente una configuración compatible del proveedor y un runner ejecutable aprobado que acepte los límites antes de iniciar la llamada. El runner recibe tiempo, llamadas, tokens y coste máximos como un objeto inmutable y debe confirmar exactamente esos límites en su respuesta. Un runner con la firma anterior, sin confirmación o con una confirmación distinta falla cerrado. Con ninguno, con sólo uno o con un runner incompatible, el adaptador informa que no está disponible y falla antes de procesar contenido.
 
 ## Corpus local
 
@@ -42,7 +42,7 @@ Comando de verificación: `workers/leadhunter/.venv/Scripts/python -m pytest wor
 
 | Medida | Resultado |
 |---|---:|
-| Casos de prueba Python | 24 aprobados |
+| Casos de prueba Python | 34 aprobados |
 | Documentos del corpus | 7 |
 | Afirmaciones esperadas | 13 |
 | Afirmaciones correctas | 13 |
@@ -66,10 +66,10 @@ No se instalaron el extra, un proveedor de modelo ni credenciales. Por lo tanto:
 - no se fabricaron estimaciones;
 - no está aprobado para producción.
 
-Para aprobarlo harán falta un entorno aislado con el extra fijado, configuración de un proveedor permitida, un corpus representativo de páginas públicas de Argentina y Estados Unidos, comparación manual de afirmaciones con sus fuentes, tasa de afirmaciones no respaldadas, latencia por documento, tokens y coste reales. Su salida deberá pasar sin excepciones por el mismo validador usado por la línea base.
+Para aprobarlo harán falta un entorno aislado con el extra fijado, configuración de un proveedor permitida, un corpus representativo de páginas públicas de Argentina y Estados Unidos, comparación manual de afirmaciones con sus fuentes, tasa de afirmaciones no respaldadas, latencia por documento, tokens y coste reales. Su salida deberá pasar sin excepciones por el mismo validador usado por la línea base. El runner real también deberá demostrar que el proveedor aplica timeout y límites de tokens/coste antes y durante la llamada. La verificación posterior de uso queda como defensa adicional: detectar un exceso después de la respuesta no cancela la llamada ni recupera gasto ya incurrido.
 
 ## Limitaciones y siguiente decisión
 
 La línea base determinista reconoce las anotaciones controladas y sirve para probar de punta a punta el contrato, los conflictos, la trazabilidad y la ausencia de acciones. No pretende extraer semántica general de cualquier página real. La recuperación segura de páginas también queda fuera del worker: debe validar la red y almacenar la procedencia antes de entregar contenido.
 
-La interfaz queda estable para sustituir el extractor por ScrapeGraphAI u otra implementación sin cambiar las reglas de evidencia. Una sustitución no puede quitar la URL, la fecha, el hash, el estado, la confianza, el extracto ni los límites de presupuesto.
+La interfaz queda estable para sustituir el extractor por ScrapeGraphAI u otra implementación sin cambiar las reglas de evidencia. Una sustitución no puede quitar la URL, la fecha, el hash, el estado, la confianza, el extracto ni los límites de presupuesto. Este adaptador no intenta cancelar de manera forzada un callable local: un hilo detenido desde fuera no garantiza que el proveedor interrumpa la facturación. La aprobación productiva exige cancelación o timeout implementado por el cliente/proveedor dentro del runner.

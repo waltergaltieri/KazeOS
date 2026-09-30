@@ -14,7 +14,32 @@ import {
 const leaseToken = "bounded-research-result-token";
 
 describe("LeadHunter research job result bounds", () => {
-  it("accepts exactly 50 evidence IDs", async () => {
+  it("rejects generic research completion even after evidence completion succeeded", async () => {
+    const stored = { kind: "research", output: { evidenceIds: [] } };
+    const execute = vi.fn(async () => [{
+      id: "00000000-0000-4000-8000-000000000001",
+      runId: "00000000-0000-4000-8000-000000000002",
+      kind: "research",
+      state: "succeeded",
+      result: stored,
+      payload: { leadId: "00000000-0000-4000-8000-000000000003" },
+      attemptCount: 1,
+      leaseExpiresAt: null,
+      leaseTokenDigest: digestLeaseToken(leaseToken),
+    }]);
+
+    await expect(completeJob({ execute } as unknown as LeadHunterJobDatabase, {
+      id: "00000000-0000-4000-8000-000000000001",
+      leaseToken,
+      now: new Date("2026-09-30T12:00:00.000Z"),
+      maxAttempts: 3,
+      completion: { result: stored },
+    })).rejects.toBeInstanceOf(JobCompletionValidationError);
+
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it("rejects generic successful research completion before any write", async () => {
     const execute = vi.fn(async () => [{
       id: "00000000-0000-4000-8000-000000000001",
       runId: "00000000-0000-4000-8000-000000000002",
@@ -37,10 +62,9 @@ describe("LeadHunter research job result bounds", () => {
       now: new Date("2026-09-30T12:00:00.000Z"),
       maxAttempts: 3,
       completion: { result: { kind: "research", output: { evidenceIds } } },
-    })).resolves.toEqual({
-      status: "succeeded",
-      result: { kind: "research", output: { evidenceIds } },
-    });
+    })).rejects.toBeInstanceOf(JobCompletionValidationError);
+
+    expect(execute).toHaveBeenCalledOnce();
   });
 
   it("rejects more evidence IDs than the worker can return", async () => {
