@@ -96,6 +96,17 @@ function indexNames(table: AnyPgTable) {
   return getTableConfig(table).indexes.map((index) => index.config.name);
 }
 
+function indexContract(table: AnyPgTable, name: string) {
+  const index = getTableConfig(table).indexes.find(
+    (candidate) => candidate.config.name === name,
+  );
+
+  return {
+    unique: index?.config.unique,
+    partial: index?.config.where !== undefined,
+  };
+}
+
 function checkNames(table: AnyPgTable) {
   return getTableConfig(table).checks.map((constraint) => constraint.name);
 }
@@ -325,7 +336,7 @@ describe("LeadHunter schema contract", () => {
     });
   });
 
-  it("deduplicates jobs, discoveries, message versions and transport commands", () => {
+  it("deduplicates jobs, discoveries, message versions and active transport commands", () => {
     expect(uniqueConstraintNames(requireTable(leadHunterJobs))).toContain(
       "lh_jobs_owner_idempotency_key_unique",
     );
@@ -341,10 +352,16 @@ describe("LeadHunter schema contract", () => {
     expect(uniqueConstraintNames(requireTable(leadHunterMessageVersions))).toContain(
       "lh_message_versions_owner_id_enrollment_unique",
     );
-    expect(uniqueConstraintNames(requireTable(leadHunterOutbox))).toEqual(expect.arrayContaining([
+    expect(uniqueConstraintNames(requireTable(leadHunterOutbox))).toContain(
       "lh_outbox_owner_idempotency_key_unique",
+    );
+    expect(uniqueConstraintNames(requireTable(leadHunterOutbox))).not.toContain(
       "lh_outbox_enrollment_logical_step_unique",
-    ]));
+    );
+    expect(indexContract(
+      requireTable(leadHunterOutbox),
+      "lh_outbox_active_enrollment_logical_step_unique",
+    )).toEqual({ unique: true, partial: true });
   });
 
   it("checks scores, confidence values and non-negative attempts", () => {
@@ -359,8 +376,17 @@ describe("LeadHunter schema contract", () => {
     );
   });
 
-  it("indexes claimable jobs and due outbox rows", () => {
+  it("indexes claimable work and supporting foreign keys", () => {
     expect(indexNames(requireTable(leadHunterJobs))).toContain("lh_jobs_claimable_idx");
     expect(indexNames(requireTable(leadHunterOutbox))).toContain("lh_outbox_due_idx");
+    expect(indexNames(leadHunterEnrollments)).toContain(
+      "lh_enrollments_owner_message_version_idx",
+    );
+    expect(indexNames(requireTable(leadHunterMessageVersions))).toContain(
+      "lh_message_versions_owner_supersedes_idx",
+    );
+    expect(indexNames(requireTable(leadHunterMessageBriefs))).toContain(
+      "lh_message_briefs_owner_campaign_version_idx",
+    );
   });
 });

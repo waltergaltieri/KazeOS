@@ -89,7 +89,6 @@ CREATE TABLE "lh_outbox" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "lh_outbox_owner_id_id_unique" UNIQUE("owner_id","id"),
 	CONSTRAINT "lh_outbox_owner_idempotency_key_unique" UNIQUE("owner_id","idempotency_key"),
-	CONSTRAINT "lh_outbox_enrollment_logical_step_unique" UNIQUE("owner_id","enrollment_id","logical_step"),
 	CONSTRAINT "lh_outbox_recipient_email_not_blank" CHECK (btrim("lh_outbox"."recipient_email") <> ''),
 	CONSTRAINT "lh_outbox_subject_not_blank" CHECK (btrim("lh_outbox"."subject") <> ''),
 	CONSTRAINT "lh_outbox_body_not_blank" CHECK (btrim("lh_outbox"."body") <> ''),
@@ -207,8 +206,11 @@ CREATE INDEX "lh_jobs_owner_lead_idx" ON "lh_jobs" USING btree ("owner_id","lead
 CREATE INDEX "lh_jobs_claimable_idx" ON "lh_jobs" USING btree ("owner_id","state","lease_expires_at","created_at") WHERE "lh_jobs"."state" in ('queued', 'leased');--> statement-breakpoint
 CREATE INDEX "lh_message_briefs_owner_enrollment_idx" ON "lh_message_briefs" USING btree ("owner_id","enrollment_id");--> statement-breakpoint
 CREATE INDEX "lh_message_briefs_owner_contact_idx" ON "lh_message_briefs" USING btree ("owner_id","contact_id");--> statement-breakpoint
+CREATE INDEX "lh_message_briefs_owner_campaign_version_idx" ON "lh_message_briefs" USING btree ("owner_id","campaign_id","campaign_version");--> statement-breakpoint
 CREATE INDEX "lh_message_versions_owner_brief_created_idx" ON "lh_message_versions" USING btree ("owner_id","brief_id","created_at");--> statement-breakpoint
 CREATE INDEX "lh_message_versions_owner_enrollment_idx" ON "lh_message_versions" USING btree ("owner_id","enrollment_id");--> statement-breakpoint
+CREATE INDEX "lh_message_versions_owner_supersedes_idx" ON "lh_message_versions" USING btree ("owner_id","supersedes_message_version_id") WHERE "lh_message_versions"."supersedes_message_version_id" is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX "lh_outbox_active_enrollment_logical_step_unique" ON "lh_outbox" USING btree ("owner_id","enrollment_id","logical_step") WHERE "lh_outbox"."state" <> 'cancelled' or "lh_outbox"."lease_owner" is not null or "lh_outbox"."lease_expires_at" is not null;--> statement-breakpoint
 CREATE INDEX "lh_outbox_owner_message_version_idx" ON "lh_outbox" USING btree ("owner_id","message_version_id");--> statement-breakpoint
 CREATE INDEX "lh_outbox_due_idx" ON "lh_outbox" USING btree ("owner_id","due_at") WHERE "lh_outbox"."state" = 'queued';--> statement-breakpoint
 CREATE INDEX "lh_runs_owner_campaign_created_idx" ON "lh_runs" USING btree ("owner_id","campaign_id","created_at");--> statement-breakpoint
@@ -221,6 +223,7 @@ ALTER TABLE "lh_enrollments" ADD CONSTRAINT "lh_enrollments_owner_message_versio
 ALTER TABLE "lh_evidence" ADD CONSTRAINT "lh_evidence_owner_run_runs_owner_id_id_fk" FOREIGN KEY ("owner_id","run_id") REFERENCES "public"."lh_runs"("owner_id","id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "lh_evidence" ADD CONSTRAINT "lh_evidence_owner_campaign_campaigns_owner_id_id_fk" FOREIGN KEY ("owner_id","campaign_id") REFERENCES "public"."lh_campaigns"("owner_id","id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint
 CREATE UNIQUE INDEX "lh_contacts_one_primary_per_lead_unique" ON "lh_contacts" USING btree ("owner_id","lead_id") WHERE "lh_contacts"."is_primary" = true;--> statement-breakpoint
+CREATE INDEX "lh_enrollments_owner_message_version_idx" ON "lh_enrollments" USING btree ("owner_id","message_version_id","id") WHERE "lh_enrollments"."message_version_id" is not null;--> statement-breakpoint
 CREATE INDEX "lh_evidence_owner_run_idx" ON "lh_evidence" USING btree ("owner_id","run_id");--> statement-breakpoint
 CREATE INDEX "lh_evidence_owner_campaign_idx" ON "lh_evidence" USING btree ("owner_id","campaign_id");--> statement-breakpoint
 ALTER TABLE "lh_contacts" ADD CONSTRAINT "lh_contacts_email_confidence_range" CHECK ("lh_contacts"."email_confidence" is null or "lh_contacts"."email_confidence" between 0 and 100);--> statement-breakpoint
@@ -244,12 +247,69 @@ CREATE POLICY "lh_source_candidates_backend_insert" ON "lh_source_candidates" AS
 CREATE POLICY "lh_source_candidates_backend_update" ON "lh_source_candidates" AS PERMISSIVE FOR UPDATE TO "kazeos_backend" USING ((select auth.uid()) = "lh_source_candidates"."owner_id") WITH CHECK ((select auth.uid()) = "lh_source_candidates"."owner_id");--> statement-breakpoint
 CREATE POLICY "lh_website_audits_authenticated_select" ON "lh_website_audits" AS PERMISSIVE FOR SELECT TO "authenticated" USING ((select auth.uid()) = "lh_website_audits"."owner_id");--> statement-breakpoint
 CREATE POLICY "lh_website_audits_backend_insert" ON "lh_website_audits" AS PERMISSIVE FOR INSERT TO "kazeos_backend" WITH CHECK ((select auth.uid()) = "lh_website_audits"."owner_id");--> statement-breakpoint
-CREATE POLICY "lh_website_audits_backend_update" ON "lh_website_audits" AS PERMISSIVE FOR UPDATE TO "kazeos_backend" USING ((select auth.uid()) = "lh_website_audits"."owner_id") WITH CHECK ((select auth.uid()) = "lh_website_audits"."owner_id");--> statement-breakpoint
-REVOKE ALL ON TABLE public.lh_runs, public.lh_jobs, public.lh_source_candidates, public.lh_website_audits, public.lh_message_briefs, public.lh_message_versions, public.lh_outbox FROM public, anon, authenticated;--> statement-breakpoint
-REVOKE UPDATE ON TABLE public.lh_message_briefs FROM kazeos_backend;--> statement-breakpoint
-GRANT SELECT ON TABLE public.lh_runs, public.lh_jobs, public.lh_source_candidates, public.lh_website_audits, public.lh_message_briefs, public.lh_message_versions, public.lh_outbox TO authenticated;--> statement-breakpoint
-GRANT SELECT, INSERT, UPDATE ON TABLE public.lh_runs, public.lh_jobs, public.lh_source_candidates, public.lh_website_audits, public.lh_message_versions, public.lh_outbox TO kazeos_backend;--> statement-breakpoint
-GRANT SELECT, INSERT ON TABLE public.lh_message_briefs TO kazeos_backend;--> statement-breakpoint
+CREATE POLICY "lh_website_audits_backend_update" ON "lh_website_audits" AS PERMISSIVE FOR UPDATE TO "kazeos_backend" USING ((select auth.uid()) = "lh_website_audits"."owner_id") WITH CHECK ((select auth.uid()) = "lh_website_audits"."owner_id");
+--> statement-breakpoint
+REVOKE ALL ON TABLE public.lh_runs, public.lh_jobs, public.lh_source_candidates, public.lh_website_audits, public.lh_message_briefs, public.lh_message_versions, public.lh_outbox FROM public, anon, authenticated;
+--> statement-breakpoint
+REVOKE UPDATE ON TABLE public.lh_message_briefs FROM kazeos_backend, service_role;
+--> statement-breakpoint
+GRANT SELECT ON TABLE public.lh_runs, public.lh_jobs, public.lh_source_candidates, public.lh_website_audits, public.lh_message_briefs, public.lh_message_versions, public.lh_outbox TO authenticated;
+--> statement-breakpoint
+GRANT SELECT, INSERT, UPDATE ON TABLE public.lh_runs, public.lh_jobs, public.lh_source_candidates, public.lh_website_audits, public.lh_message_versions, public.lh_outbox TO kazeos_backend;
+--> statement-breakpoint
+GRANT SELECT, INSERT ON TABLE public.lh_message_briefs TO kazeos_backend;
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION private.validate_lh_message_brief_coherence()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  PERFORM 1
+  FROM public.lh_enrollments AS enrollment
+  JOIN public.lh_contacts AS contact
+    ON contact.owner_id = NEW.owner_id
+   AND contact.id = NEW.contact_id
+   AND contact.lead_id = enrollment.lead_id
+  WHERE enrollment.owner_id = NEW.owner_id
+    AND enrollment.id = NEW.enrollment_id
+    AND enrollment.campaign_id = NEW.campaign_id
+    AND enrollment.campaign_version = NEW.campaign_version
+  FOR KEY SHARE OF enrollment, contact;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'LeadHunter message brief does not match its enrollment contact and campaign version'
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION private.guard_lh_message_version_content()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.owner_id IS DISTINCT FROM OLD.owner_id
+     OR NEW.brief_id IS DISTINCT FROM OLD.brief_id
+     OR NEW.enrollment_id IS DISTINCT FROM OLD.enrollment_id
+     OR NEW.subject IS DISTINCT FROM OLD.subject
+     OR NEW.body IS DISTINCT FROM OLD.body
+     OR NEW.model_metadata IS DISTINCT FROM OLD.model_metadata
+     OR NEW.supersedes_message_version_id IS DISTINCT FROM OLD.supersedes_message_version_id
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'LeadHunter message version content is immutable'
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
 CREATE OR REPLACE FUNCTION private.guard_lh_outbox_command()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -273,12 +333,28 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;--> statement-breakpoint
-REVOKE ALL ON FUNCTION private.guard_lh_outbox_command() FROM PUBLIC, anon, authenticated;--> statement-breakpoint
-CREATE TRIGGER lh_outbox_guard_command BEFORE UPDATE ON public.lh_outbox FOR EACH ROW EXECUTE FUNCTION private.guard_lh_outbox_command();--> statement-breakpoint
-CREATE TRIGGER lh_runs_set_updated_at BEFORE UPDATE ON public.lh_runs FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();--> statement-breakpoint
-CREATE TRIGGER lh_jobs_set_updated_at BEFORE UPDATE ON public.lh_jobs FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();--> statement-breakpoint
-CREATE TRIGGER lh_source_candidates_set_updated_at BEFORE UPDATE ON public.lh_source_candidates FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();--> statement-breakpoint
-CREATE TRIGGER lh_website_audits_set_updated_at BEFORE UPDATE ON public.lh_website_audits FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();--> statement-breakpoint
-CREATE TRIGGER lh_message_versions_set_updated_at BEFORE UPDATE ON public.lh_message_versions FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();--> statement-breakpoint
+$$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION private.validate_lh_message_brief_coherence() FROM PUBLIC, anon, authenticated;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION private.guard_lh_message_version_content() FROM PUBLIC, anon, authenticated;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION private.guard_lh_outbox_command() FROM PUBLIC, anon, authenticated;
+--> statement-breakpoint
+CREATE TRIGGER lh_message_briefs_validate_coherence BEFORE INSERT ON public.lh_message_briefs FOR EACH ROW EXECUTE FUNCTION private.validate_lh_message_brief_coherence();
+--> statement-breakpoint
+CREATE TRIGGER lh_message_versions_guard_content BEFORE UPDATE ON public.lh_message_versions FOR EACH ROW EXECUTE FUNCTION private.guard_lh_message_version_content();
+--> statement-breakpoint
+CREATE TRIGGER lh_outbox_guard_command BEFORE UPDATE ON public.lh_outbox FOR EACH ROW EXECUTE FUNCTION private.guard_lh_outbox_command();
+--> statement-breakpoint
+CREATE TRIGGER lh_runs_set_updated_at BEFORE UPDATE ON public.lh_runs FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();
+--> statement-breakpoint
+CREATE TRIGGER lh_jobs_set_updated_at BEFORE UPDATE ON public.lh_jobs FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();
+--> statement-breakpoint
+CREATE TRIGGER lh_source_candidates_set_updated_at BEFORE UPDATE ON public.lh_source_candidates FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();
+--> statement-breakpoint
+CREATE TRIGGER lh_website_audits_set_updated_at BEFORE UPDATE ON public.lh_website_audits FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();
+--> statement-breakpoint
+CREATE TRIGGER lh_message_versions_set_updated_at BEFORE UPDATE ON public.lh_message_versions FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();
+--> statement-breakpoint
 CREATE TRIGGER lh_outbox_set_updated_at BEFORE UPDATE ON public.lh_outbox FOR EACH ROW EXECUTE FUNCTION private.set_updated_at();

@@ -31,6 +31,12 @@ const migration = existsSync(migrationPath)
 const outboxGuard = migration.match(
   /create or replace function private\.guard_lh_outbox_command\(\)(.*?)\$\$;/,
 )?.[1] ?? "";
+const messageVersionGuard = migration.match(
+  /create or replace function private\.guard_lh_message_version_content\(\)(.*?)\$\$;/,
+)?.[1] ?? "";
+const messageBriefCoherenceGuard = migration.match(
+  /create or replace function private\.validate_lh_message_brief_coherence\(\)(.*?)\$\$;/,
+)?.[1] ?? "";
 const messageBriefDefinition =
   migration
     .split("create table lh_message_briefs (")[1]
@@ -129,8 +135,14 @@ describe("LeadHunter pipeline migration", () => {
     expect(migration).toContain(
       "constraint lh_outbox_owner_idempotency_key_unique unique(owner_id,idempotency_key)",
     );
-    expect(migration).toContain(
+    expect(migration).not.toContain(
       "constraint lh_outbox_enrollment_logical_step_unique unique(owner_id,enrollment_id,logical_step)",
+    );
+    expect(migration).toContain(
+      "create unique index lh_outbox_active_enrollment_logical_step_unique on lh_outbox using btree (owner_id,enrollment_id,logical_step)",
+    );
+    expect(migration).toContain(
+      "where lh_outbox.state <> 'cancelled' or lh_outbox.lease_owner is not null or lh_outbox.lease_expires_at is not null",
     );
     expect(migration).toContain(
       "foreign key (owner_id,run_id) references public.lh_runs(owner_id,id)",
@@ -148,6 +160,9 @@ describe("LeadHunter pipeline migration", () => {
     expect(migration).toContain("where lh_jobs.state in ('queued', 'leased')");
     expect(migration).toContain("create index lh_outbox_due_idx");
     expect(migration).toContain("where lh_outbox.state = 'queued'");
+    expect(migration).toContain("create index lh_enrollments_owner_message_version_idx");
+    expect(migration).toContain("create index lh_message_versions_owner_supersedes_idx");
+    expect(migration).toContain("create index lh_message_briefs_owner_campaign_version_idx");
   });
 
   it("keeps every pipeline write behind the backend role", () => {
@@ -190,6 +205,30 @@ describe("LeadHunter pipeline migration", () => {
     expect(migration).not.toMatch(
       /grant select, insert, update on table [^;]*public\.lh_message_briefs/,
     );
+    expect(migration).toContain(
+      "revoke update on table public.lh_message_briefs from kazeos_backend, service_role",
+    );
+  });
+
+  it("validates message brief contact and campaign coherence on insert", () => {
+    expect(messageBriefCoherenceGuard).toContain(
+      "from public.lh_enrollments as enrollment",
+    );
+    expect(messageBriefCoherenceGuard).toContain(
+      "join public.lh_contacts as contact",
+    );
+    expect(messageBriefCoherenceGuard).toContain(
+      "contact.lead_id = enrollment.lead_id",
+    );
+    expect(messageBriefCoherenceGuard).toContain(
+      "enrollment.campaign_id = new.campaign_id",
+    );
+    expect(messageBriefCoherenceGuard).toContain(
+      "enrollment.campaign_version = new.campaign_version",
+    );
+    expect(migration).toContain(
+      "create trigger lh_message_briefs_validate_coherence before insert on public.lh_message_briefs for each row execute function private.validate_lh_message_brief_coherence()",
+    );
   });
 
   it("protects outbox command content while allowing operational updates", () => {
@@ -229,6 +268,35 @@ describe("LeadHunter pipeline migration", () => {
     );
     expect(migration).toContain(
       "create trigger lh_outbox_guard_command before update on public.lh_outbox for each row execute function private.guard_lh_outbox_command()",
+    );
+  });
+
+  it("protects message version content while allowing validation state updates", () => {
+    expect(migration).toContain(
+      "create or replace function private.guard_lh_message_version_content()",
+    );
+    for (const column of [
+      "id",
+      "owner_id",
+      "brief_id",
+      "enrollment_id",
+      "subject",
+      "body",
+      "model_metadata",
+      "supersedes_message_version_id",
+      "created_at",
+    ]) {
+      expect(messageVersionGuard).toContain(
+        `new.${column} is distinct from old.${column}`,
+      );
+    }
+    for (const operationalColumn of ["state", "validation_result", "updated_at"]) {
+      expect(messageVersionGuard).not.toContain(
+        `new.${operationalColumn} is distinct from old.${operationalColumn}`,
+      );
+    }
+    expect(migration).toContain(
+      "create trigger lh_message_versions_guard_content before update on public.lh_message_versions for each row execute function private.guard_lh_message_version_content()",
     );
   });
 

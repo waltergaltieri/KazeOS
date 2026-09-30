@@ -1,5 +1,5 @@
 {
-  "id": "f379136a-51cd-4874-b767-d13e59b57177",
+  "id": "a3e5e680-f165-4d6c-9ea3-86ece6da8732",
   "prevId": "9df772e9-fcf1-4782-9380-9b8157079a93",
   "version": "7",
   "dialect": "postgresql",
@@ -2278,6 +2278,34 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "lh_enrollments_owner_message_version_idx": {
+          "name": "lh_enrollments_owner_message_version_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "message_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"lh_enrollments\".\"message_version_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -3355,6 +3383,33 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "lh_message_briefs_owner_campaign_version_idx": {
+          "name": "lh_message_briefs_owner_campaign_version_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "campaign_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "campaign_version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -3608,6 +3663,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lh_message_versions_owner_supersedes_idx": {
+          "name": "lh_message_versions_owner_supersedes_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "supersedes_message_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"lh_message_versions\".\"supersedes_message_version_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3866,6 +3943,34 @@
         }
       },
       "indexes": {
+        "lh_outbox_active_enrollment_logical_step_unique": {
+          "name": "lh_outbox_active_enrollment_logical_step_unique",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "enrollment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "logical_step",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"lh_outbox\".\"state\" <> 'cancelled' or \"lh_outbox\".\"lease_owner\" is not null or \"lh_outbox\".\"lease_expires_at\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "lh_outbox_owner_message_version_idx": {
           "name": "lh_outbox_owner_message_version_idx",
           "columns": [
@@ -3974,15 +4079,6 @@
           "columns": [
             "owner_id",
             "idempotency_key"
-          ]
-        },
-        "lh_outbox_enrollment_logical_step_unique": {
-          "name": "lh_outbox_enrollment_logical_step_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "owner_id",
-            "enrollment_id",
-            "logical_step"
           ]
         }
       },

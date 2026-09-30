@@ -489,6 +489,9 @@ export const leadHunterEnrollments = pgTable(
       table.status,
     ),
     index("lh_enrollments_owner_next_action_idx").on(table.ownerId, table.nextActionAt),
+    index("lh_enrollments_owner_message_version_idx")
+      .on(table.ownerId, table.messageVersionId, table.id)
+      .where(sql`${table.messageVersionId} is not null`),
     ...backendPolicies("lh_enrollments", table.ownerId),
   ],
 ).enableRLS();
@@ -786,6 +789,11 @@ export const leadHunterMessageBriefs = pgTable(
       table.enrollmentId,
     ),
     index("lh_message_briefs_owner_contact_idx").on(table.ownerId, table.contactId),
+    index("lh_message_briefs_owner_campaign_version_idx").on(
+      table.ownerId,
+      table.campaignId,
+      table.campaignVersion,
+    ),
     ...backendInsertPolicies("lh_message_briefs", table.ownerId),
   ],
 ).enableRLS();
@@ -856,6 +864,9 @@ export const leadHunterMessageVersions = pgTable(
       table.ownerId,
       table.enrollmentId,
     ),
+    index("lh_message_versions_owner_supersedes_idx")
+      .on(table.ownerId, table.supersedesMessageVersionId)
+      .where(sql`${table.supersedesMessageVersionId} is not null`),
     ...backendPolicies("lh_message_versions", table.ownerId),
   ],
 ).enableRLS();
@@ -900,11 +911,9 @@ export const leadHunterOutbox = pgTable(
       table.ownerId,
       table.idempotencyKey,
     ),
-    unique("lh_outbox_enrollment_logical_step_unique").on(
-      table.ownerId,
-      table.enrollmentId,
-      table.logicalStep,
-    ),
+    uniqueIndex("lh_outbox_active_enrollment_logical_step_unique")
+      .on(table.ownerId, table.enrollmentId, table.logicalStep)
+      .where(sql`${table.state} <> 'cancelled' or ${table.leaseOwner} is not null or ${table.leaseExpiresAt} is not null`),
     foreignKey({
       name: "lh_outbox_owner_enrollment_enrollments_owner_id_id_fk",
       columns: [table.ownerId, table.enrollmentId],
