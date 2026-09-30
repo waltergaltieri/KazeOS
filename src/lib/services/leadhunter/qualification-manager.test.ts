@@ -136,6 +136,19 @@ function noWebsiteObservations() {
   };
 }
 
+function redirectObservationEnvelope(count: number) {
+  return {
+    observations: Array.from({ length: count }, (_, index) => ({
+      type: "redirect",
+      fromUrl: "https://example.com",
+      toUrl: `https://redirect-${index}.example.net`,
+      permanent: index % 2 === 0,
+      observedAt,
+      source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+    })),
+  };
+}
+
 function maximumStrategy() {
   const base = strategy();
   return {
@@ -262,6 +275,75 @@ describe("LeadHunter qualification manager", () => {
     expect(JSON.parse(String(activity?.params.at(-1)))).toMatchObject({
       rejectionCode: "invalid_observation_provenance",
     });
+  });
+
+  it.each([20, 21, 100])(
+    "persists and idempotently replays all %i redirect evidence IDs",
+    async (count) => {
+      let completed = false;
+      let storedResult: unknown = null;
+      let persistedEvidenceIds: string[] = [];
+      const statements: string[] = [];
+      const execute = vi.fn(async (query: unknown) => {
+        const rendered = queryText(query);
+        statements.push(rendered.sql);
+        const row = lockedJob("audit_website", {
+          state: completed ? "succeeded" : "leased",
+          payload: { leadId, website: "https://example.com" },
+          result: storedResult,
+        });
+        const context = lockedContextResult(rendered.sql, row);
+        if (context !== undefined) return context;
+        if (rendered.sql.includes('from "lh_website_audits"')) return [];
+        if (rendered.sql.includes('insert into "lh_website_audits"')) {
+          const jsonArrays = rendered.params.filter((parameter): parameter is string => (
+            typeof parameter === "string" && parameter.startsWith("[")
+          ));
+          persistedEvidenceIds = JSON.parse(jsonArrays.at(-1) ?? "[]") as string[];
+          return [{ id: auditId }];
+        }
+        if (rendered.sql.includes('update "lh_jobs"') && rendered.sql.includes("state = 'succeeded'")) {
+          storedResult = JSON.parse(String(rendered.params[0]));
+          completed = true;
+        }
+        return [];
+      });
+      const { value } = database(execute);
+      const output = redirectObservationEnvelope(count);
+
+      const first = await persistWebsiteAuditResult(value, input(output));
+      const retry = await persistWebsiteAuditResult(value, input(output));
+
+      expect(first).toEqual({ status: "processed", auditId, gateResult: "UNVERIFIED" });
+      expect(retry).toEqual({ ...first, status: "already_processed" });
+      expect(persistedEvidenceIds).toHaveLength(count);
+      expect(new Set(persistedEvidenceIds)).toHaveLength(count);
+      expect(statements.filter((sql) => sql.includes('insert into "lh_evidence"')))
+        .toHaveLength(count);
+      expect(statements.filter((sql) => sql.includes('insert into "lh_website_audits"')))
+        .toHaveLength(1);
+    },
+  );
+
+  it("rejects 101 redirect observations before any audit evidence write", async () => {
+    const statements: string[] = [];
+    const row = lockedJob("audit_website", {
+      payload: { leadId, website: "https://example.com" },
+    });
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered.sql);
+      const context = lockedContextResult(rendered.sql, row);
+      if (context !== undefined) return context;
+      if (rendered.sql.includes('from "lh_website_audits"')) return [];
+      return [];
+    });
+    const { value } = database(execute);
+
+    await expect(persistWebsiteAuditResult(value, input(redirectObservationEnvelope(101))))
+      .resolves.toMatchObject({ status: "rejected" });
+    expect(statements.some((sql) => sql.includes('insert into "lh_evidence"'))).toBe(false);
+    expect(statements.some((sql) => sql.includes('insert into "lh_website_audits"'))).toBe(false);
   });
 
   it("recomputes qualification and keeps eligible work pre-message", async () => {

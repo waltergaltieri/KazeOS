@@ -30,6 +30,8 @@ const observationBase = {
   source: sourceSchema,
 };
 
+export const maximumWebsiteAuditObservations = 100;
+
 const websiteAuditObservationSchema = z.union([
   z.object({
     ...observationBase,
@@ -152,7 +154,7 @@ const websiteAuditObservationSchema = z.union([
 ]);
 
 export const websiteAuditObservationEnvelopeSchema = z.object({
-  observations: z.array(websiteAuditObservationSchema).max(100),
+  observations: z.array(websiteAuditObservationSchema).max(maximumWebsiteAuditObservations),
 }).strict();
 
 export const websiteAuditEnvelopeSchema = websiteAuditObservationEnvelopeSchema;
@@ -361,7 +363,9 @@ export function deriveWebsiteAuditObservations(
   rawObservations: WebsiteAuditObservation[],
   context: { namespace: string; website: string | null | undefined },
 ): DerivedWebsiteAuditObservations {
-  const observations = z.array(websiteAuditObservationSchema).max(100).parse(rawObservations);
+  const observations = z.array(websiteAuditObservationSchema)
+    .max(maximumWebsiteAuditObservations)
+    .parse(rawObservations);
   const ordered = [...observations].sort((left, right) => (
     JSON.stringify(left).localeCompare(JSON.stringify(right))
   ));
@@ -584,7 +588,9 @@ export function evaluateWebsiteAudit(
   rawChecks: WebsiteAuditCheck[],
   context: WebsiteAuditContext = { website: undefined },
 ): WebsiteAuditResult {
-  const parsed = z.array(websiteAuditCheckSchema).max(100).parse(rawChecks);
+  const parsed = z.array(websiteAuditCheckSchema)
+    .max(maximumWebsiteAuditObservations)
+    .parse(rawChecks);
   const unique = new Map<string, WebsiteAuditCheck>();
   for (const raw of parsed) {
     const check = normalizedCheck(raw);
@@ -595,9 +601,9 @@ export function evaluateWebsiteAudit(
     || left.observedAt.localeCompare(right.observedAt)
     || checkIdentity(left).localeCompare(checkIdentity(right))
   ));
-  const contextEvidenceIds = z.array(z.string().uuid()).max(20).parse(
-    context.contextEvidenceIds ?? [],
-  );
+  const contextEvidenceIds = z.array(z.string().uuid())
+    .max(maximumWebsiteAuditObservations)
+    .parse(context.contextEvidenceIds ?? []);
   const evidenceIds = [...new Set([
     ...checks.flatMap((check) => check.evidenceIds),
     ...contextEvidenceIds,

@@ -70,6 +70,16 @@ function deriveAndEvaluate(
   };
 }
 
+function redirectObservations(count: number): WebsiteAuditObservation[] {
+  return Array.from({ length: count }, (_, index) => observation({
+    type: "redirect",
+    fromUrl: "https://example.com",
+    toUrl: `https://redirect-${index}.example.net`,
+    permanent: index % 2 === 0,
+    source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+  }));
+}
+
 describe("LeadHunter website audit", () => {
   it("classifies no official site only with independent active-presence evidence", () => {
     const result = evaluateWebsiteAudit([
@@ -352,6 +362,34 @@ describe("LeadHunter website audit", () => {
       contextEvidenceIds: first.contextEvidenceIds,
     }).gateResult).toBe("BAD_WEBSITE");
     expect(first.contextEvidenceIds).toHaveLength(1);
+  });
+
+  it.each([20, 21, 100])(
+    "losslessly derives and evaluates %i trusted redirect observations",
+    (count) => {
+      const observations = redirectObservations(count);
+      expect(websiteAuditEnvelopeSchema.safeParse({ observations }).success).toBe(true);
+      const derived = deriveWebsiteAuditObservations(observations, {
+        namespace: "audit-job-redirect-boundary",
+        website: "https://example.com",
+      });
+      const result = evaluateWebsiteAudit(derived.checks, {
+        website: "https://example.com",
+        allowedWebsiteOrigins: derived.allowedWebsiteOrigins,
+        contextEvidenceIds: derived.contextEvidenceIds,
+      });
+
+      expect(derived.contextEvidenceIds).toHaveLength(count);
+      expect(derived.evidence).toHaveLength(count);
+      expect(result.evidenceIds).toEqual(derived.contextEvidenceIds);
+      expect(result.gateResult).toBe("UNVERIFIED");
+    },
+  );
+
+  it("rejects 101 redirect observations at the public envelope boundary", () => {
+    expect(websiteAuditEnvelopeSchema.safeParse({
+      observations: redirectObservations(101),
+    }).success).toBe(false);
   });
 
   it("rejects cross-origin redirects and downgrades mismatched site observations", () => {
