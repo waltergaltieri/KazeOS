@@ -166,6 +166,45 @@ describe("SearXNG source adapter", () => {
     });
   });
 
+  it("treats null optional text fields as absent while rejecting other types", async () => {
+    const fetch = vi.fn<FetchLike>(async () => new Response(JSON.stringify({
+      results: [
+        {
+          url: "https://valid.example/profile",
+          title: null,
+          content: null,
+          engine: null,
+          category: null,
+          publishedDate: null,
+        },
+        {
+          url: "https://invalid.example/profile",
+          content: { text: "not text" },
+        },
+      ],
+    }), { status: 200 }));
+    const adapter = createSearxngAdapter({
+      endpoint: "https://search.example.com/search",
+      fetch,
+      resolve: publicResolver,
+    });
+
+    await expect(adapter.discover(initialWork)).resolves.toEqual({
+      candidates: [{
+        sourceType: "web_search",
+        sourceIdentity: "https://valid.example/profile",
+        sourceUrl: "https://valid.example/profile",
+        observedUrl: "https://valid.example/profile",
+        canonicalUrl: "https://valid.example/profile",
+        observedName: null,
+        observedLocation: null,
+        providerRank: 1,
+        metadata: {},
+      }],
+      nextCursor: { state: "next", value: { page: 2 } },
+    });
+  });
+
   it("rejects non-success HTTP responses without reading them as results", async () => {
     const rejected = streamedResponse("provider details", 503);
     const fetch = vi.fn<FetchLike>(async () => rejected.response);

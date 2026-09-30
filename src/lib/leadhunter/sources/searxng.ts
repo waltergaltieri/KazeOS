@@ -134,7 +134,9 @@ async function readBoundedJson(
 }
 
 function validOptionalText(record: Record<string, unknown>, key: string): boolean {
-  return record[key] === undefined || typeof record[key] === "string";
+  return record[key] === undefined
+    || record[key] === null
+    || typeof record[key] === "string";
 }
 
 function metadataFor(record: Record<string, unknown>): Record<string, JsonValue> {
