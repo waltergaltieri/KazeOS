@@ -250,6 +250,104 @@ describe("LeadHunter campaign strategy contracts", () => {
     ]);
   });
 
+  it("parses bounded structured predicates and defaults their confidence threshold", () => {
+    const strategy = campaignStrategySchema.parse({
+      ...validStrategy,
+      qualification: {
+        gates: [],
+        rules: [
+          {
+            criterion: "Publica catálogo mayorista",
+            weight: 10,
+            predicate: { field: "business_model", operator: "verified_exists" },
+          },
+          {
+            criterion: "Ya es cliente",
+            weight: -10,
+            effect: "exclude",
+            predicate: {
+              field: "existing_client",
+              operator: "normalized_equals",
+              expected: "yes",
+              minimumConfidence: 90,
+            },
+          },
+          {
+            criterion: "Sucursales suficientes",
+            weight: 20,
+            predicate: {
+              field: "branch_count",
+              operator: "number_between",
+              minimum: 2,
+              maximum: 100,
+            },
+          },
+        ],
+      },
+    });
+
+    expect(strategy.qualification.rules[0]?.predicate?.minimumConfidence).toBe(75);
+    expect(strategy.qualification.rules[1]?.predicate?.minimumConfidence).toBe(90);
+    expect(() => campaignStrategySchema.parse({
+      ...validStrategy,
+      qualification: {
+        gates: [],
+        rules: [{
+          criterion: "Rango inválido",
+          weight: 10,
+          predicate: { field: "branch_count", operator: "number_between", minimum: 3, maximum: 2 },
+        }],
+      },
+    })).toThrow();
+    expect(() => campaignStrategySchema.parse({
+      ...validStrategy,
+      qualification: {
+        gates: [],
+        rules: [{
+          criterion: "Campo inválido",
+          weight: 10,
+          predicate: { field: "Bad Field", operator: "verified_exists" },
+        }],
+      },
+    })).toThrow();
+  });
+
+  it("preserves a structured predicate during form reconciliation", () => {
+    const strategy = campaignStrategySchema.parse({
+      ...validStrategy,
+      qualification: {
+        gates: [],
+        rules: [{
+          criterion: "Publica catálogo mayorista",
+          weight: 50,
+          predicate: {
+            field: "business_model",
+            operator: "normalized_equals",
+            expected: "wholesale",
+            minimumConfidence: 80,
+          },
+        }],
+      },
+    });
+
+    const reconciled = reconcileCampaignStrategy({
+      objective: "Encontrar distribuidores con procesos manuales.",
+      serviceFocus: "automation",
+      countries: ["AR"],
+      sources: ["web_search"],
+      positiveCriteria: ["Publica catálogo mayorista"],
+      negativeCriteria: [],
+      strategy,
+    });
+
+    expect(reconciled.qualification.rules[0]?.predicate).toEqual({
+      field: "business_model",
+      operator: "normalized_equals",
+      expected: "wholesale",
+      minimumConfidence: 80,
+    });
+  });
+
   it("keeps generated single-country policies explicit", () => {
     const input = {
       objective: "Encontrar distribuidores con procesos manuales.",

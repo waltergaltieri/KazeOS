@@ -6,12 +6,13 @@ import {
   researchQuestionSchema,
   websiteGateStateSchema,
   type QualificationGate,
+  type QualificationPredicate,
   type QualificationRule,
   type ResearchQuestion,
 } from "./contracts";
 
 // Contracts permit 50 configured gates and 100 required research questions.
-// At most one assessment reason is emitted for each of 100 configured rules,
+// At most one evaluation reason is emitted for each of 100 configured rules,
 // plus one reason for each non-passing gate. Terminal reasons are mutually
 // exclusive with those branches, so the true result maxima are 150 gates and
 // 250 reasons. Every referenced ID must come from the 500-row evidence input.
@@ -24,20 +25,10 @@ const httpUrlSchema = z.string().trim().url().max(2_048).refine(
   "Evidence URL must use HTTP(S)",
 );
 
-const evidenceIdsSchema = z.array(z.string().uuid()).min(1).max(20).transform(
-  (values) => [...new Set(values)].sort(),
-);
-
-export const qualificationAssessmentSchema = z.object({
-  criterion: z.string().trim().min(1).max(240),
-  outcome: z.enum(["met", "not_met", "unknown", "conflicting"]),
-  confidence: z.number().int().min(0).max(100),
-  evidenceIds: evidenceIdsSchema,
-}).strict();
-
-export const qualificationAssessmentEnvelopeSchema = z.object({
-  assessments: z.array(qualificationAssessmentSchema).max(100),
-}).strict();
+// Qualification completion is only a trigger. All outcomes are recomputed from
+// the persisted campaign predicates and evidence under the manager transaction.
+export const qualificationCompletionEnvelopeSchema = z.object({}).strict();
+export const qualificationAssessmentEnvelopeSchema = qualificationCompletionEnvelopeSchema;
 
 export const qualificationEvidenceSchema = z.object({
   id: z.string().uuid(),
@@ -66,7 +57,6 @@ const websiteAuditInputSchema = z.object({
   ),
 }).strict();
 
-export type QualificationAssessment = z.infer<typeof qualificationAssessmentSchema>;
 export type QualificationEvidence = z.infer<typeof qualificationEvidenceSchema>;
 
 export interface QualificationInput {
@@ -74,7 +64,6 @@ export interface QualificationInput {
   rules: QualificationRule[];
   researchQuestions: ResearchQuestion[];
   evidence: QualificationEvidence[];
-  assessments: QualificationAssessment[];
   websiteAudit: z.input<typeof websiteAuditInputSchema> | null;
   publishedEmailConfidence: number | null;
 }
@@ -102,10 +91,14 @@ export const qualificationResultSchema = z.object({
 export type GateResult = z.infer<typeof qualificationGateResultSchema>;
 export type QualificationResult = z.infer<typeof qualificationResultSchema>;
 
-interface EffectiveAssessment extends QualificationAssessment {
-  effectiveConfidence: number;
-  verifiedOnly: boolean;
-  evidenceConflict: boolean;
+interface RuleEvaluation {
+  criterion: string;
+  effect: "score" | "exclude";
+  weight: number;
+  outcome: "met" | "not_met" | "unknown" | "conflicting";
+  confidence: number;
+  evidenceIds: string[];
+  reason: string | null;
 }
 
 interface ResearchFinding {
@@ -132,12 +125,6 @@ function mean(values: number[]): number {
   return values.length === 0
     ? 0
     : clamp(values.reduce((sum, value) => sum + value, 0) / values.length);
-}
-
-function effectiveEvidenceConfidence(evidence: QualificationEvidence): number {
-  if (evidence.status === "verified") return evidence.confidence;
-  if (evidence.status === "inferred") return clamp(evidence.confidence * 0.5);
-  return 0;
 }
 
 function researchFinding(
@@ -181,13 +168,99 @@ function requiredFieldFinding(
   );
 }
 
+function normalizedEvidenceValue(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function evaluatePredicate(
+  rule: { criterion: string; weight: number; effect: "score" | "exclude"; predicate?: QualificationPredicate },
+  evidence: QualificationEvidence[],
+): RuleEvaluation {
+  if (!rule.predicate) {
+    return {
+      criterion: rule.criterion,
+      effect: rule.effect,
+      weight: rule.weight,
+      outcome: "unknown",
+      confidence: 0,
+      evidenceIds: [],
+      reason: `unstructured_rule:${rule.criterion}`,
+    };
+  }
+  const candidates = evidence.filter(({ field }) => field === rule.predicate!.field);
+  const evidenceIds = candidates.map(({ id }) => id).sort();
+  const candidateValues = new Set(candidates.map(({ value }) => normalizedEvidenceValue(value)));
+  if (
+    candidates.some(({ status }) => status === "conflicting")
+    || (rule.predicate.operator !== "verified_exists" && candidateValues.size > 1)
+  ) {
+    return {
+      criterion: rule.criterion, effect: rule.effect, weight: rule.weight,
+      outcome: "conflicting", confidence: 0, evidenceIds,
+      reason: `rule_evidence_conflicting:${rule.criterion}`,
+    };
+  }
+  const verified = candidates.filter((row) => (
+    row.kind === "fact"
+    && row.status === "verified"
+    && row.confidence >= rule.predicate!.minimumConfidence
+  ));
+  if (verified.length === 0) {
+    return {
+      criterion: rule.criterion, effect: rule.effect, weight: rule.weight,
+      outcome: "unknown", confidence: 0, evidenceIds,
+      reason: `rule_evidence_missing:${rule.criterion}`,
+    };
+  }
+  const confidence = Math.min(...verified.map(({ confidence: value }) => value));
+  const verifiedIds = verified.map(({ id }) => id).sort();
+  if (rule.predicate.operator === "verified_exists") {
+    return {
+      criterion: rule.criterion, effect: rule.effect, weight: rule.weight,
+      outcome: "met", confidence, evidenceIds: verifiedIds, reason: null,
+    };
+  }
+  const values = new Set(verified.map(({ value }) => normalizedEvidenceValue(value)));
+  if (values.size !== 1) {
+    return {
+      criterion: rule.criterion, effect: rule.effect, weight: rule.weight,
+      outcome: "conflicting", confidence: 0, evidenceIds: verifiedIds,
+      reason: `rule_evidence_conflicting:${rule.criterion}`,
+    };
+  }
+  const [value] = values;
+  if (rule.predicate.operator === "normalized_equals") {
+    return {
+      criterion: rule.criterion, effect: rule.effect, weight: rule.weight,
+      outcome: value === normalizedEvidenceValue(rule.predicate.expected) ? "met" : "not_met",
+      confidence, evidenceIds: verifiedIds, reason: null,
+    };
+  }
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return {
+      criterion: rule.criterion, effect: rule.effect, weight: rule.weight,
+      outcome: "conflicting", confidence: 0, evidenceIds: verifiedIds,
+      reason: `rule_evidence_conflicting:${rule.criterion}`,
+    };
+  }
+  return {
+    criterion: rule.criterion,
+    effect: rule.effect,
+    weight: rule.weight,
+    outcome: numericValue >= rule.predicate.minimum && numericValue <= rule.predicate.maximum
+      ? "met" : "not_met",
+    confidence,
+    evidenceIds: verifiedIds,
+    reason: null,
+  };
+}
+
 /**
- * Deterministic formula: each assessment confidence is the minimum of the
- * worker cap and every persisted evidence trust value. Verified facts retain
- * their persisted confidence; inferred hypotheses contribute half (rounded to
- * the nearest integer); conflicts contribute zero and force review. Commercial
- * fit is 50 plus half the normalized confidence-adjusted configured weight.
- * Evidence confidence is the rounded mean of effective assessment and research
+ * Deterministic formula: structured rule predicates are evaluated only against
+ * persisted verified facts. Free-text rules, missing facts and conflicts force
+ * review. Commercial fit is 50 plus half the normalized confidence-adjusted
+ * configured weight. Evidence confidence is the rounded mean of rule and research
  * confidence. Business strength is the rounded mean research confidence. The
  * final score is 50% fit + 30% evidence confidence + 20% business strength.
  */
@@ -200,9 +273,6 @@ export function evaluateQualification(rawInput: QualificationInput): Qualificati
   const evidence = z.array(qualificationEvidenceSchema)
     .max(maximumQualificationEvidenceIds)
     .parse(rawInput.evidence);
-  const assessments = z.array(qualificationAssessmentSchema).max(100).parse(
-    rawInput.assessments,
-  );
   const websiteAudit = rawInput.websiteAudit === null
     ? null
     : websiteAuditInputSchema.parse(rawInput.websiteAudit);
@@ -212,35 +282,6 @@ export function evaluateQualification(rawInput: QualificationInput): Qualificati
   const evidenceById = new Map(evidence.map((row) => [row.id, row]));
   if (evidenceById.size !== evidence.length) throw new TypeError("Duplicate persisted evidence ID");
 
-  const configured = new Map(rules.map((rule) => [signal(rule.criterion), rule]));
-  const seen = new Set<string>();
-  const byCriterion = new Map<string, EffectiveAssessment>();
-  for (const assessment of assessments) {
-    const key = signal(assessment.criterion);
-    if (!configured.has(key)) throw new TypeError("Assessment does not reference a configured criterion");
-    if (seen.has(key)) throw new TypeError("Duplicate criterion assessment");
-    const referenced = assessment.evidenceIds.map((id) => evidenceById.get(id));
-    if (referenced.some((row) => row === undefined)) {
-      throw new TypeError("Assessment must reference owned evidence");
-    }
-    const owned = referenced as QualificationEvidence[];
-    const evidenceConflict = assessment.outcome === "conflicting"
-      || owned.some(({ status }) => status === "conflicting");
-    const effectiveConfidence = evidenceConflict
-      ? 0
-      : Math.min(
-          assessment.confidence,
-          ...owned.map(effectiveEvidenceConfidence),
-        );
-    seen.add(key);
-    byCriterion.set(key, {
-      ...assessment,
-      outcome: evidenceConflict ? "conflicting" : assessment.outcome,
-      effectiveConfidence,
-      verifiedOnly: owned.every(({ kind, status }) => kind === "fact" && status === "verified"),
-      evidenceConflict,
-    });
-  }
   if (websiteAudit?.evidenceIds.some((id) => !evidenceById.has(id))) {
     throw new TypeError("Website audit must reference owned evidence");
   }
@@ -248,20 +289,22 @@ export function evaluateQualification(rawInput: QualificationInput): Qualificati
   const findings = researchQuestions
     .map((question) => researchFinding(question, evidence))
     .sort((left, right) => left.key.localeCompare(right.key));
-  const scoringRules = rules.filter(({ effect }) => effect === "score");
+  const ruleEvaluations = rules
+    .map((rule) => evaluatePredicate(rule, evidence))
+    .sort((left, right) => left.criterion.localeCompare(right.criterion));
+  const scoringRules = ruleEvaluations.filter(({ effect }) => effect === "score");
   const denominator = scoringRules.reduce((sum, { weight }) => sum + Math.abs(weight), 0);
-  const weighted = scoringRules.reduce((sum, rule) => {
-    const assessment = byCriterion.get(signal(rule.criterion));
-    if (!assessment || assessment.outcome !== "met") return sum;
-    return sum + rule.weight * (assessment.effectiveConfidence / 100);
+  const weighted = scoringRules.reduce((sum, evaluation) => {
+    if (evaluation.outcome !== "met") return sum;
+    return sum + evaluation.weight * (evaluation.confidence / 100);
   }, 0);
   const commercialFit = denominator === 0
     ? 50
     : clamp(50 + 50 * (weighted / denominator));
   const evidenceConfidence = mean([
-    ...[...byCriterion.values()]
+    ...ruleEvaluations
       .filter(({ outcome }) => outcome === "met" || outcome === "not_met")
-      .map(({ effectiveConfidence }) => effectiveConfidence),
+      .map(({ confidence }) => confidence),
     ...findings
       .filter(({ status }) => status === "verified" || status === "inferred")
       .map(({ confidence }) => confidence),
@@ -340,29 +383,13 @@ export function evaluateQualification(rawInput: QualificationInput): Qualificati
   const gateResults = [...configuredGateResults, ...researchGateResults]
     .sort((left, right) => left.key.localeCompare(right.key));
 
-  const exclusionRules = rules.filter(({ effect }) => effect === "exclude");
-  const explicitExclusions = exclusionRules
-    .filter((rule) => {
-      const assessment = byCriterion.get(signal(rule.criterion));
-      return assessment?.outcome === "met"
-        && assessment.verifiedOnly
-        && assessment.effectiveConfidence >= minimumVerifiedConfidence;
-    })
-    .sort((left, right) => left.criterion.localeCompare(right.criterion));
-  const uncertainExclusions = exclusionRules
-    .filter((rule) => {
-      const assessment = byCriterion.get(signal(rule.criterion));
-      return assessment?.outcome === "met"
-        && (!assessment.verifiedOnly || assessment.effectiveConfidence < minimumVerifiedConfidence);
-    })
-    .sort((left, right) => left.criterion.localeCompare(right.criterion));
-  const conflictingAssessments = [...byCriterion.values()]
-    .filter(({ evidenceConflict }) => evidenceConflict)
-    .sort((left, right) => left.criterion.localeCompare(right.criterion));
+  const explicitExclusions = ruleEvaluations
+    .filter(({ effect, outcome }) => effect === "exclude" && outcome === "met");
+  const unresolvedRules = ruleEvaluations
+    .filter(({ outcome }) => outcome === "unknown" || outcome === "conflicting");
   const reasons = [
     ...explicitExclusions.map(({ criterion }) => `explicit_exclusion:${criterion}`),
-    ...uncertainExclusions.map(({ criterion }) => `exclusion_not_verified:${criterion}`),
-    ...conflictingAssessments.map(({ criterion }) => `assessment_evidence_conflicting:${criterion}`),
+    ...unresolvedRules.flatMap(({ reason }) => reason ? [reason] : []),
     ...gateResults.filter(({ status }) => status !== "passed").map(({ reason }) => reason),
   ];
 
@@ -370,8 +397,7 @@ export function evaluateQualification(rawInput: QualificationInput): Qualificati
   if (explicitExclusions.length > 0 || gateResults.some(({ status }) => status === "failed")) {
     decision = "excluded";
   } else if (
-    uncertainExclusions.length > 0
-    || conflictingAssessments.length > 0
+    unresolvedRules.length > 0
     || gateResults.some(({ status }) => status === "needs_review")
   ) {
     decision = "needs_review";
@@ -387,7 +413,7 @@ export function evaluateQualification(rawInput: QualificationInput): Qualificati
   }
 
   const usedEvidenceIds = [...new Set([
-    ...assessments.flatMap(({ evidenceIds: ids }) => ids),
+    ...ruleEvaluations.flatMap(({ evidenceIds: ids }) => ids),
     ...findings.flatMap(({ evidenceIds: ids }) => ids),
     ...(websiteAudit?.evidenceIds ?? []),
   ])].sort();

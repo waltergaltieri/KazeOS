@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deriveWebsiteAuditObservations,
   evaluateWebsiteAudit,
   websiteAuditEnvelopeSchema,
+  type WebsiteAuditObservation,
   type WebsiteAuditCheck,
 } from "./website-audit";
 
@@ -39,6 +41,34 @@ function check(
 
 const verifiedWebsite = { website: "https://example.com" } as const;
 const verifiedNoWebsite = { website: null } as const;
+
+type ObservationWithoutTime = WebsiteAuditObservation extends infer Observation
+  ? Observation extends { observedAt: string }
+    ? Omit<Observation, "observedAt">
+    : never
+  : never;
+
+function observation(input: ObservationWithoutTime): WebsiteAuditObservation {
+  return { ...input, observedAt } as WebsiteAuditObservation;
+}
+
+function deriveAndEvaluate(
+  observations: WebsiteAuditObservation[],
+  website: string | null,
+) {
+  const derived = deriveWebsiteAuditObservations(observations, {
+    namespace: "audit-job-1",
+    website,
+  });
+  return {
+    derived,
+    result: evaluateWebsiteAudit(derived.checks, {
+      website,
+      allowedWebsiteOrigins: derived.allowedWebsiteOrigins,
+      contextEvidenceIds: derived.contextEvidenceIds,
+    }),
+  };
+}
 
 describe("LeadHunter website audit", () => {
   it("classifies no official site only with independent active-presence evidence", () => {
@@ -228,18 +258,145 @@ describe("LeadHunter website audit", () => {
       .toBe("NO_WEBSITE");
   });
 
-  it("strictly bounds observation envelopes and requires evidence source context", () => {
+  it("derives all terminal states from bounded typed observations", () => {
+    const noWebsite = deriveAndEvaluate([
+      observation({
+        type: "official_site", state: "absent", targetUrl: null,
+        source: { sourceType: "directory", sourceUrl: "https://directory.example/acme" },
+      }),
+      observation({
+        type: "active_commercial_presence", active: true,
+        source: { sourceType: "instagram", sourceUrl: "https://instagram.com/acme" },
+      }),
+    ], null);
+    const badWebsite = deriveAndEvaluate([
+      observation({
+        type: "page_integrity", checkedPages: 5, brokenPages: 3,
+        source: { sourceType: "website_scan", sourceUrl: "https://example.com/scan" },
+      }),
+      observation({
+        type: "critical_content", requiredItems: ["services", "contact"], missingItems: ["contact"],
+        source: { sourceType: "official_site", sourceUrl: "https://example.com/" },
+      }),
+    ], "https://example.com");
+    const goodWebsite = deriveAndEvaluate([
+      observation({
+        type: "official_site", state: "present", targetUrl: "https://example.com",
+        source: { sourceType: "official_site", sourceUrl: "https://example.com/" },
+      }),
+      observation({
+        type: "reachability", state: "reachable", statusCode: 200, error: null,
+        source: { sourceType: "http_probe", sourceUrl: "https://example.com/" },
+      }),
+      observation({
+        type: "critical_content", requiredItems: ["services", "contact"], missingItems: [],
+        source: { sourceType: "website_scan", sourceUrl: "https://example.com/content" },
+      }),
+      observation({
+        type: "navigation", testedPaths: 5, brokenPaths: 0,
+        source: { sourceType: "website_scan", sourceUrl: "https://example.com/navigation" },
+      }),
+      observation({
+        type: "critical_information_freshness", checkedCriticalItems: 2, staleCriticalItems: 0,
+        source: { sourceType: "official_site", sourceUrl: "https://example.com/about" },
+      }),
+    ], "https://example.com");
+    const unverified = deriveAndEvaluate([
+      observation({
+        type: "subjective", key: "aesthetic", note: "Looks dated",
+        source: { sourceType: "website_scan", sourceUrl: "https://example.com/" },
+      }),
+    ], "https://example.com");
+
+    expect(noWebsite.result.gateResult).toBe("NO_WEBSITE");
+    expect(badWebsite.result.gateResult).toBe("BAD_WEBSITE");
+    expect(goodWebsite.result.gateResult).toBe("GOOD_ENOUGH_WEBSITE");
+    expect(unverified.result.gateResult).toBe("UNVERIFIED");
+    expect(unverified.derived.checks[0]).toMatchObject({
+      outcome: "unknown", severity: "informational", confidence: 0,
+    });
+  });
+
+  it("creates stable canonical evidence and treats redirect as an audit observation", () => {
+    const observations = [
+      observation({
+        type: "redirect", fromUrl: "https://example.com", toUrl: "https://new.example.com",
+        permanent: true,
+        source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+      }),
+      observation({
+        type: "reachability", state: "unreachable", statusCode: null, error: "timeout",
+        source: { sourceType: "http_probe", sourceUrl: "https://new.example.com" },
+      }),
+      observation({
+        type: "critical_content", requiredItems: ["contact"], missingItems: ["contact"],
+        source: { sourceType: "website_scan", sourceUrl: "https://new.example.com" },
+      }),
+    ];
+    const first = deriveWebsiteAuditObservations(observations, {
+      namespace: "audit-job-1", website: "https://example.com",
+    });
+    const second = deriveWebsiteAuditObservations([...observations].reverse(), {
+      namespace: "audit-job-1", website: "https://example.com",
+    });
+
+    expect(second).toEqual(first);
+    expect(first.evidence).toContainEqual(expect.objectContaining({
+      field: "website_redirect_target",
+      confidence: 95,
+    }));
+    expect(first.evidence.every(({ field }) => !field.includes("."))).toBe(true);
+    expect(evaluateWebsiteAudit(first.checks, {
+      website: "https://example.com",
+      allowedWebsiteOrigins: first.allowedWebsiteOrigins,
+      contextEvidenceIds: first.contextEvidenceIds,
+    }).gateResult).toBe("BAD_WEBSITE");
+    expect(first.contextEvidenceIds).toHaveLength(1);
+  });
+
+  it("rejects cross-origin redirects and downgrades mismatched site observations", () => {
+    expect(() => deriveWebsiteAuditObservations([
+      observation({
+        type: "redirect", fromUrl: "https://other.example", toUrl: "https://new.example",
+        permanent: true,
+        source: { sourceType: "http_probe", sourceUrl: "https://other.example" },
+      }),
+    ], { namespace: "audit-job-1", website: "https://example.com" })).toThrow(/trusted website/i);
+
+    const { result } = deriveAndEvaluate([
+      observation({
+        type: "reachability", state: "unreachable", statusCode: null, error: "timeout",
+        source: { sourceType: "http_probe", sourceUrl: "https://other.example" },
+      }),
+      observation({
+        type: "critical_content", requiredItems: ["contact"], missingItems: ["contact"],
+        source: { sourceType: "website_scan", sourceUrl: "https://other.example" },
+      }),
+    ], "https://example.com");
+    expect(result.gateResult).toBe("UNVERIFIED");
+    expect(result.reasons).toContain("website_target_mismatch");
+  });
+
+  it("strictly bounds typed observation envelopes and rejects worker outcomes", () => {
+    const reachable = observation({
+      type: "reachability", state: "reachable", statusCode: 200, error: null,
+      source: { sourceType: "http_probe", sourceUrl: "https://example.com" },
+    });
     expect(websiteAuditEnvelopeSchema.safeParse({
-      checks: [check("reachable", "pass", 0)],
+      observations: [reachable],
     }).success).toBe(true);
     expect(websiteAuditEnvelopeSchema.safeParse({
-      checks: [{ ...check("reachable", "pass", 0), sendMail: true }],
+      observations: [{ ...reachable, outcome: "pass", severity: "material" }],
     }).success).toBe(false);
     expect(websiteAuditEnvelopeSchema.safeParse({
-      checks: [{ ...check("reachable", "pass", 0), evidenceIds: [] }],
+      checks: [check("reachable", "pass", 0)],
     }).success).toBe(false);
-    expect(websiteAuditEnvelopeSchema.safeParse({ checks: Array(101).fill(
-      check("reachable", "pass", 0),
+    expect(websiteAuditEnvelopeSchema.safeParse({ observations: [{
+      ...reachable,
+      statusCode: null,
+    }] }).success).toBe(false);
+    expect(websiteAuditEnvelopeSchema.safeParse({ observations: Array(101).fill(
+      reachable,
     ) }).success).toBe(false);
   });
 });

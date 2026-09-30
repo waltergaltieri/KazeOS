@@ -198,8 +198,8 @@ describe("LeadHunter completion dispatcher", () => {
   });
 
   it.each([
-    ["audit_website" as const, "persistWebsiteAuditResultInTransaction" as const, { checks: [] }],
-    ["qualify" as const, "persistQualificationResultInTransaction" as const, { assessments: [] }],
+    ["audit_website" as const, "persistWebsiteAuditResultInTransaction" as const, { observations: [] }],
+    ["qualify" as const, "persistQualificationResultInTransaction" as const, {}],
   ])("routes %s output through its evidence manager", async (kind, manager, output) => {
     const { database } = specializedDatabase(kind);
     mocks[manager].mockResolvedValue({ status: "processed" });

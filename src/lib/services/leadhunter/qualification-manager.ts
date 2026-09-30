@@ -24,14 +24,14 @@ import { campaignStrategySchema, type CampaignStrategy } from "@/lib/leadhunter/
 import {
   evaluateQualification,
   maximumQualificationEvidenceIds,
-  qualificationAssessmentEnvelopeSchema,
+  qualificationCompletionEnvelopeSchema,
   qualificationResultSchema,
   type QualificationResult,
 } from "@/lib/leadhunter/qualification";
 import {
+  deriveWebsiteAuditObservations,
   evaluateWebsiteAudit,
   websiteAuditEnvelopeSchema,
-  type WebsiteAuditCheck,
   type WebsiteAuditResult,
 } from "@/lib/leadhunter/website-audit";
 import {
@@ -41,6 +41,11 @@ import {
   JobCompletionRejectedError,
   settleLeadHunterRun,
 } from "./job-manager";
+import {
+  acquireLeadOutboundTransitionLock,
+  getLeadOutboundProtection,
+  type LeadOutboundProtection,
+} from "./lead-manager";
 
 export type LeadHunterQualificationTransaction = Pick<
   PostgresJsDatabase<typeof schema>,
@@ -101,6 +106,7 @@ interface LockedJobRow {
   auditEvidenceIds: unknown;
   auditChecks: unknown;
   auditSummary: string | null;
+  outboundProtection: LeadOutboundProtection;
 }
 
 type JobLeaseRow = Pick<
@@ -201,21 +207,12 @@ function stableUuid(parts: unknown[]): string {
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
 }
 
-function normalizedUrl(value: string): string {
-  const url = new URL(value);
-  url.hash = "";
-  url.hostname = url.hostname.toLowerCase();
-  url.searchParams.sort();
-  return url.toString();
-}
-
 async function lockJobContext(
   transaction: LeadHunterQualificationTransaction,
   input: PersistQualificationJobInput,
 ): Promise<LockedJobRow> {
-  // This extends the established Task 4/7 order: lock and validate the job
-  // first, then enrollment, lead, campaign/version, audit and finally the run
-  // during settlement. Every Task 8 completion follows exactly this sequence.
+  // Global business-state order: job, lead, owner/lead advisory lock,
+  // outbound-protection re-read, enrollment, campaign/version, audit, run.
   const jobRows = await transaction.execute(sql<JobLeaseRow>`
     select
       job.id,
@@ -256,6 +253,23 @@ async function lockJobContext(
     if (!activeLease) throw new JobCompletionRejectedError();
   }
 
+  const leadRows = await transaction.execute(sql<LeadContextRow>`
+    select lead.status as "leadStatus"
+    from ${leadHunterLeads} as lead
+    where lead.owner_id = ${input.ownerId}
+      and lead.id = ${job.leadId}
+    for update of lead
+  `) as unknown as LeadContextRow[];
+  const lead = leadRows[0];
+  if (!lead) throw new Error("Qualification lead provenance is invalid");
+
+  await acquireLeadOutboundTransitionLock(transaction, input.ownerId, job.leadId);
+  const outboundProtection = await getLeadOutboundProtection(
+    transaction,
+    input.ownerId,
+    job.leadId,
+  );
+
   const enrollmentRows = await transaction.execute(sql<EnrollmentContextRow>`
     select
       enrollment.campaign_id as "campaignId",
@@ -277,16 +291,6 @@ async function lockJobContext(
   `) as unknown as EnrollmentContextRow[];
   const enrollment = enrollmentRows[0];
   if (!enrollment) throw new Error("Qualification enrollment provenance is invalid");
-
-  const leadRows = await transaction.execute(sql<LeadContextRow>`
-    select lead.status as "leadStatus"
-    from ${leadHunterLeads} as lead
-    where lead.owner_id = ${input.ownerId}
-      and lead.id = ${job.leadId}
-    for update of lead
-  `) as unknown as LeadContextRow[];
-  const lead = leadRows[0];
-  if (!lead) throw new Error("Qualification lead provenance is invalid");
 
   const campaignRows = await transaction.execute(sql<CampaignVersionContextRow>`
     select
@@ -315,6 +319,7 @@ async function lockJobContext(
     auditEvidenceIds: null,
     auditChecks: null,
     auditSummary: null,
+    outboundProtection,
   };
 }
 
@@ -427,99 +432,33 @@ function provenanceIsCurrent(job: LockedJobRow): boolean {
     && job.currentCampaignVersion === job.campaignVersion;
 }
 
-function evidenceMatchesCheck(
-  check: WebsiteAuditCheck,
-  evidenceById: ReadonlyMap<string, EvidenceRow>,
-): boolean {
-  return check.evidenceIds.every((id) => {
-    const evidence = evidenceById.get(id);
-    if (
-      evidence === undefined
-      || evidence.kind !== "fact"
-      || evidence.status !== "verified"
-      || evidence.sourceUrl === null
-      || evidence.sourceType !== check.source.sourceType
-      || !evidenceSemanticallyMatchesCheck(check, evidence)
-    ) return false;
-    try {
-      return normalizedUrl(evidence.sourceUrl) === normalizedUrl(check.source.sourceUrl)
-        && databaseDate(evidence.observedAt).toISOString() === check.observedAt;
-    } catch {
-      return false;
-    }
-  });
-}
-
-function evidenceSemanticallyMatchesCheck(
-  check: WebsiteAuditCheck,
-  evidence: EvidenceRow,
-): boolean {
-  const canonical = new Set<string>([
-    check.key,
-    `website.${check.key}`,
-  ]);
-  if (check.key === "official_site") {
-    canonical.add("digital_presence");
-    canonical.add("official_site");
-  }
-  if (check.key === "active_commercial_presence") {
-    canonical.add("digital_presence");
-    canonical.add("active_commercial_presence");
-  }
-  if (!canonical.has(evidence.field)) return false;
-  return evidence.questionKey === null
-    || evidence.questionKey === "digital_presence"
-    || canonical.has(evidence.questionKey);
-}
-
-function normalizedOrigin(value: string): string {
-  const url = new URL(value);
-  const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
-  const port = url.port && !(
-    (url.protocol === "https:" && url.port === "443")
-    || (url.protocol === "http:" && url.port === "80")
-  ) ? `:${url.port}` : "";
-  return `${hostname}${port}`;
-}
-
-function verifiedRedirectOrigins(
-  website: string | null | undefined,
-  evidence: EvidenceRow[],
-): string[] {
-  if (typeof website !== "string") return [];
-  const sourceOrigin = normalizedOrigin(website);
-  const targets = new Set<string>();
+async function persistDerivedAuditEvidence(
+  transaction: LeadHunterQualificationTransaction,
+  ownerId: string,
+  job: LockedJobRow,
+  evidence: ReturnType<typeof deriveWebsiteAuditObservations>["evidence"],
+) {
   for (const row of evidence) {
-    if (
-      row.kind !== "fact"
-      || row.status !== "verified"
-      || row.confidence < 75
-      || row.field !== "website.redirect_target"
-      || row.sourceUrl === null
-    ) continue;
-    try {
-      if (normalizedOrigin(row.sourceUrl) !== sourceOrigin) continue;
-      const target = new URL(row.value);
-      if (!/^https?:$/.test(target.protocol) || target.username || target.password) continue;
-      targets.add(target.toString());
-    } catch {
-      continue;
-    }
+    const contentHash = createHash("sha256").update(JSON.stringify({
+      field: row.field,
+      value: row.value,
+      source: row.source,
+      observedAt: row.observedAt,
+    })).digest("hex");
+    await transaction.execute(sql`
+      insert into ${leadHunterEvidence} (
+        id, owner_id, lead_id, run_id, campaign_id, campaign_version,
+        question_key, kind, status, source_type, source_url, field, value,
+        content_hash, confidence, observed_at
+      ) values (
+        ${row.id}, ${ownerId}, ${job.leadId}, ${job.runId}, ${job.campaignId},
+        ${job.campaignVersion}, null, 'fact', 'verified',
+        ${row.source.sourceType}, ${row.source.sourceUrl}, ${row.field},
+        ${row.value}, ${contentHash}, ${row.confidence}, ${row.observedAt}::timestamptz
+      )
+      on conflict (id) do nothing
+    `);
   }
-  return [...targets].sort();
-}
-
-function evidenceBoundedChecks(
-  checks: WebsiteAuditCheck[],
-  evidenceById: ReadonlyMap<string, EvidenceRow>,
-): WebsiteAuditCheck[] {
-  return checks.map((check) => ({
-    ...check,
-    confidence: Math.min(
-      check.confidence,
-      ...check.evidenceIds.map((id) => evidenceById.get(id)!.confidence),
-    ),
-  }));
 }
 
 export async function persistWebsiteAuditResult(
@@ -556,21 +495,24 @@ export async function persistWebsiteAuditResultInTransaction(
       await rejectOutput(transaction, input, job, "invalid_envelope");
       return { status: "rejected", auditId: null, gateResult: null };
     }
-    const evidence = await readEvidence(transaction, input.ownerId, job);
-    const evidenceById = new Map(evidence.map((row) => [row.id, row]));
-    if (envelope.data.checks.some((check) => !evidenceMatchesCheck(check, evidenceById))) {
-      await rejectOutput(transaction, input, job, "unowned_evidence");
+    const payload = jobPayloadSchema.parse(job.payload);
+    let derived: ReturnType<typeof deriveWebsiteAuditObservations>;
+    let audit: WebsiteAuditResult;
+    try {
+      derived = deriveWebsiteAuditObservations(envelope.data.observations, {
+        namespace: [input.ownerId, job.runId, job.enrollmentId, job.id].join(":"),
+        website: payload.website ?? null,
+      });
+      audit = evaluateWebsiteAudit(derived.checks, {
+        website: payload.website,
+        allowedWebsiteOrigins: derived.allowedWebsiteOrigins,
+        contextEvidenceIds: derived.contextEvidenceIds,
+      });
+    } catch {
+      await rejectOutput(transaction, input, job, "invalid_observation_provenance");
       return { status: "rejected", auditId: null, gateResult: null };
     }
-
-    const payload = jobPayloadSchema.parse(job.payload);
-    const audit = evaluateWebsiteAudit(
-      evidenceBoundedChecks(envelope.data.checks, evidenceById),
-      {
-        website: payload.website,
-        allowedWebsiteOrigins: verifiedRedirectOrigins(payload.website, evidence),
-      },
-    );
+    await persistDerivedAuditEvidence(transaction, input.ownerId, job, derived.evidence);
     const deterministicAuditId = stableUuid([
       input.ownerId, job.runId, job.enrollmentId, "website-audit",
     ]);
@@ -687,7 +629,7 @@ export async function persistQualificationResultInTransaction(
       await rejectOutput(transaction, input, job, "stale_or_invalid_provenance");
       return { status: "rejected", decision: null, score: null, detail: null };
     }
-    const envelope = qualificationAssessmentEnvelopeSchema.safeParse(input.output);
+    const envelope = qualificationCompletionEnvelopeSchema.safeParse(input.output);
     if (!envelope.success) {
       await rejectOutput(transaction, input, job, "invalid_envelope");
       return { status: "rejected", decision: null, score: null, detail: null };
@@ -724,21 +666,22 @@ export async function persistQualificationResultInTransaction(
           sourceType: row.sourceType,
           sourceUrl: row.sourceUrl,
         })),
-        assessments: envelope.data.assessments,
         websiteAudit: storedAuditForQualification(audit),
         publishedEmailConfidence: contacts[0]?.emailConfidence ?? null,
       }));
     } catch {
-      await rejectOutput(transaction, input, job, "invalid_or_unowned_assessment");
+      await rejectOutput(transaction, input, job, "invalid_qualification_evidence");
       return { status: "rejected", decision: null, score: null, detail: null };
     }
 
-    const enrollmentStatus = detail.decision === "eligible"
-      ? "ready"
-      : detail.decision === "excluded"
-        ? "stopped"
-        : "researching";
-    const reason = detail.reasons.join("; ").slice(0, 2_000) || "qualification_completed";
+    const enrollmentStatus = job.outboundProtection.blocked || detail.decision === "excluded"
+      ? "stopped"
+      : "researching";
+    const protectionReason = job.outboundProtection.blocked
+      ? `outbound_blocked:${job.outboundProtection.reason}`
+      : null;
+    const reason = [...detail.reasons, ...(protectionReason ? [protectionReason] : [])]
+      .join("; ").slice(0, 2_000) || "qualification_completed";
     await transaction.execute(sql`
       update ${leadHunterEnrollments}
       set
@@ -753,7 +696,10 @@ export async function persistQualificationResultInTransaction(
         and ${leadHunterEnrollments.campaignId} = ${job.campaignId}
         and ${leadHunterEnrollments.campaignVersion} = ${job.campaignVersion}
     `);
-    if (detail.decision === "eligible" || detail.decision === "no_email") {
+    if (
+      !job.outboundProtection.blocked
+      && (detail.decision === "eligible" || detail.decision === "no_email")
+    ) {
       await transaction.execute(sql`
         update ${leadHunterLeads}
         set status = 'qualified'
@@ -768,7 +714,14 @@ export async function persistQualificationResultInTransaction(
       campaignId: job.campaignId,
       leadId: job.leadId,
       eventType: "qualify.completed",
-      detail: { jobId: input.jobId, enrollmentId: job.enrollmentId, ...detail },
+      detail: {
+        jobId: input.jobId,
+        enrollmentId: job.enrollmentId,
+        enrollmentStatus,
+        outboundBlocked: job.outboundProtection.blocked,
+        outboundBlockReason: job.outboundProtection.reason,
+        ...detail,
+      },
     });
     const result = {
       kind: "qualify",

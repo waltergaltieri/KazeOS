@@ -96,11 +96,40 @@ export const qualificationGateSchema = z.discriminatedUnion("type", [
   requiredFindingQualificationGateSchema,
 ]);
 
+const qualificationPredicateFieldSchema = z.string().trim()
+  .regex(/^[a-z][a-z0-9_.-]{0,99}$/);
+const qualificationPredicateBase = {
+  field: qualificationPredicateFieldSchema,
+  minimumConfidence: z.number().int().min(1).max(100).default(75),
+};
+
+export const qualificationPredicateSchema = z.discriminatedUnion("operator", [
+  z.object({
+    ...qualificationPredicateBase,
+    operator: z.literal("verified_exists"),
+  }).strict(),
+  z.object({
+    ...qualificationPredicateBase,
+    operator: z.literal("normalized_equals"),
+    expected: nonBlankText(2_000),
+  }).strict(),
+  z.object({
+    ...qualificationPredicateBase,
+    operator: z.literal("number_between"),
+    minimum: z.number().finite(),
+    maximum: z.number().finite(),
+  }).strict().refine((predicate) => predicate.maximum >= predicate.minimum, {
+    path: ["maximum"],
+    message: "El máximo del predicado debe ser mayor o igual al mínimo.",
+  }),
+]);
+
 export const qualificationRuleSchema = z
   .object({
     criterion: nonBlankText(240),
     weight: z.number().int().min(-100).max(100).refine((weight) => weight !== 0),
     effect: z.enum(["score", "exclude"]).default("score"),
+    predicate: qualificationPredicateSchema.optional(),
   })
   .strict();
 
@@ -196,6 +225,7 @@ export type DiscoveryStrategy = z.infer<typeof discoveryStrategySchema>;
 export type ResearchQuestion = z.infer<typeof researchQuestionSchema>;
 export type QualificationGate = z.infer<typeof qualificationGateSchema>;
 export type QualificationRule = z.input<typeof qualificationRuleSchema>;
+export type QualificationPredicate = z.infer<typeof qualificationPredicateSchema>;
 export type MessagePolicy = z.infer<typeof messagePolicySchema>;
 export type CampaignStrategy = z.input<typeof campaignStrategySchema>;
 
@@ -285,20 +315,24 @@ function reconcileQualificationRules(
     rules.map((rule) => [normalizedSignal(rule.criterion), rule]),
   );
   const formRules = [
-    ...positiveCriteria.map((criterion) => ({
-      criterion,
-      weight: 10,
-      effect: authoredRules.get(normalizedSignal(criterion))?.effect === "exclude"
-        ? "exclude" as const
-        : "score" as const,
-    })),
-    ...negativeCriteria.map((criterion) => ({
-      criterion,
-      weight: -10,
-      effect: authoredRules.get(normalizedSignal(criterion))?.effect === "exclude"
-        ? "exclude" as const
-        : "score" as const,
-    })),
+    ...positiveCriteria.map((criterion) => {
+      const authored = authoredRules.get(normalizedSignal(criterion));
+      return {
+        criterion,
+        weight: 10,
+        effect: authored?.effect === "exclude" ? "exclude" as const : "score" as const,
+        ...(authored?.predicate ? { predicate: authored.predicate } : {}),
+      };
+    }),
+    ...negativeCriteria.map((criterion) => {
+      const authored = authoredRules.get(normalizedSignal(criterion));
+      return {
+        criterion,
+        weight: -10,
+        effect: authored?.effect === "exclude" ? "exclude" as const : "score" as const,
+        ...(authored?.predicate ? { predicate: authored.predicate } : {}),
+      };
+    }),
   ];
   const formSignals = new Set(formRules.map((rule) => normalizedSignal(rule.criterion)));
   const preservedSignals = new Set<string>();

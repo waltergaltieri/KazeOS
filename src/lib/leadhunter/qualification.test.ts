@@ -8,7 +8,6 @@ import {
   maximumQualificationReasons,
   qualificationAssessmentEnvelopeSchema,
   qualificationResultSchema,
-  type QualificationAssessment,
   type QualificationEvidence,
   type QualificationInput,
 } from "./qualification";
@@ -38,22 +37,21 @@ function evidence(
   };
 }
 
-function assessment(
-  criterion: string,
-  outcome: QualificationAssessment["outcome"] = "met",
-  confidence = 90,
-  ids = [evidenceIds[0]!],
-): QualificationAssessment {
-  return { criterion, outcome, confidence, evidenceIds: ids };
-}
-
 function input(overrides: Partial<QualificationInput> = {}): QualificationInput {
   return {
     gates: [],
-    rules: [{ criterion: "Tiene procesos manuales", weight: 80, effect: "score" }],
+    rules: [{
+      criterion: "Tiene procesos manuales",
+      weight: 80,
+      effect: "score",
+      predicate: {
+        field: "observable_process",
+        operator: "verified_exists",
+        minimumConfidence: 75,
+      },
+    }],
     researchQuestions: [],
     evidence: [evidence()],
-    assessments: [assessment("Tiene procesos manuales")],
     websiteAudit: null,
     publishedEmailConfidence: 90,
     ...overrides,
@@ -142,14 +140,16 @@ describe("LeadHunter qualification", () => {
   it("makes a verified evidence-backed explicit exclusion beat a high score", () => {
     const result = evaluateQualification(input({
       rules: [
-        { criterion: "Tiene procesos manuales", weight: 100, effect: "score" },
-        { criterion: "Ya es cliente", weight: -10, effect: "exclude" },
+        {
+          criterion: "Tiene procesos manuales", weight: 100, effect: "score",
+          predicate: { field: "observable_process", operator: "verified_exists", minimumConfidence: 75 },
+        },
+        {
+          criterion: "Ya es cliente", weight: -10, effect: "exclude",
+          predicate: { field: "existing_client", operator: "normalized_equals", expected: "yes", minimumConfidence: 75 },
+        },
       ],
-      evidence: [evidence(), evidence(evidenceIds[1])],
-      assessments: [
-        assessment("Tiene procesos manuales", "met", 100, [evidenceIds[0]!]),
-        assessment("Ya es cliente", "met", 100, [evidenceIds[1]!]),
-      ],
+      evidence: [evidence(), evidence(evidenceIds[1], { field: "existing_client", value: "yes" })],
     }));
 
     expect(result.commercialFit).toBe(95);
@@ -157,47 +157,71 @@ describe("LeadHunter qualification", () => {
     expect(result.reasons).toContain("explicit_exclusion:Ya es cliente");
   });
 
-  it("derives assessment trust from persisted evidence and only lets worker confidence cap it", () => {
+  it("requires persisted facts to meet the configured predicate confidence", () => {
     const result = evaluateQualification(input({
       evidence: [evidence(evidenceIds[0], { confidence: 40 })],
-      assessments: [assessment("Tiene procesos manuales", "met", 100)],
     }));
 
-    expect(result.commercialFit).toBe(70);
-    expect(result.evidenceConfidence).toBe(40);
-    expect(result.score).toBe(47);
-    expect(result.decision).toBe("excluded");
+    expect(result.commercialFit).toBe(50);
+    expect(result.evidenceConfidence).toBe(0);
+    expect(result.decision).toBe("needs_review");
+    expect(result.reasons).toContain("rule_evidence_missing:Tiene procesos manuales");
   });
 
-  it("discounts inferred assessment evidence and never lets it trigger exclusion", () => {
+  it("never lets inferred evidence trigger exclusion", () => {
     const result = evaluateQualification(input({
-      rules: [{ criterion: "Ya es cliente", weight: -10, effect: "exclude" }],
+      rules: [{
+        criterion: "Ya es cliente", weight: -10, effect: "exclude",
+        predicate: { field: "existing_client", operator: "normalized_equals", expected: "yes", minimumConfidence: 75 },
+      }],
       evidence: [evidence(evidenceIds[0], {
+        field: "existing_client",
+        value: "yes",
         kind: "hypothesis",
         status: "inferred",
         confidence: 100,
       })],
-      assessments: [assessment("Ya es cliente", "met", 100)],
     }));
 
     expect(result.decision).toBe("needs_review");
-    expect(result.evidenceConfidence).toBe(50);
-    expect(result.reasons).toContain("exclusion_not_verified:Ya es cliente");
+    expect(result.evidenceConfidence).toBe(0);
+    expect(result.reasons).toContain("rule_evidence_missing:Ya es cliente");
   });
 
-  it("makes persisted conflicting assessment evidence require review despite a 100 claim", () => {
+  it("makes persisted conflicting predicate evidence require review", () => {
     const result = evaluateQualification(input({
       evidence: [evidence(evidenceIds[0], {
         kind: "hypothesis",
         status: "conflicting",
         confidence: 100,
       })],
-      assessments: [assessment("Tiene procesos manuales", "met", 100)],
     }));
 
     expect(result.decision).toBe("needs_review");
     expect(result.evidenceConfidence).toBe(0);
-    expect(result.reasons).toContain("assessment_evidence_conflicting:Tiene procesos manuales");
+    expect(result.reasons).toContain("rule_evidence_conflicting:Tiene procesos manuales");
+  });
+
+  it("treats an inferred value that contradicts a verified predicate value as conflicting", () => {
+    const result = evaluateQualification(input({
+      rules: [{
+        criterion: "Ya es cliente", weight: -10, effect: "exclude",
+        predicate: {
+          field: "existing_client", operator: "normalized_equals",
+          expected: "yes", minimumConfidence: 75,
+        },
+      }],
+      evidence: [
+        evidence(evidenceIds[0], { field: "existing_client", value: "yes" }),
+        evidence(evidenceIds[1], {
+          field: "existing_client", value: "no",
+          kind: "hypothesis", status: "inferred", confidence: 100,
+        }),
+      ],
+    }));
+
+    expect(result.decision).toBe("needs_review");
+    expect(result.reasons).toContain("rule_evidence_conflicting:Ya es cliente");
   });
 
   it("keeps contactability separate from commercial merit", () => {
@@ -302,33 +326,23 @@ describe("LeadHunter qualification", () => {
     }));
   });
 
-  it("rejects unsupported, duplicate and unowned criterion evidence at the boundary", () => {
-    expect(() => evaluateQualification(input({
-      assessments: [assessment("Not configured")],
-    }))).toThrow(/configured criterion/i);
-    expect(() => evaluateQualification(input({
-      assessments: [
-        assessment("Tiene procesos manuales"),
-        assessment(" tiene  procesos MANUALES "),
-      ],
-    }))).toThrow(/duplicate/i);
-    expect(() => evaluateQualification(input({
-      assessments: [assessment(
-        "Tiene procesos manuales",
-        "met",
-        90,
-        ["00000000-0000-5000-8000-000000000099"],
-      )],
-    }))).toThrow(/owned evidence/i);
+  it("keeps legacy free-text rules on a conservative review path", () => {
+    const result = evaluateQualification(input({
+      rules: [{ criterion: "Tiene procesos manuales", weight: 100, effect: "score" }],
+    }));
+
+    expect(result.decision).toBe("needs_review");
+    expect(result.commercialFit).toBe(50);
+    expect(result.reasons).toContain("unstructured_rule:Tiene procesos manuales");
   });
 
-  it("strictly bounds the non-authoritative assessment envelope", () => {
+  it("accepts only an empty trigger envelope and no worker decision data", () => {
+    expect(qualificationAssessmentEnvelopeSchema.safeParse({}).success).toBe(true);
     expect(qualificationAssessmentEnvelopeSchema.safeParse({
-      assessments: [assessment("Tiene procesos manuales")],
-    }).success).toBe(true);
-    expect(qualificationAssessmentEnvelopeSchema.safeParse({
-      assessments: [assessment("Tiene procesos manuales")],
       decision: "eligible",
+    }).success).toBe(false);
+    expect(qualificationAssessmentEnvelopeSchema.safeParse({
+      assessments: [],
     }).success).toBe(false);
   });
 
@@ -369,12 +383,10 @@ describe("LeadHunter qualification", () => {
       })),
       researchQuestions: questions,
       evidence: persistedEvidence,
-      assessments: [assessment(
-        "Tiene procesos manuales",
-        "met",
-        90,
-        [persistedEvidence[0]!.id],
-      )],
+      rules: [{
+        criterion: "Tiene procesos manuales", weight: 80, effect: "score",
+        predicate: { field: "required_0", operator: "verified_exists", minimumConfidence: 75 },
+      }],
       websiteAudit: {
         gateResult: "GOOD_ENOUGH_WEBSITE",
         confidence: 100,
