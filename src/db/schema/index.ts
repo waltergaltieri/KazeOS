@@ -4,6 +4,7 @@ export * from "./clients";
 export * from "./enums";
 export * from "./expense-categories";
 export * from "./expenses";
+export * from "./leadhunter";
 export * from "./payments";
 export * from "./profiles";
 export * from "./recurring-expenses";

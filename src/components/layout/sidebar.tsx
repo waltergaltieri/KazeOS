@@ -4,6 +4,7 @@ import {
   CheckSquare2,
   CircleDollarSign,
   LayoutDashboard,
+  Radar,
   Receipt,
   Settings,
   Users,
@@ -16,6 +17,7 @@ import { type RefObject, useEffect, useRef } from "react";
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/clients", label: "Clientes", icon: Users },
+  { href: "/leadhunter", label: "LeadHunter", icon: Radar },
   { href: "/charges", label: "Cobros", icon: CircleDollarSign },
   { href: "/expenses", label: "Gastos", icon: Receipt },
   { href: "/tasks", label: "Tareas", icon: CheckSquare2 },

@@ -64,6 +64,13 @@
       "when": 1788459660541,
       "tag": "20260903153000_allow_expense_projection_tombstones",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790730969690,
+      "tag": "0009_add_leadhunter",
+      "breakpoints": true
     }
   ]
 }
