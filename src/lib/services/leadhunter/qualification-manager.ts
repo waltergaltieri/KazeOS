@@ -31,6 +31,8 @@ import {
 import {
   deriveWebsiteAuditObservations,
   evaluateWebsiteAudit,
+  maximumWebsiteAuditObservations,
+  websiteAuditCheckSchema,
   websiteAuditEnvelopeSchema,
   type WebsiteAuditResult,
 } from "@/lib/leadhunter/website-audit";
@@ -170,11 +172,36 @@ interface InsertedId {
   id: string;
 }
 
+const websiteTargetSchema = z.string().url().max(2_048).refine(
+  (value) => /^https?:\/\//i.test(value),
+  "Website target must use HTTP(S)",
+).refine((value) => {
+  const url = new URL(value);
+  return !url.username && !url.password;
+}, "Website target must not contain credentials");
+
+function normalizeWebsiteTarget(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const url = new URL(value);
+  url.hash = "";
+  url.searchParams.sort();
+  return url.toString();
+}
+
+const normalizedWebsiteTargetSchema = websiteTargetSchema.refine(
+  (value) => normalizeWebsiteTarget(value) === value,
+  "Website target must use its canonical URL form",
+);
+
 const jobPayloadSchema = z.object({
   leadId: z.string().uuid(),
-  website: z.string().url().max(2_048).refine(
-    (value) => /^https?:\/\//i.test(value),
-  ).nullable().optional(),
+  website: websiteTargetSchema.nullable().optional(),
+}).strict();
+
+const storedAuditChecksSchema = z.object({
+  schemaVersion: z.literal(1),
+  targetIdentity: normalizedWebsiteTargetSchema.nullable(),
+  checks: z.array(websiteAuditCheckSchema).max(maximumWebsiteAuditObservations),
 }).strict();
 
 const storedAuditResultSchema = z.object({
@@ -485,11 +512,32 @@ export async function persistWebsiteAuditResultInTransaction(
       };
     }
 
+    if (!provenanceIsCurrent(job)) {
+      await rejectOutput(transaction, input, job, "stale_or_invalid_provenance");
+      return { status: "rejected", auditId: null, gateResult: null };
+    }
+    const payload = jobPayloadSchema.parse(job.payload);
+    const targetIdentity = normalizeWebsiteTarget(payload.website);
     const canonicalAudit = await lockAuditForOwner(transaction, input.ownerId, job);
     if (canonicalAudit) {
       // Derived evidence IDs intentionally include the producing job ID. Keep
       // canonical reuse ahead of envelope parsing and derivation so a second
       // job can never introduce a competing evidence namespace or payload.
+      // Legacy bare arrays and malformed target metadata cannot prove that the
+      // duplicate job addresses the same site, so they are never reusable.
+      const storedChecks = storedAuditChecksSchema.safeParse(canonicalAudit.checks);
+      if (!storedChecks.success) {
+        await rejectOutput(
+          transaction, input, job, "canonical_audit_target_unavailable",
+        );
+        return { status: "rejected", auditId: null, gateResult: null };
+      }
+      if (storedChecks.data.targetIdentity !== targetIdentity) {
+        await rejectOutput(
+          transaction, input, job, "canonical_audit_target_mismatch",
+        );
+        return { status: "rejected", auditId: null, gateResult: null };
+      }
       const canonical = storedAuditForQualification(canonicalAudit);
       if (!canonical) throw new Error("Stored website audit is invalid");
       const result = {
@@ -529,25 +577,20 @@ export async function persistWebsiteAuditResultInTransaction(
         gateResult: canonical.gateResult,
       };
     }
-    if (!provenanceIsCurrent(job)) {
-      await rejectOutput(transaction, input, job, "stale_or_invalid_provenance");
-      return { status: "rejected", auditId: null, gateResult: null };
-    }
     const envelope = websiteAuditEnvelopeSchema.safeParse(input.output);
     if (!envelope.success) {
       await rejectOutput(transaction, input, job, "invalid_envelope");
       return { status: "rejected", auditId: null, gateResult: null };
     }
-    const payload = jobPayloadSchema.parse(job.payload);
     let derived: ReturnType<typeof deriveWebsiteAuditObservations>;
     let audit: WebsiteAuditResult;
     try {
       derived = deriveWebsiteAuditObservations(envelope.data.observations, {
         namespace: [input.ownerId, job.runId, job.enrollmentId, job.id].join(":"),
-        website: payload.website ?? null,
+        website: targetIdentity,
       });
       audit = evaluateWebsiteAudit(derived.checks, {
-        website: payload.website,
+        website: targetIdentity,
         allowedWebsiteOrigins: derived.allowedWebsiteOrigins,
         contextEvidenceIds: derived.contextEvidenceIds,
       });
@@ -559,6 +602,11 @@ export async function persistWebsiteAuditResultInTransaction(
     const deterministicAuditId = stableUuid([
       input.ownerId, job.runId, job.enrollmentId, "website-audit",
     ]);
+    const storedChecks = storedAuditChecksSchema.parse({
+      schemaVersion: 1,
+      targetIdentity,
+      checks: audit.checks,
+    });
     const inserted = await transaction.execute(sql<InsertedId>`
       insert into ${leadHunterWebsiteAudits} (
         id, owner_id, run_id, enrollment_id, lead_id, gate_result,
@@ -566,7 +614,7 @@ export async function persistWebsiteAuditResultInTransaction(
       ) values (
         ${deterministicAuditId}, ${input.ownerId}, ${job.runId},
         ${job.enrollmentId}, ${job.leadId}, ${audit.gateResult},
-        ${JSON.stringify(audit.checks)}::jsonb, ${audit.summary},
+        ${JSON.stringify(storedChecks)}::jsonb, ${audit.summary},
         ${audit.confidence}, ${JSON.stringify(audit.evidenceIds)}::jsonb
       )
       on conflict (owner_id, run_id, enrollment_id) do nothing

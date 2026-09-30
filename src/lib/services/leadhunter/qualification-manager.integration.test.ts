@@ -146,7 +146,7 @@ describeDatabase("LeadHunter qualification database integration", () => {
       {
         id: firstJobId, ownerId, runId, enrollmentId, leadId,
         kind: "audit_website", state: "leased",
-        payload: { leadId, website: null }, attemptCount: 1,
+        payload: { leadId, website: "https://example.com" }, attemptCount: 1,
         leaseOwner: "worker-api", leaseTokenDigest: digestLeaseToken(firstLeaseToken),
         leaseExpiresAt, idempotencyKey: `${runId}:audit:first`,
       },
@@ -159,14 +159,14 @@ describeDatabase("LeadHunter qualification database integration", () => {
       },
     ]);
 
-    const noWebsite = { observations: [
+    const alternateBadWebsite = { observations: [
       {
-        type: "official_site", state: "absent", targetUrl: null, observedAt,
-        source: { sourceType: "directory", sourceUrl: "https://directory.example/acme" },
+        type: "secure_transport", state: "invalid", observedAt,
+        source: { sourceType: "tls_probe", sourceUrl: "https://example.com" },
       },
       {
-        type: "active_commercial_presence", active: true, observedAt,
-        source: { sourceType: "instagram", sourceUrl: "https://instagram.com/acme" },
+        type: "navigation", testedPaths: 5, brokenPaths: 3, observedAt,
+        source: { sourceType: "website_scan", sourceUrl: "https://example.com/scan" },
       },
     ] };
     const badWebsite = { observations: [
@@ -185,7 +185,7 @@ describeDatabase("LeadHunter qualification database integration", () => {
       const results = await Promise.all([
         persistWebsiteAuditResult(database!, {
           ownerId, jobId: firstJobId, leaseToken: firstLeaseToken,
-          now: completionTime, output: noWebsite,
+          now: completionTime, output: alternateBadWebsite,
         }),
         persistWebsiteAuditResult(database!, {
           ownerId, jobId: secondJobId, leaseToken: secondLeaseToken,
@@ -214,7 +214,7 @@ describeDatabase("LeadHunter qualification database integration", () => {
       expect(audits).toHaveLength(1);
       expect(evidence).toHaveLength(2);
       expect([
-        ["website_active_commercial_presence", "website_official_site"],
+        ["website_navigation", "website_secure_transport"],
         ["website_critical_content", "website_page_integrity"],
       ]).toContainEqual(evidence.map(({ field }) => field).sort());
       expect(jobs).toEqual([{ state: "succeeded" }, { state: "succeeded" }]);

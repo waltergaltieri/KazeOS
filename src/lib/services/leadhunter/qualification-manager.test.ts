@@ -230,6 +230,14 @@ describe("LeadHunter qualification manager", () => {
     expect(auditInsert?.params).toEqual(expect.arrayContaining([
       ownerId, runId, enrollmentId, leadId, "NO_WEBSITE",
     ]));
+    const storedChecks = auditInsert?.params.find((parameter) => (
+      typeof parameter === "string" && parameter.includes('"schemaVersion"')
+    ));
+    expect(JSON.parse(String(storedChecks))).toMatchObject({
+      schemaVersion: 1,
+      targetIdentity: null,
+      checks: expect.any(Array),
+    });
   });
 
   it("durably rejects worker-authored checks before evidence writes", async () => {
@@ -330,16 +338,19 @@ describe("LeadHunter qualification manager", () => {
         return canonicalAudit ? [canonicalAudit] : [];
       }
       if (rendered.sql.includes('insert into "lh_website_audits"')) {
-        const jsonArrays = rendered.params.filter((parameter): parameter is string => (
+        const storedChecks = rendered.params.find((parameter): parameter is string => (
+          typeof parameter === "string" && parameter.includes('"schemaVersion"')
+        ));
+        const evidenceIds = rendered.params.find((parameter): parameter is string => (
           typeof parameter === "string" && parameter.startsWith("[")
         ));
         canonicalAudit = {
           id: auditId,
           gateResult: "NO_WEBSITE",
-          checks: JSON.parse(jsonArrays[0] ?? "[]"),
+          checks: JSON.parse(storedChecks ?? "null"),
           summary: "No verified official website",
           confidence: 90,
-          evidenceIds: JSON.parse(jsonArrays.at(-1) ?? "[]"),
+          evidenceIds: JSON.parse(evidenceIds ?? "[]"),
         };
         return [{ id: auditId }];
       }
@@ -377,6 +388,166 @@ describe("LeadHunter qualification manager", () => {
       auditId,
       gateResult: "NO_WEBSITE",
       confidence: 90,
+    });
+  });
+
+  it("reuses a canonical audit when persisted website targets normalize identically", async () => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const row = lockedJob("audit_website", {
+      id: secondJobId,
+      payload: {
+        leadId,
+        website: "HTTPS://EXAMPLE.COM:443/path?b=2&a=1#discarded-fragment",
+      },
+    });
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      const context = lockedContextResult(rendered.sql, row);
+      if (context !== undefined) return context;
+      if (rendered.sql.includes('from "lh_website_audits"')) return [{
+        id: auditId,
+        gateResult: "BAD_WEBSITE",
+        checks: {
+          schemaVersion: 1,
+          targetIdentity: "https://example.com/path?a=1&b=2",
+          checks: [],
+        },
+        summary: "Material failures",
+        confidence: 90,
+        evidenceIds: [evidenceId],
+      }];
+      return [];
+    });
+    const { value } = database(execute);
+
+    const result = await persistWebsiteAuditResult(value, {
+      ...input({ checks: "worker output is intentionally ignored" }),
+      jobId: secondJobId,
+    });
+
+    expect(result).toEqual({ status: "processed", auditId, gateResult: "BAD_WEBSITE" });
+    expect(statements.some(({ sql }) => sql.includes('insert into "lh_evidence"'))).toBe(false);
+    expect(statements.some(({ params }) => params.includes("website_audit.reused"))).toBe(true);
+  });
+
+  it("fails closed when a duplicate job target differs from the canonical audit target", async () => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const canonicalAudit = {
+      id: auditId,
+      gateResult: "NO_WEBSITE",
+      checks: { schemaVersion: 1, targetIdentity: null, checks: [] },
+      summary: "No verified official website",
+      confidence: 90,
+      evidenceIds: [evidenceId],
+    };
+    const row = lockedJob("audit_website", {
+      id: secondJobId,
+      payload: { leadId, website: "https://example.com" },
+    });
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      const context = lockedContextResult(rendered.sql, row);
+      if (context !== undefined) return context;
+      if (rendered.sql.includes('from "lh_website_audits"')) return [canonicalAudit];
+      return [];
+    });
+    const { value } = database(execute);
+
+    const result = await persistWebsiteAuditResult(value, {
+      ...input({ observations: [] }),
+      jobId: secondJobId,
+    });
+
+    expect(result).toEqual({ status: "rejected", auditId: null, gateResult: null });
+    expect(statements.some(({ sql }) => sql.includes('insert into "lh_evidence"'))).toBe(false);
+    expect(statements.some(({ sql }) => sql.includes('insert into "lh_website_audits"'))).toBe(false);
+    expect(statements.some(({ params }) => params.includes("website_audit.reused"))).toBe(false);
+    const rejection = statements.find(({ sql, params }) => (
+      sql.includes('insert into "lh_activity"') && params.includes("audit_website.rejected")
+    ));
+    expect(JSON.parse(String(rejection?.params.at(-1)))).toMatchObject({
+      rejectionCode: "canonical_audit_target_mismatch",
+    });
+  });
+
+  it.each([
+    ["pre-field", []],
+    ["non-canonical", {
+      schemaVersion: 1,
+      targetIdentity: "HTTPS://EXAMPLE.COM",
+      checks: [],
+    }],
+  ])("fails closed when a %s canonical audit has no coherent target identity", async (_label, checks) => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const row = lockedJob("audit_website", { id: secondJobId });
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      const context = lockedContextResult(rendered.sql, row);
+      if (context !== undefined) return context;
+      if (rendered.sql.includes('from "lh_website_audits"')) return [{
+        id: auditId,
+        gateResult: "NO_WEBSITE",
+        checks,
+        summary: "Legacy audit",
+        confidence: 90,
+        evidenceIds: [evidenceId],
+      }];
+      return [];
+    });
+    const { value } = database(execute);
+
+    const result = await persistWebsiteAuditResult(value, {
+      ...input({ observations: [] }),
+      jobId: secondJobId,
+    });
+
+    expect(result.status).toBe("rejected");
+    const rejection = statements.find(({ sql, params }) => (
+      sql.includes('insert into "lh_activity"') && params.includes("audit_website.rejected")
+    ));
+    expect(JSON.parse(String(rejection?.params.at(-1)))).toMatchObject({
+      rejectionCode: "canonical_audit_target_unavailable",
+    });
+  });
+
+  it("rejects stale campaign provenance before considering canonical audit reuse", async () => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const row = lockedJob("audit_website", {
+      id: secondJobId,
+      currentCampaignVersion: 4,
+    });
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      statements.push(rendered);
+      const context = lockedContextResult(rendered.sql, row);
+      if (context !== undefined) return context;
+      if (rendered.sql.includes('from "lh_website_audits"')) return [{
+        id: auditId,
+        gateResult: "NO_WEBSITE",
+        checks: { schemaVersion: 1, targetIdentity: null, checks: [] },
+        summary: "Canonical audit",
+        confidence: 90,
+        evidenceIds: [evidenceId],
+      }];
+      return [];
+    });
+    const { value } = database(execute);
+
+    const result = await persistWebsiteAuditResult(value, {
+      ...input({ observations: [] }),
+      jobId: secondJobId,
+    });
+
+    expect(result.status).toBe("rejected");
+    expect(statements.some(({ params }) => params.includes("website_audit.reused"))).toBe(false);
+    const rejection = statements.find(({ sql, params }) => (
+      sql.includes('insert into "lh_activity"') && params.includes("audit_website.rejected")
+    ));
+    expect(JSON.parse(String(rejection?.params.at(-1)))).toMatchObject({
+      rejectionCode: "stale_or_invalid_provenance",
     });
   });
 

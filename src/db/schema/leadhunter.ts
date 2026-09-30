@@ -731,7 +731,7 @@ export const leadHunterWebsiteAudits = pgTable(
     enrollmentId: uuid("enrollment_id").notNull(),
     leadId: uuid("lead_id").notNull(),
     gateResult: text("gate_result").notNull(),
-    checks: jsonb("checks").$type<Record<string, unknown>[]>().notNull(),
+    checks: jsonb("checks").$type<Record<string, unknown>>().notNull(),
     summary: text("summary").notNull(),
     confidence: smallint("confidence").notNull(),
     evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull(),
