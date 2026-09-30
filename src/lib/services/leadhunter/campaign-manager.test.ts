@@ -7,6 +7,7 @@ import {
   leadHunterCampaigns,
   leadHunterCampaignVersions,
 } from "@/db/schema";
+import { campaignFormSchema } from "@/lib/validations/leadhunter";
 import {
   createCampaign,
   type LeadHunterDatabase,
@@ -123,5 +124,41 @@ describe("createCampaign", () => {
     )).rejects.toThrow(
       "Campaign insert did not return an id",
     );
+  });
+
+  it("creates a bounded discovery query from a valid long objective", async () => {
+    const inserts: Array<{ table: unknown; value: Record<string, unknown> }> = [];
+    const database = {
+      insert: vi.fn((table: unknown) => ({
+        values: (value: Record<string, unknown>) => {
+          inserts.push({ table, value });
+          if (table === leadHunterCampaigns) {
+            return { returning: async () => [{ id: campaignId }] };
+          }
+          return Promise.resolve();
+        },
+      })),
+    };
+    const longObjective = "Encontrar distribuidores mayoristas activos ".repeat(20).trim();
+    const longObjectiveValues = campaignFormSchema.parse({
+      ...values,
+      objective: longObjective,
+    });
+
+    await createCampaign(
+      database as unknown as LeadHunterDatabase,
+      ownerId,
+      longObjectiveValues,
+    );
+
+    const snapshot = inserts[1]?.value.snapshot as {
+      strategy: { discovery: { queries: string[] } };
+    };
+    const query = snapshot.strategy.discovery.queries[0];
+
+    expect(longObjective.length).toBeGreaterThan(500);
+    expect(query).toBeDefined();
+    expect(query?.length).toBeLessThanOrEqual(500);
+    expect(longObjective.startsWith(query ?? "")).toBe(true);
   });
 });

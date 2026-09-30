@@ -215,6 +215,21 @@ const serviceLabels: Record<string, string> = {
   automation: "una automatización de sus procesos",
 };
 
+const maximumDiscoveryQueryLength = 500;
+
+function discoveryQueryFromObjective(objective: string): string {
+  const normalized = objective.trim().replace(/\s+/g, " ");
+
+  if (normalized.length <= maximumDiscoveryQueryLength) {
+    return normalized;
+  }
+
+  const wordBoundary = normalized.lastIndexOf(" ", maximumDiscoveryQueryLength);
+  const end = wordBoundary > 0 ? wordBoundary : maximumDiscoveryQueryLength;
+
+  return normalized.slice(0, end);
+}
+
 export function createDefaultCampaignStrategy(
   values: CampaignStrategyDefaults,
 ): CampaignStrategy {
@@ -227,7 +242,7 @@ export function createDefaultCampaignStrategy(
       countries: values.countries,
       regions: [],
       industries: [],
-      queries: [values.objective],
+      queries: [discoveryQueryFromObjective(values.objective)],
       sources: values.sources,
       seedUrls: [],
     },
