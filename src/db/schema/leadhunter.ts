@@ -914,6 +914,14 @@ export const leadHunterOutbox = pgTable(
       "lh_outbox_lease_consistency",
       sql`${table.state} <> 'leased' or (${table.attemptCount} > 0 and ${table.leaseOwner} is not null and ${table.leaseExpiresAt} is not null)`,
     ),
+    check(
+      "lh_outbox_cancelled_consistency",
+      sql`${table.state} <> 'cancelled' or (${table.attemptCount} = 0 and ${table.leaseOwner} is null and ${table.leaseExpiresAt} is null and ${table.providerMessageId} is null)`,
+    ),
+    check(
+      "lh_outbox_queued_consistency",
+      sql`${table.state} <> 'queued' or (${table.leaseOwner} is null and ${table.leaseExpiresAt} is null and ${table.providerMessageId} is null)`,
+    ),
     unique("lh_outbox_owner_id_id_unique").on(table.ownerId, table.id),
     unique("lh_outbox_owner_idempotency_key_unique").on(
       table.ownerId,
@@ -940,6 +948,10 @@ export const leadHunterOutbox = pgTable(
     })
       .onDelete("restrict")
       .onUpdate("cascade"),
+    index("lh_outbox_owner_enrollment_idx").on(
+      table.ownerId,
+      table.enrollmentId,
+    ),
     index("lh_outbox_owner_message_version_idx").on(
       table.ownerId,
       table.messageVersionId,

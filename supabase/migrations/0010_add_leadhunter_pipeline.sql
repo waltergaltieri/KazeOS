@@ -95,7 +95,9 @@ CREATE TABLE "lh_outbox" (
 	CONSTRAINT "lh_outbox_logical_step_non_negative" CHECK ("lh_outbox"."logical_step" >= 0),
 	CONSTRAINT "lh_outbox_attempt_count_non_negative" CHECK ("lh_outbox"."attempt_count" >= 0),
 	CONSTRAINT "lh_outbox_idempotency_key_not_blank" CHECK (btrim("lh_outbox"."idempotency_key") <> ''),
-	CONSTRAINT "lh_outbox_lease_consistency" CHECK ("lh_outbox"."state" <> 'leased' or ("lh_outbox"."attempt_count" > 0 and "lh_outbox"."lease_owner" is not null and "lh_outbox"."lease_expires_at" is not null))
+	CONSTRAINT "lh_outbox_lease_consistency" CHECK ("lh_outbox"."state" <> 'leased' or ("lh_outbox"."attempt_count" > 0 and "lh_outbox"."lease_owner" is not null and "lh_outbox"."lease_expires_at" is not null)),
+	CONSTRAINT "lh_outbox_cancelled_consistency" CHECK ("lh_outbox"."state" <> 'cancelled' or ("lh_outbox"."attempt_count" = 0 and "lh_outbox"."lease_owner" is null and "lh_outbox"."lease_expires_at" is null and "lh_outbox"."provider_message_id" is null)),
+	CONSTRAINT "lh_outbox_queued_consistency" CHECK ("lh_outbox"."state" <> 'queued' or ("lh_outbox"."lease_owner" is null and "lh_outbox"."lease_expires_at" is null and "lh_outbox"."provider_message_id" is null))
 );
 --> statement-breakpoint
 ALTER TABLE "lh_outbox" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -211,6 +213,7 @@ CREATE INDEX "lh_message_versions_owner_brief_created_idx" ON "lh_message_versio
 CREATE INDEX "lh_message_versions_owner_enrollment_idx" ON "lh_message_versions" USING btree ("owner_id","enrollment_id");--> statement-breakpoint
 CREATE INDEX "lh_message_versions_owner_supersedes_idx" ON "lh_message_versions" USING btree ("owner_id","supersedes_message_version_id","enrollment_id") WHERE "lh_message_versions"."supersedes_message_version_id" is not null;--> statement-breakpoint
 CREATE UNIQUE INDEX "lh_outbox_active_enrollment_logical_step_unique" ON "lh_outbox" USING btree ("owner_id","enrollment_id","logical_step") WHERE "lh_outbox"."state" <> 'cancelled' or "lh_outbox"."lease_owner" is not null or "lh_outbox"."lease_expires_at" is not null;--> statement-breakpoint
+CREATE INDEX "lh_outbox_owner_enrollment_idx" ON "lh_outbox" USING btree ("owner_id","enrollment_id");--> statement-breakpoint
 CREATE INDEX "lh_outbox_owner_message_version_idx" ON "lh_outbox" USING btree ("owner_id","message_version_id");--> statement-breakpoint
 CREATE INDEX "lh_outbox_due_idx" ON "lh_outbox" USING btree ("owner_id","due_at") WHERE "lh_outbox"."state" = 'queued';--> statement-breakpoint
 CREATE INDEX "lh_runs_owner_campaign_created_idx" ON "lh_runs" USING btree ("owner_id","campaign_id","created_at");--> statement-breakpoint
@@ -247,8 +250,7 @@ CREATE POLICY "lh_source_candidates_backend_insert" ON "lh_source_candidates" AS
 CREATE POLICY "lh_source_candidates_backend_update" ON "lh_source_candidates" AS PERMISSIVE FOR UPDATE TO "kazeos_backend" USING ((select auth.uid()) = "lh_source_candidates"."owner_id") WITH CHECK ((select auth.uid()) = "lh_source_candidates"."owner_id");--> statement-breakpoint
 CREATE POLICY "lh_website_audits_authenticated_select" ON "lh_website_audits" AS PERMISSIVE FOR SELECT TO "authenticated" USING ((select auth.uid()) = "lh_website_audits"."owner_id");--> statement-breakpoint
 CREATE POLICY "lh_website_audits_backend_insert" ON "lh_website_audits" AS PERMISSIVE FOR INSERT TO "kazeos_backend" WITH CHECK ((select auth.uid()) = "lh_website_audits"."owner_id");--> statement-breakpoint
-CREATE POLICY "lh_website_audits_backend_update" ON "lh_website_audits" AS PERMISSIVE FOR UPDATE TO "kazeos_backend" USING ((select auth.uid()) = "lh_website_audits"."owner_id") WITH CHECK ((select auth.uid()) = "lh_website_audits"."owner_id");
---> statement-breakpoint
+CREATE POLICY "lh_website_audits_backend_update" ON "lh_website_audits" AS PERMISSIVE FOR UPDATE TO "kazeos_backend" USING ((select auth.uid()) = "lh_website_audits"."owner_id") WITH CHECK ((select auth.uid()) = "lh_website_audits"."owner_id");--> statement-breakpoint
 REVOKE ALL ON TABLE public.lh_runs, public.lh_jobs, public.lh_source_candidates, public.lh_website_audits, public.lh_message_briefs, public.lh_message_versions, public.lh_outbox FROM public, anon, authenticated;
 --> statement-breakpoint
 REVOKE UPDATE ON TABLE public.lh_message_briefs FROM kazeos_backend, service_role;
@@ -402,8 +404,10 @@ BEGIN
     END IF;
 
     IF NEW.state = 'queued'
-       AND (NEW.lease_owner IS NOT NULL OR NEW.lease_expires_at IS NOT NULL) THEN
-      RAISE EXCEPTION 'A queued LeadHunter command cannot retain an active lease'
+       AND (NEW.lease_owner IS NOT NULL
+            OR NEW.lease_expires_at IS NOT NULL
+            OR NEW.provider_message_id IS NOT NULL) THEN
+      RAISE EXCEPTION 'A queued LeadHunter command must remain unleased and unsent'
         USING ERRCODE = '23514';
     END IF;
   END IF;

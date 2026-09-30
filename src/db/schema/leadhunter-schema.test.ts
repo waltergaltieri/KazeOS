@@ -381,11 +381,20 @@ describe("LeadHunter schema contract", () => {
     expect(checkNames(requireTable(leadHunterJobs))).toContain(
       "lh_jobs_attempt_count_non_negative",
     );
+    expect(checkNames(requireTable(leadHunterOutbox))).toEqual(
+      expect.arrayContaining([
+        "lh_outbox_cancelled_consistency",
+        "lh_outbox_queued_consistency",
+      ]),
+    );
   });
 
   it("indexes claimable work and supporting foreign keys", () => {
     expect(indexNames(requireTable(leadHunterJobs))).toContain("lh_jobs_claimable_idx");
     expect(indexNames(requireTable(leadHunterOutbox))).toContain("lh_outbox_due_idx");
+    expect(indexNames(requireTable(leadHunterOutbox))).toContain(
+      "lh_outbox_owner_enrollment_idx",
+    );
     expect(indexNames(leadHunterEnrollments)).toContain(
       "lh_enrollments_owner_message_version_idx",
     );

@@ -1,5 +1,5 @@
 {
-  "id": "ee9ed043-c242-406a-8df5-6749d4331b5e",
+  "id": "629fc02f-b329-4e07-a54e-b01692efc213",
   "prevId": "9df772e9-fcf1-4782-9380-9b8157079a93",
   "version": "7",
   "dialect": "postgresql",
@@ -3979,6 +3979,27 @@
           "method": "btree",
           "with": {}
         },
+        "lh_outbox_owner_enrollment_idx": {
+          "name": "lh_outbox_owner_enrollment_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "enrollment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "lh_outbox_owner_message_version_idx": {
           "name": "lh_outbox_owner_message_version_idx",
           "columns": [
@@ -4148,6 +4169,14 @@
         "lh_outbox_lease_consistency": {
           "name": "lh_outbox_lease_consistency",
           "value": "\"lh_outbox\".\"state\" <> 'leased' or (\"lh_outbox\".\"attempt_count\" > 0 and \"lh_outbox\".\"lease_owner\" is not null and \"lh_outbox\".\"lease_expires_at\" is not null)"
+        },
+        "lh_outbox_cancelled_consistency": {
+          "name": "lh_outbox_cancelled_consistency",
+          "value": "\"lh_outbox\".\"state\" <> 'cancelled' or (\"lh_outbox\".\"attempt_count\" = 0 and \"lh_outbox\".\"lease_owner\" is null and \"lh_outbox\".\"lease_expires_at\" is null and \"lh_outbox\".\"provider_message_id\" is null)"
+        },
+        "lh_outbox_queued_consistency": {
+          "name": "lh_outbox_queued_consistency",
+          "value": "\"lh_outbox\".\"state\" <> 'queued' or (\"lh_outbox\".\"lease_owner\" is null and \"lh_outbox\".\"lease_expires_at\" is null and \"lh_outbox\".\"provider_message_id\" is null)"
         }
       },
       "isRLSEnabled": true

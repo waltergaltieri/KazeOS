@@ -163,6 +163,9 @@ describe("LeadHunter pipeline migration", () => {
     expect(migration).toContain("where lh_jobs.state in ('queued', 'leased')");
     expect(migration).toContain("create index lh_outbox_due_idx");
     expect(migration).toContain("where lh_outbox.state = 'queued'");
+    expect(migration).toContain(
+      "create index lh_outbox_owner_enrollment_idx on lh_outbox using btree (owner_id,enrollment_id)",
+    );
     expect(migration).toContain("create index lh_enrollments_owner_message_version_idx");
     expect(migration).toContain("create index lh_message_versions_owner_supersedes_idx");
     expect(migration).toContain("create index lh_message_briefs_owner_campaign_version_idx");
@@ -319,6 +322,15 @@ describe("LeadHunter pipeline migration", () => {
     );
     expect(migration).toContain(
       "constraint lh_outbox_lease_consistency check (lh_outbox.state <> 'leased' or (lh_outbox.attempt_count > 0 and lh_outbox.lease_owner is not null and lh_outbox.lease_expires_at is not null))",
+    );
+    expect(migration).toContain(
+      "constraint lh_outbox_cancelled_consistency check (lh_outbox.state <> 'cancelled' or (lh_outbox.attempt_count = 0 and lh_outbox.lease_owner is null and lh_outbox.lease_expires_at is null and lh_outbox.provider_message_id is null))",
+    );
+    expect(migration).toContain(
+      "constraint lh_outbox_queued_consistency check (lh_outbox.state <> 'queued' or (lh_outbox.lease_owner is null and lh_outbox.lease_expires_at is null and lh_outbox.provider_message_id is null))",
+    );
+    expect(outboxGuard).toContain(
+      "new.state = 'queued' and (new.lease_owner is not null or new.lease_expires_at is not null or new.provider_message_id is not null)",
     );
   });
 
