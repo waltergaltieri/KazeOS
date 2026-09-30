@@ -1,5 +1,5 @@
 {
-  "id": "a3e5e680-f165-4d6c-9ea3-86ece6da8732",
+  "id": "ee9ed043-c242-406a-8df5-6749d4331b5e",
   "prevId": "9df772e9-fcf1-4782-9380-9b8157079a93",
   "version": "7",
   "dialect": "postgresql",
@@ -3681,6 +3681,12 @@
               "isExpression": false,
               "asc": true,
               "nulls": "last"
+            },
+            {
+              "expression": "enrollment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
             }
           ],
           "isUnique": false,
@@ -3737,17 +3743,19 @@
           "onDelete": "cascade",
           "onUpdate": "cascade"
         },
-        "lh_message_versions_owner_supersedes_message_versions_owner_id_id_fk": {
-          "name": "lh_message_versions_owner_supersedes_message_versions_owner_id_id_fk",
+        "lh_message_versions_owner_supersedes_message_versions_owner_id_id_enrollment_id_fk": {
+          "name": "lh_message_versions_owner_supersedes_message_versions_owner_id_id_enrollment_id_fk",
           "tableFrom": "lh_message_versions",
           "tableTo": "lh_message_versions",
           "columnsFrom": [
             "owner_id",
-            "supersedes_message_version_id"
+            "supersedes_message_version_id",
+            "enrollment_id"
           ],
           "columnsTo": [
             "owner_id",
-            "id"
+            "id",
+            "enrollment_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "cascade"
@@ -4139,7 +4147,7 @@
         },
         "lh_outbox_lease_consistency": {
           "name": "lh_outbox_lease_consistency",
-          "value": "\"lh_outbox\".\"state\" <> 'leased' or (\"lh_outbox\".\"lease_owner\" is not null and \"lh_outbox\".\"lease_expires_at\" is not null)"
+          "value": "\"lh_outbox\".\"state\" <> 'leased' or (\"lh_outbox\".\"attempt_count\" > 0 and \"lh_outbox\".\"lease_owner\" is not null and \"lh_outbox\".\"lease_expires_at\" is not null)"
         }
       },
       "isRLSEnabled": true

@@ -321,6 +321,13 @@ describe("LeadHunter schema contract", () => {
       foreignColumns: ["owner_id", "id", "enrollment_id"],
     });
     expect(foreignKeyContract(
+      requireTable(leadHunterMessageVersions),
+      "lh_message_versions_owner_supersedes_message_versions_owner_id_id_enrollment_id_fk",
+    )).toEqual({
+      columns: ["owner_id", "supersedes_message_version_id", "enrollment_id"],
+      foreignColumns: ["owner_id", "id", "enrollment_id"],
+    });
+    expect(foreignKeyContract(
       requireTable(leadHunterOutbox),
       "lh_outbox_owner_message_version_message_versions_owner_id_id_fk",
     )).toEqual({

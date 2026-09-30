@@ -95,7 +95,7 @@ CREATE TABLE "lh_outbox" (
 	CONSTRAINT "lh_outbox_logical_step_non_negative" CHECK ("lh_outbox"."logical_step" >= 0),
 	CONSTRAINT "lh_outbox_attempt_count_non_negative" CHECK ("lh_outbox"."attempt_count" >= 0),
 	CONSTRAINT "lh_outbox_idempotency_key_not_blank" CHECK (btrim("lh_outbox"."idempotency_key") <> ''),
-	CONSTRAINT "lh_outbox_lease_consistency" CHECK ("lh_outbox"."state" <> 'leased' or ("lh_outbox"."lease_owner" is not null and "lh_outbox"."lease_expires_at" is not null))
+	CONSTRAINT "lh_outbox_lease_consistency" CHECK ("lh_outbox"."state" <> 'leased' or ("lh_outbox"."attempt_count" > 0 and "lh_outbox"."lease_owner" is not null and "lh_outbox"."lease_expires_at" is not null))
 );
 --> statement-breakpoint
 ALTER TABLE "lh_outbox" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -187,7 +187,7 @@ ALTER TABLE "lh_message_briefs" ADD CONSTRAINT "lh_message_briefs_owner_campaign
 ALTER TABLE "lh_message_versions" ADD CONSTRAINT "lh_message_versions_owner_id_users_id_fk" FOREIGN KEY ("owner_id") REFERENCES "auth"."users"("id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "lh_message_versions" ADD CONSTRAINT "lh_message_versions_owner_brief_message_briefs_owner_id_id_fk" FOREIGN KEY ("owner_id","brief_id","enrollment_id") REFERENCES "public"."lh_message_briefs"("owner_id","id","enrollment_id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "lh_message_versions" ADD CONSTRAINT "lh_message_versions_owner_enrollment_enrollments_owner_id_id_fk" FOREIGN KEY ("owner_id","enrollment_id") REFERENCES "public"."lh_enrollments"("owner_id","id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
-ALTER TABLE "lh_message_versions" ADD CONSTRAINT "lh_message_versions_owner_supersedes_message_versions_owner_id_id_fk" FOREIGN KEY ("owner_id","supersedes_message_version_id") REFERENCES "public"."lh_message_versions"("owner_id","id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "lh_message_versions" ADD CONSTRAINT "lh_message_versions_owner_supersedes_message_versions_owner_id_id_enrollment_id_fk" FOREIGN KEY ("owner_id","supersedes_message_version_id","enrollment_id") REFERENCES "public"."lh_message_versions"("owner_id","id","enrollment_id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "lh_outbox" ADD CONSTRAINT "lh_outbox_owner_id_users_id_fk" FOREIGN KEY ("owner_id") REFERENCES "auth"."users"("id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "lh_outbox" ADD CONSTRAINT "lh_outbox_owner_enrollment_enrollments_owner_id_id_fk" FOREIGN KEY ("owner_id","enrollment_id") REFERENCES "public"."lh_enrollments"("owner_id","id") ON DELETE cascade ON UPDATE cascade;--> statement-breakpoint
 ALTER TABLE "lh_outbox" ADD CONSTRAINT "lh_outbox_owner_message_version_message_versions_owner_id_id_fk" FOREIGN KEY ("owner_id","message_version_id","enrollment_id") REFERENCES "public"."lh_message_versions"("owner_id","id","enrollment_id") ON DELETE restrict ON UPDATE cascade;--> statement-breakpoint
@@ -209,7 +209,7 @@ CREATE INDEX "lh_message_briefs_owner_contact_idx" ON "lh_message_briefs" USING 
 CREATE INDEX "lh_message_briefs_owner_campaign_version_idx" ON "lh_message_briefs" USING btree ("owner_id","campaign_id","campaign_version");--> statement-breakpoint
 CREATE INDEX "lh_message_versions_owner_brief_created_idx" ON "lh_message_versions" USING btree ("owner_id","brief_id","created_at");--> statement-breakpoint
 CREATE INDEX "lh_message_versions_owner_enrollment_idx" ON "lh_message_versions" USING btree ("owner_id","enrollment_id");--> statement-breakpoint
-CREATE INDEX "lh_message_versions_owner_supersedes_idx" ON "lh_message_versions" USING btree ("owner_id","supersedes_message_version_id") WHERE "lh_message_versions"."supersedes_message_version_id" is not null;--> statement-breakpoint
+CREATE INDEX "lh_message_versions_owner_supersedes_idx" ON "lh_message_versions" USING btree ("owner_id","supersedes_message_version_id","enrollment_id") WHERE "lh_message_versions"."supersedes_message_version_id" is not null;--> statement-breakpoint
 CREATE UNIQUE INDEX "lh_outbox_active_enrollment_logical_step_unique" ON "lh_outbox" USING btree ("owner_id","enrollment_id","logical_step") WHERE "lh_outbox"."state" <> 'cancelled' or "lh_outbox"."lease_owner" is not null or "lh_outbox"."lease_expires_at" is not null;--> statement-breakpoint
 CREATE INDEX "lh_outbox_owner_message_version_idx" ON "lh_outbox" USING btree ("owner_id","message_version_id");--> statement-breakpoint
 CREATE INDEX "lh_outbox_due_idx" ON "lh_outbox" USING btree ("owner_id","due_at") WHERE "lh_outbox"."state" = 'queued';--> statement-breakpoint
@@ -276,7 +276,7 @@ BEGIN
     AND enrollment.id = NEW.enrollment_id
     AND enrollment.campaign_id = NEW.campaign_id
     AND enrollment.campaign_version = NEW.campaign_version
-  FOR KEY SHARE OF enrollment, contact;
+  FOR SHARE OF enrollment, contact;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'LeadHunter message brief does not match its enrollment contact and campaign version'
@@ -306,6 +306,23 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
 
+  IF OLD.state <> 'draft'
+     AND NEW.validation_result IS DISTINCT FROM OLD.validation_result THEN
+    RAISE EXCEPTION 'LeadHunter message validation history is immutable'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.state IS DISTINCT FROM OLD.state
+     AND NOT (
+       (OLD.state = 'draft'
+        AND NEW.state IN ('valid', 'invalid')
+        AND NEW.validation_result IS NOT NULL)
+       OR (OLD.state = 'valid' AND NEW.state = 'superseded')
+     ) THEN
+    RAISE EXCEPTION 'Invalid LeadHunter message version state transition: % -> %', OLD.state, NEW.state
+      USING ERRCODE = '23514';
+  END IF;
+
   RETURN NEW;
 END;
 $$;
@@ -329,6 +346,66 @@ BEGIN
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'LeadHunter outbox command is immutable'
       USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.attempt_count < OLD.attempt_count THEN
+    RAISE EXCEPTION 'LeadHunter outbox attempt count cannot decrease'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF OLD.provider_message_id IS NOT NULL
+     AND NEW.provider_message_id IS DISTINCT FROM OLD.provider_message_id THEN
+    RAISE EXCEPTION 'LeadHunter outbox provider identity is immutable once assigned'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.state = 'cancelled'
+     AND (NEW.attempt_count <> 0
+          OR NEW.lease_owner IS NOT NULL
+          OR NEW.lease_expires_at IS NOT NULL
+          OR NEW.provider_message_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'A cancelled LeadHunter command must remain unleased and unsent'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    IF OLD.state IN ('provider_accepted', 'cancelled') THEN
+      RAISE EXCEPTION 'LeadHunter outbox state % is terminal', OLD.state
+        USING ERRCODE = '23514';
+    ELSIF NEW.state = 'cancelled' THEN
+      IF OLD.state <> 'queued'
+         OR OLD.attempt_count <> 0
+         OR NEW.attempt_count <> 0
+         OR OLD.lease_owner IS NOT NULL
+         OR OLD.lease_expires_at IS NOT NULL
+         OR OLD.provider_message_id IS NOT NULL
+         OR NEW.lease_owner IS NOT NULL
+         OR NEW.lease_expires_at IS NOT NULL
+         OR NEW.provider_message_id IS NOT NULL THEN
+        RAISE EXCEPTION 'Only an unleased and unsent queued LeadHunter command may be cancelled'
+          USING ERRCODE = '23514';
+      END IF;
+    ELSIF NOT (
+      (OLD.state = 'queued' AND NEW.state = 'leased')
+      OR (OLD.state = 'leased'
+          AND NEW.state IN ('queued', 'provider_accepted', 'failed', 'unknown'))
+      OR (OLD.state = 'failed' AND NEW.state = 'queued')
+      OR (OLD.state = 'unknown' AND NEW.state IN ('provider_accepted', 'failed'))
+    ) THEN
+      RAISE EXCEPTION 'Invalid LeadHunter outbox state transition: % -> %', OLD.state, NEW.state
+        USING ERRCODE = '23514';
+    END IF;
+
+    IF NEW.state = 'leased' AND NEW.attempt_count <= OLD.attempt_count THEN
+      RAISE EXCEPTION 'Leasing a LeadHunter command must increment its attempt count'
+        USING ERRCODE = '23514';
+    END IF;
+
+    IF NEW.state = 'queued'
+       AND (NEW.lease_owner IS NOT NULL OR NEW.lease_expires_at IS NOT NULL) THEN
+      RAISE EXCEPTION 'A queued LeadHunter command cannot retain an active lease'
+        USING ERRCODE = '23514';
+    END IF;
   END IF;
 
   RETURN NEW;

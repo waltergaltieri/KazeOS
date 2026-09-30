@@ -156,6 +156,9 @@ describe("LeadHunter pipeline migration", () => {
     expect(migration).toContain(
       "constraint lh_enrollments_owner_message_version_message_versions_owner_id_id_enrollment_id_fk foreign key (owner_id,message_version_id,id) references public.lh_message_versions(owner_id,id,enrollment_id)",
     );
+    expect(migration).toContain(
+      "constraint lh_message_versions_owner_supersedes_message_versions_owner_id_id_enrollment_id_fk foreign key (owner_id,supersedes_message_version_id,enrollment_id) references public.lh_message_versions(owner_id,id,enrollment_id)",
+    );
     expect(migration).toContain("create index lh_jobs_claimable_idx");
     expect(migration).toContain("where lh_jobs.state in ('queued', 'leased')");
     expect(migration).toContain("create index lh_outbox_due_idx");
@@ -226,12 +229,16 @@ describe("LeadHunter pipeline migration", () => {
     expect(messageBriefCoherenceGuard).toContain(
       "enrollment.campaign_version = new.campaign_version",
     );
+    expect(messageBriefCoherenceGuard).toContain(
+      "for share of enrollment, contact",
+    );
+    expect(messageBriefCoherenceGuard).not.toContain("for key share");
     expect(migration).toContain(
       "create trigger lh_message_briefs_validate_coherence before insert on public.lh_message_briefs for each row execute function private.validate_lh_message_brief_coherence()",
     );
   });
 
-  it("protects outbox command content while allowing operational updates", () => {
+  it("protects outbox command content while allowing controlled operational updates", () => {
     expect(migration).toContain(
       "create or replace function private.guard_lh_outbox_command()",
     );
@@ -251,11 +258,9 @@ describe("LeadHunter pipeline migration", () => {
       expect(outboxGuard).toContain(`new.${column} is distinct from old.${column}`);
     }
     for (const operationalColumn of [
-      "state",
       "attempt_count",
       "lease_owner",
       "lease_expires_at",
-      "provider_message_id",
       "last_error",
       "updated_at",
     ]) {
@@ -271,7 +276,53 @@ describe("LeadHunter pipeline migration", () => {
     );
   });
 
-  it("protects message version content while allowing validation state updates", () => {
+  it("enforces safe outbox state transitions and cancellation", () => {
+    expect(outboxGuard).toContain(
+      "old.state in ('provider_accepted', 'cancelled')",
+    );
+    expect(outboxGuard).toContain(
+      "old.state = 'queued' and new.state = 'leased'",
+    );
+    expect(outboxGuard).toContain(
+      "old.state = 'leased' and new.state in ('queued', 'provider_accepted', 'failed', 'unknown')",
+    );
+    expect(outboxGuard).toContain(
+      "old.state = 'failed' and new.state = 'queued'",
+    );
+    expect(outboxGuard).toContain(
+      "old.state = 'unknown' and new.state in ('provider_accepted', 'failed')",
+    );
+    for (const cancellationGuard of [
+      "old.state <> 'queued'",
+      "old.attempt_count <> 0",
+      "new.attempt_count <> 0",
+      "old.lease_owner is not null",
+      "old.lease_expires_at is not null",
+      "old.provider_message_id is not null",
+      "new.lease_owner is not null",
+      "new.lease_expires_at is not null",
+      "new.provider_message_id is not null",
+    ]) {
+      expect(outboxGuard).toContain(cancellationGuard);
+    }
+    expect(outboxGuard).toContain(
+      "new.attempt_count < old.attempt_count",
+    );
+    expect(outboxGuard).toContain(
+      "new.state = 'leased' and new.attempt_count <= old.attempt_count",
+    );
+    expect(outboxGuard).toContain(
+      "old.provider_message_id is not null and new.provider_message_id is distinct from old.provider_message_id",
+    );
+    expect(outboxGuard).toContain(
+      "new.state = 'cancelled' and (new.attempt_count <> 0 or new.lease_owner is not null or new.lease_expires_at is not null or new.provider_message_id is not null)",
+    );
+    expect(migration).toContain(
+      "constraint lh_outbox_lease_consistency check (lh_outbox.state <> 'leased' or (lh_outbox.attempt_count > 0 and lh_outbox.lease_owner is not null and lh_outbox.lease_expires_at is not null))",
+    );
+  });
+
+  it("protects message version content while allowing controlled validation updates", () => {
     expect(migration).toContain(
       "create or replace function private.guard_lh_message_version_content()",
     );
@@ -290,13 +341,28 @@ describe("LeadHunter pipeline migration", () => {
         `new.${column} is distinct from old.${column}`,
       );
     }
-    for (const operationalColumn of ["state", "validation_result", "updated_at"]) {
+    for (const operationalColumn of ["updated_at"]) {
       expect(messageVersionGuard).not.toContain(
         `new.${operationalColumn} is distinct from old.${operationalColumn}`,
       );
     }
     expect(migration).toContain(
       "create trigger lh_message_versions_guard_content before update on public.lh_message_versions for each row execute function private.guard_lh_message_version_content()",
+    );
+  });
+
+  it("freezes validation history after the first validation", () => {
+    expect(messageVersionGuard).toContain(
+      "old.state <> 'draft' and new.validation_result is distinct from old.validation_result",
+    );
+    expect(messageVersionGuard).toContain(
+      "old.state = 'draft' and new.state in ('valid', 'invalid') and new.validation_result is not null",
+    );
+    expect(messageVersionGuard).toContain(
+      "old.state = 'valid' and new.state = 'superseded'",
+    );
+    expect(messageVersionGuard).toContain(
+      "new.state is distinct from old.state",
     );
   });
 

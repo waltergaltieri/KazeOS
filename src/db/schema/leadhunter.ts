@@ -849,9 +849,13 @@ export const leadHunterMessageVersions = pgTable(
       .onDelete("cascade")
       .onUpdate("cascade"),
     foreignKey({
-      name: "lh_message_versions_owner_supersedes_message_versions_owner_id_id_fk",
-      columns: [table.ownerId, table.supersedesMessageVersionId],
-      foreignColumns: [table.ownerId, table.id],
+      name: "lh_message_versions_owner_supersedes_message_versions_owner_id_id_enrollment_id_fk",
+      columns: [
+        table.ownerId,
+        table.supersedesMessageVersionId,
+        table.enrollmentId,
+      ],
+      foreignColumns: [table.ownerId, table.id, table.enrollmentId],
     })
       .onDelete("restrict")
       .onUpdate("cascade"),
@@ -865,7 +869,11 @@ export const leadHunterMessageVersions = pgTable(
       table.enrollmentId,
     ),
     index("lh_message_versions_owner_supersedes_idx")
-      .on(table.ownerId, table.supersedesMessageVersionId)
+      .on(
+        table.ownerId,
+        table.supersedesMessageVersionId,
+        table.enrollmentId,
+      )
       .where(sql`${table.supersedesMessageVersionId} is not null`),
     ...backendPolicies("lh_message_versions", table.ownerId),
   ],
@@ -904,7 +912,7 @@ export const leadHunterOutbox = pgTable(
     check("lh_outbox_idempotency_key_not_blank", sql`btrim(${table.idempotencyKey}) <> ''`),
     check(
       "lh_outbox_lease_consistency",
-      sql`${table.state} <> 'leased' or (${table.leaseOwner} is not null and ${table.leaseExpiresAt} is not null)`,
+      sql`${table.state} <> 'leased' or (${table.attemptCount} > 0 and ${table.leaseOwner} is not null and ${table.leaseExpiresAt} is not null)`,
     ),
     unique("lh_outbox_owner_id_id_unique").on(table.ownerId, table.id),
     unique("lh_outbox_owner_idempotency_key_unique").on(
