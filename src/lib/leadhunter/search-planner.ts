@@ -5,6 +5,8 @@ import type { LeadHunterSource } from "@/lib/leadhunter/contracts";
 
 import type {
   LeadHunterSearchPlan,
+  JsonValue,
+  SearchPlanningCursor,
   SeedUrlWorkItem,
   SourceCursor,
   SourceQueryCursor,
@@ -16,6 +18,7 @@ interface CreateSearchPlanInput {
   campaign: LeadHunterCampaignSnapshot;
   maxQueries: number;
   previousCursors?: SourceQueryCursor[];
+  planningCursor?: SearchPlanningCursor;
 }
 
 function hash(value: string): string {
@@ -41,6 +44,92 @@ function stableStringify(value: unknown): string {
   }
 
   throw new TypeError("Search plans can contain only JSON-serializable values");
+}
+
+function cloneJsonValue(value: unknown, ancestors = new Set<object>()): JsonValue {
+  if (value === null || typeof value === "boolean" || typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || Object.is(value, -0)) {
+      throw new TypeError("Cursor values must be JSON-safe finite numbers");
+    }
+    return value;
+  }
+  if (typeof value !== "object") {
+    throw new TypeError("Cursor values must be JSON-safe");
+  }
+  if (ancestors.has(value)) {
+    throw new TypeError("Cursor values must be acyclic JSON data");
+  }
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const ownKeys = Reflect.ownKeys(value);
+      if (ownKeys.length !== value.length + 1) {
+        throw new TypeError("Cursor arrays must contain only JSON-safe indexed values");
+      }
+      const clonedValues: JsonValue[] = [];
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !("value" in descriptor)) {
+          throw new TypeError("Cursor arrays must contain only JSON-safe indexed values");
+        }
+        clonedValues.push(cloneJsonValue(descriptor.value, ancestors));
+      }
+      if (ownKeys.some((key) => (
+        typeof key !== "string"
+        || (key !== "length" && !/^\d+$/.test(key))
+      ))) {
+        throw new TypeError("Cursor arrays must contain only JSON-safe indexed values");
+      }
+      return clonedValues;
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError("Cursor objects must be plain JSON-safe objects");
+    }
+
+    const entries = Reflect.ownKeys(value).map((key): [string, JsonValue] => {
+      if (typeof key !== "string") {
+        throw new TypeError("Cursor JSON objects cannot contain symbol keys");
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor?.enumerable || !("value" in descriptor)) {
+        throw new TypeError("Cursor objects must contain enumerable JSON-safe values");
+      }
+      return [key, cloneJsonValue(descriptor.value, ancestors)];
+    });
+
+    return Object.fromEntries(entries);
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function cloneSourceCursor(cursor: SourceCursor): SourceCursor {
+  const cloned = cloneJsonValue(cursor);
+  if (!cloned || typeof cloned !== "object" || Array.isArray(cloned)) {
+    throw new TypeError("Source cursor state must be JSON-safe");
+  }
+
+  const keys = Object.keys(cloned).sort();
+  if (cloned.state === "initial" || cloned.state === "exhausted") {
+    if (keys.length !== 1 || keys[0] !== "state") {
+      throw new TypeError("Source cursor state must be explicit JSON-safe data");
+    }
+    return { state: cloned.state };
+  }
+  if (cloned.state === "next") {
+    if (keys.length !== 2 || keys[0] !== "state" || keys[1] !== "value") {
+      throw new TypeError("Next source cursor must contain one JSON-safe value");
+    }
+    return { state: "next", value: cloned.value! };
+  }
+
+  throw new TypeError("Unknown JSON-safe source cursor state");
 }
 
 function normalizedText(value: string): string {
@@ -96,7 +185,7 @@ function previousCursorMap(
 ): Map<string, SourceCursor> {
   return new Map(cursors.map((cursor) => [
     sourceQueryIdentity(cursor),
-    cursor.cursor,
+    cloneSourceCursor(cursor.cursor),
   ]));
 }
 
@@ -121,12 +210,24 @@ export function createSearchPlan({
   campaign,
   maxQueries,
   previousCursors = [],
+  planningCursor = { offset: 0 },
 }: CreateSearchPlanInput): LeadHunterSearchPlan {
-  if (!Number.isInteger(campaignVersion) || campaignVersion < 1) {
+  if (!Number.isSafeInteger(campaignVersion) || campaignVersion < 1) {
     throw new RangeError("campaignVersion must be a positive integer");
   }
-  if (!Number.isInteger(maxQueries) || maxQueries < 0) {
+  if (
+    !Number.isSafeInteger(maxQueries)
+    || maxQueries < 0
+    || Object.is(maxQueries, -0)
+  ) {
     throw new RangeError("maxQueries must be a non-negative integer");
+  }
+  if (
+    !Number.isSafeInteger(planningCursor.offset)
+    || planningCursor.offset < 0
+    || Object.is(planningCursor.offset, -0)
+  ) {
+    throw new RangeError("planningCursor.offset must be a non-negative integer");
   }
 
   const { discovery } = campaign.strategy;
@@ -138,16 +239,13 @@ export function createSearchPlan({
   const regionValues = regions.length > 0 ? regions : [null];
   const industryValues = industries.length > 0 ? industries : [null];
   const cursors = previousCursorMap(previousCursors);
-  const generatedWork: SourceQueryWorkItem[] = [];
+  const candidateWork: SourceQueryWorkItem[] = [];
 
-  planning:
   for (const source of sources) {
     for (const country of countries) {
       for (const region of regionValues) {
         for (const industry of industryValues) {
           for (const query of queries) {
-            if (generatedWork.length >= maxQueries) break planning;
-
             const identity = sourceQueryIdentity({
               source,
               country,
@@ -155,7 +253,9 @@ export function createSearchPlan({
               industry,
               query,
             });
-            generatedWork.push({
+            const cursor = cursors.get(identity) ?? { state: "initial" };
+
+            candidateWork.push({
               kind: "source_query",
               id: `query:${hash(identity)}`,
               source,
@@ -163,13 +263,30 @@ export function createSearchPlan({
               region,
               industry,
               query,
-              cursor: cursors.get(identity) ?? null,
+              cursor,
               geographyEvidence: null,
             });
           }
         }
       }
     }
+  }
+
+  const generatedWork: SourceQueryWorkItem[] = [];
+  const startOffset = candidateWork.length === 0
+    ? 0
+    : planningCursor.offset % candidateWork.length;
+  let nextOffset = startOffset;
+  let scannedWork = 0;
+
+  while (
+    generatedWork.length < maxQueries
+    && scannedWork < candidateWork.length
+  ) {
+    const work = candidateWork[nextOffset]!;
+    nextOffset = (nextOffset + 1) % candidateWork.length;
+    scannedWork += 1;
+    if (work.cursor.state !== "exhausted") generatedWork.push(work);
   }
 
   const planWithoutHash = {
@@ -184,6 +301,7 @@ export function createSearchPlan({
       ...generatedWork,
       ...seedUrlWork(discovery.seedUrls),
     ],
+    nextPlanningCursor: { offset: nextOffset },
   };
 
   return {

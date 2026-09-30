@@ -10,7 +10,25 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type SourceCursor = JsonValue;
+export interface InitialSourceCursor {
+  state: "initial";
+}
+
+export interface NextSourceCursor {
+  state: "next";
+  value: JsonValue;
+}
+
+export interface ExhaustedSourceCursor {
+  state: "exhausted";
+}
+
+export type SourceCursor =
+  | InitialSourceCursor
+  | NextSourceCursor
+  | ExhaustedSourceCursor;
+
+export type SourceResultCursor = NextSourceCursor | ExhaustedSourceCursor;
 
 export interface SourceCapabilities {
   discovery: boolean;
@@ -56,11 +74,16 @@ export interface SearchPlanBudget {
   maxCandidates: number;
 }
 
+export interface SearchPlanningCursor {
+  offset: number;
+}
+
 export interface LeadHunterSearchPlan {
   planVersion: 1;
   campaignVersion: number;
   budget: SearchPlanBudget;
   work: SearchPlanWorkItem[];
+  nextPlanningCursor: SearchPlanningCursor;
   planHash: string;
 }
 
@@ -74,7 +97,7 @@ export interface SourceCandidate {
 
 export interface SourceDiscoveryPage {
   candidates: SourceCandidate[];
-  nextCursor: SourceCursor;
+  nextCursor: SourceResultCursor;
 }
 
 export interface SourceAdapter {

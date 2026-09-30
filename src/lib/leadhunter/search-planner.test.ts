@@ -3,20 +3,23 @@ import { describe, expect, it, vi } from "vitest";
 import type { LeadHunterCampaignSnapshot } from "@/db/schema/leadhunter";
 
 import { createSearchPlan } from "./search-planner";
-import type { SourceQueryCursor } from "./sources/contracts";
+import type {
+  SourceDiscoveryPage,
+  SourceQueryCursor,
+} from "./sources/contracts";
 
 const campaignSnapshot = {
   objective: "Encontrar distribuidores con venta mayorista.",
   serviceFocus: "automation",
   countries: ["AR"],
-  sources: ["web_search", "directories"],
+  sources: ["web_search", "directories", "web_search"],
   positiveCriteria: ["Publica un catálogo mayorista"],
   negativeCriteria: [],
   strategy: {
     version: 1,
     discovery: {
-      countries: ["AR"],
-      regions: ["Buenos Aires"],
+      countries: ["AR", " ar ", "AR"],
+      regions: ["Buenos Aires", "  buenos   AIRES  ", "Buenos Aires"],
       industries: [
         "Distribución mayorista",
         "  distribución   MAYORISTA  ",
@@ -25,7 +28,7 @@ const campaignSnapshot = {
         "Mayoristas   de alimentos",
         "  mayoristas de ALIMENTOS  ",
       ],
-      sources: ["web_search", "directories"],
+      sources: ["web_search", "directories", "web_search"],
       seedUrls: [
         "https://example.com/directorio-a",
         " https://example.com/directorio-a ",
@@ -93,7 +96,7 @@ describe("LeadHunter search planner", () => {
         country: "AR",
         industry: "Distribución mayorista",
         query: "Mayoristas   de alimentos",
-        cursor: null,
+        cursor: { state: "initial" },
       }),
       expect.objectContaining({
         kind: "source_query",
@@ -101,7 +104,7 @@ describe("LeadHunter search planner", () => {
         country: "AR",
         industry: "Distribución mayorista",
         query: "Mayoristas   de alimentos",
-        cursor: null,
+        cursor: { state: "initial" },
       }),
     ]);
   });
@@ -132,7 +135,7 @@ describe("LeadHunter search planner", () => {
         region: " buenos   AIRES ",
         industry: "distribución mayorista",
         query: " mayoristas de alimentos ",
-        cursor: "page:2",
+        cursor: { state: "next", value: "page:2" },
       },
     ];
 
@@ -148,8 +151,12 @@ describe("LeadHunter search planner", () => {
       country,
       cursor,
     }))).toEqual([
-      { source: "web_search", country: "AR", cursor: null },
-      { source: "directories", country: "AR", cursor: "page:2" },
+      { source: "web_search", country: "AR", cursor: { state: "initial" } },
+      {
+        source: "directories",
+        country: "AR",
+        cursor: { state: "next", value: "page:2" },
+      },
     ]);
   });
 
@@ -233,7 +240,10 @@ describe("LeadHunter search planner", () => {
       maxQueries: 10,
       previousCursors: [{
         ...cursorIdentity,
-        cursor: { page: 2, engine: "general" },
+        cursor: {
+          state: "next",
+          value: { page: 2, engine: "general" },
+        },
       }],
     });
     const second = createSearchPlan({
@@ -242,10 +252,254 @@ describe("LeadHunter search planner", () => {
       maxQueries: 10,
       previousCursors: [{
         ...cursorIdentity,
-        cursor: { engine: "general", page: 2 },
+        cursor: {
+          state: "next",
+          value: { engine: "general", page: 2 },
+        },
       }],
     });
 
     expect(second.planHash).toBe(first.planHash);
+  });
+
+  it("continues through later combinations without exceeding the query budget", () => {
+    const expandedCampaign: LeadHunterCampaignSnapshot = structuredClone(campaignSnapshot);
+    expandedCampaign.strategy.discovery.countries = ["AR", "US"];
+    const completePlan = createSearchPlan({
+      campaignVersion: 7,
+      campaign: expandedCampaign,
+      maxQueries: 10,
+    });
+    const expectedIds = sourceQueries(completePlan).map((work) => work.id);
+    const visitedIds: string[] = [];
+    let planningCursor = { offset: 0 };
+
+    for (let run = 0; run < expectedIds.length; run += 1) {
+      const plan = createSearchPlan({
+        campaignVersion: 7,
+        campaign: expandedCampaign,
+        maxQueries: 1,
+        planningCursor,
+      });
+      const work = sourceQueries(plan);
+
+      expect(work).toHaveLength(1);
+      visitedIds.push(work[0]!.id);
+      planningCursor = plan.nextPlanningCursor;
+    }
+
+    expect(visitedIds).toEqual(expectedIds);
+    expect(planningCursor).toEqual({ offset: 0 });
+  });
+
+  it("keeps the planning offset stable when an earlier combination becomes exhausted", () => {
+    const expandedCampaign: LeadHunterCampaignSnapshot = structuredClone(campaignSnapshot);
+    expandedCampaign.strategy.discovery.countries = ["AR", "US"];
+    const completePlan = createSearchPlan({
+      campaignVersion: 7,
+      campaign: expandedCampaign,
+      maxQueries: 10,
+    });
+    const completeWork = sourceQueries(completePlan);
+    const firstPlan = createSearchPlan({
+      campaignVersion: 7,
+      campaign: expandedCampaign,
+      maxQueries: 1,
+    });
+    const firstWork = sourceQueries(firstPlan)[0]!;
+    const previousCursors: SourceQueryCursor[] = [{
+      source: firstWork.source,
+      country: firstWork.country,
+      region: firstWork.region,
+      industry: firstWork.industry,
+      query: firstWork.query,
+      cursor: { state: "exhausted" },
+    }];
+
+    const resumedPlan = createSearchPlan({
+      campaignVersion: 7,
+      campaign: expandedCampaign,
+      maxQueries: 1,
+      planningCursor: firstPlan.nextPlanningCursor,
+      previousCursors,
+    });
+
+    expect(sourceQueries(resumedPlan).map((work) => work.id))
+      .toEqual([completeWork[1]!.id]);
+  });
+
+  it("does not reschedule an exhausted source query", () => {
+    const previousCursors: SourceQueryCursor[] = [
+      {
+        source: "web_search",
+        country: "AR",
+        region: "Buenos Aires",
+        industry: "Distribución mayorista",
+        query: "Mayoristas de alimentos",
+        cursor: { state: "exhausted" },
+      },
+      {
+        source: "directories",
+        country: "AR",
+        region: "Buenos Aires",
+        industry: "Distribución mayorista",
+        query: "Mayoristas de alimentos",
+        cursor: { state: "next", value: "page:2" },
+      },
+    ];
+
+    const plan = createSearchPlan({
+      campaignVersion: 7,
+      campaign: campaignSnapshot,
+      maxQueries: 10,
+      previousCursors,
+    });
+
+    expect(sourceQueries(plan)).toEqual([
+      expect.objectContaining({
+        source: "directories",
+        cursor: { state: "next", value: "page:2" },
+      }),
+    ]);
+  });
+
+  it("uses explicit continuation states in source results", () => {
+    const page = {
+      candidates: [],
+      nextCursor: { state: "exhausted" },
+    } satisfies SourceDiscoveryPage;
+
+    expect(page.nextCursor).toEqual({ state: "exhausted" });
+  });
+
+  it("deep-clones cursor input and keeps the recorded hash stable", () => {
+    const cursorValue = {
+      page: 2,
+      nested: { token: "original" },
+      ranks: [1, 2],
+    };
+    const previousCursors: SourceQueryCursor[] = [{
+      source: "directories",
+      country: "AR",
+      region: "Buenos Aires",
+      industry: "Distribución mayorista",
+      query: "Mayoristas de alimentos",
+      cursor: { state: "next", value: cursorValue },
+    }];
+    const plan = createSearchPlan({
+      campaignVersion: 7,
+      campaign: campaignSnapshot,
+      maxQueries: 10,
+      previousCursors,
+    });
+    const hashBeforeMutation = plan.planHash;
+    const work = sourceQueries(plan).find(({ source }) => source === "directories")!;
+
+    cursorValue.nested.token = "changed-input";
+    cursorValue.ranks.push(3);
+    expect(work.cursor).toEqual({
+      state: "next",
+      value: {
+        page: 2,
+        nested: { token: "original" },
+        ranks: [1, 2],
+      },
+    });
+
+    if (work.cursor.state !== "next") throw new Error("Expected a next cursor");
+    const plannedValue = work.cursor.value as typeof cursorValue;
+    plannedValue.nested.token = "changed-output";
+    plannedValue.ranks.push(4);
+
+    expect(cursorValue).toEqual({
+      page: 2,
+      nested: { token: "changed-input" },
+      ranks: [1, 2, 3],
+    });
+    expect(plan.planHash).toBe(hashBeforeMutation);
+  });
+
+  it.each([
+    ["NaN", Number.NaN],
+    ["positive infinity", Number.POSITIVE_INFINITY],
+    ["negative infinity", Number.NEGATIVE_INFINITY],
+    ["negative zero", -0],
+    ["undefined", undefined],
+    ["bigint", BigInt(1)],
+    ["function", () => undefined],
+    ["symbol", Symbol("cursor")],
+    ["date", new Date("2026-09-30T00:00:00.000Z")],
+  ])("rejects the non-JSON-safe cursor value %s", (_label, invalidValue) => {
+    const previousCursors = [{
+      source: "directories",
+      country: "AR",
+      region: "Buenos Aires",
+      industry: "Distribución mayorista",
+      query: "Mayoristas de alimentos",
+      cursor: { state: "next", value: invalidValue },
+    }] as unknown as SourceQueryCursor[];
+
+    expect(() => createSearchPlan({
+      campaignVersion: 7,
+      campaign: campaignSnapshot,
+      maxQueries: 10,
+      previousCursors,
+    })).toThrow(/JSON/i);
+  });
+
+  it("rejects cyclic cursor objects", () => {
+    const cyclicCursor: Record<string, unknown> = {};
+    cyclicCursor.self = cyclicCursor;
+
+    expect(() => createSearchPlan({
+      campaignVersion: 7,
+      campaign: campaignSnapshot,
+      maxQueries: 10,
+      previousCursors: [{
+        source: "directories",
+        country: "AR",
+        region: "Buenos Aires",
+        industry: "Distribución mayorista",
+        query: "Mayoristas de alimentos",
+        cursor: { state: "next", value: cyclicCursor },
+      }] as unknown as SourceQueryCursor[],
+    })).toThrow(/JSON/i);
+  });
+
+  it("rejects sparse arrays and symbol properties in cursor state", () => {
+    const sparseArray = Array<unknown>(1);
+    const symbolKey = Symbol("hidden");
+    const invalidCursors = [
+      { state: "next", value: sparseArray },
+      { state: "next", value: "page:2", [symbolKey]: "hidden" },
+    ];
+
+    for (const cursor of invalidCursors) {
+      expect(() => createSearchPlan({
+        campaignVersion: 7,
+        campaign: campaignSnapshot,
+        maxQueries: 10,
+        previousCursors: [{
+          source: "directories",
+          country: "AR",
+          region: "Buenos Aires",
+          industry: "Distribución mayorista",
+          query: "Mayoristas de alimentos",
+          cursor,
+        }] as unknown as SourceQueryCursor[],
+      })).toThrow(/JSON/i);
+    }
+  });
+
+  it.each([
+    ["negative zero", -0],
+    ["unsafe integer", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects the non-durable planning offset %s", (_label, offset) => {
+    expect(() => createSearchPlan({
+      campaignVersion: 7,
+      campaign: campaignSnapshot,
+      maxQueries: 10,
+      planningCursor: { offset },
+    })).toThrow(/planningCursor/);
   });
 });
