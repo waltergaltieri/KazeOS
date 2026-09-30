@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { campaignStrategySchema } from "./contracts";
+import {
+  campaignStrategySchema,
+  createDefaultCampaignStrategy,
+  selectMessagePolicy,
+} from "./contracts";
 
 const validStrategy = {
   version: 1,
@@ -120,6 +124,24 @@ describe("LeadHunter campaign strategy contracts", () => {
     })).toThrow();
   });
 
+  it("returns a failed parse instead of throwing for malformed seed URLs", () => {
+    expect(() => campaignStrategySchema.safeParse({
+      ...validStrategy,
+      discovery: {
+        ...validStrategy.discovery,
+        seedUrls: ["https://%"],
+      },
+    })).not.toThrow();
+
+    expect(campaignStrategySchema.safeParse({
+      ...validStrategy,
+      discovery: {
+        ...validStrategy.discovery,
+        seedUrls: ["https://%"],
+      },
+    }).success).toBe(false);
+  });
+
   it("requires CTA and signature content in the message policy", () => {
     expect(() => campaignStrategySchema.parse({
       ...validStrategy,
@@ -139,5 +161,36 @@ describe("LeadHunter campaign strategy contracts", () => {
         requiredSections: ["opening", "primary_opportunity"],
       },
     })).toThrow();
+  });
+
+  it("builds order-independent message policies for mixed AR and US campaigns", () => {
+    const input = {
+      objective: "Encontrar distribuidores con procesos de venta manuales.",
+      serviceFocus: "automation",
+      sources: ["web_search" as const],
+      positiveCriteria: [],
+      negativeCriteria: [],
+    };
+    const arThenUs = createDefaultCampaignStrategy({
+      ...input,
+      countries: ["AR", "US"],
+    });
+    const usThenAr = createDefaultCampaignStrategy({
+      ...input,
+      countries: ["US", "AR"],
+    });
+
+    expect(arThenUs.message).toEqual(usThenAr.message);
+    expect(arThenUs.messageByCountry).toEqual(usThenAr.messageByCountry);
+    expect(selectMessagePolicy(arThenUs, "AR")).toMatchObject({
+      language: "es-AR",
+      signature: "Equipo KazeCode",
+      cta: "Preguntar si tiene sentido conversar brevemente.",
+    });
+    expect(selectMessagePolicy(arThenUs, "US")).toMatchObject({
+      language: "en-US",
+      signature: "KazeCode Team",
+      cta: "Ask whether a brief conversation would be useful.",
+    });
   });
 });

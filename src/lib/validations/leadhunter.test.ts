@@ -90,6 +90,31 @@ describe("LeadHunter campaign validation", () => {
     expect(parsed.positiveCriteria).toEqual(["Publica catálogo mayorista"]);
   });
 
+  it("deduplicates criteria by their normalized signal", () => {
+    const parsed = campaignFormSchema.parse({
+      ...validCampaign,
+      positiveCriteria: [
+        "Publica catálogo mayorista",
+        "  publica   CATÁLOGO mayorista  ",
+      ],
+    });
+
+    expect(parsed.positiveCriteria).toEqual(["Publica catálogo mayorista"]);
+  });
+
+  it("rejects the same normalized signal as positive and negative", () => {
+    const result = campaignFormSchema.safeParse({
+      ...validCampaign,
+      positiveCriteria: ["Publica catálogo mayorista"],
+      negativeCriteria: ["  PUBLICA   catálogo mayorista  "],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.flatten().fieldErrors.negativeCriteria).toContain(
+      "Un criterio no puede ser positivo y negativo a la vez.",
+    );
+  });
+
   it("rejects a sending window whose end is not after its start", () => {
     const result = campaignFormSchema.safeParse({
       ...validCampaign,

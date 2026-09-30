@@ -7,6 +7,7 @@ import {
   leadHunterCampaigns,
   leadHunterCampaignVersions,
 } from "@/db/schema";
+import { createDefaultCampaignStrategy } from "@/lib/leadhunter/contracts";
 import { campaignFormSchema } from "@/lib/validations/leadhunter";
 import {
   createCampaign,
@@ -160,5 +161,59 @@ describe("createCampaign", () => {
     expect(query).toBeDefined();
     expect(query?.length).toBeLessThanOrEqual(500);
     expect(longObjective.startsWith(query ?? "")).toBe(true);
+  });
+
+  it("reconciles an explicit strategy with current form targeting and criteria", async () => {
+    const inserts: Array<{ table: unknown; value: Record<string, unknown> }> = [];
+    const database = {
+      insert: vi.fn((table: unknown) => ({
+        values: (value: Record<string, unknown>) => {
+          inserts.push({ table, value });
+          if (table === leadHunterCampaigns) {
+            return { returning: async () => [{ id: campaignId }] };
+          }
+          return Promise.resolve();
+        },
+      })),
+    };
+    const explicitStrategy = createDefaultCampaignStrategy({
+      ...values,
+      countries: ["US"],
+      sources: ["directories"],
+      positiveCriteria: [],
+      negativeCriteria: [],
+    });
+    explicitStrategy.qualification.rules = [
+      { criterion: "Señal adicional", weight: 5 },
+      { criterion: "Catálogo mayorista", weight: -30 },
+      { criterion: "Ya es cliente", weight: 30 },
+    ];
+    const parsedValues = campaignFormSchema.parse({
+      ...values,
+      strategy: explicitStrategy,
+    });
+
+    await createCampaign(
+      database as unknown as LeadHunterDatabase,
+      ownerId,
+      parsedValues,
+    );
+
+    const snapshot = inserts[1]?.value.snapshot as {
+      strategy: {
+        discovery: { countries: string[]; sources: string[] };
+        qualification: { rules: Array<{ criterion: string; weight: number }> };
+      };
+    };
+
+    expect(snapshot.strategy.discovery).toMatchObject({
+      countries: ["AR"],
+      sources: ["web_search"],
+    });
+    expect(snapshot.strategy.qualification.rules).toEqual([
+      { criterion: "Señal adicional", weight: 5 },
+      { criterion: "Catálogo mayorista", weight: 10 },
+      { criterion: "Ya es cliente", weight: -10 },
+    ]);
   });
 });

@@ -33,6 +33,23 @@ const nonEmptyWeekdays = z
 
 const criterionSchema = z.string().trim().min(1).max(240);
 
+const normalizedCriterion = (criterion: string) =>
+  criterion.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+
+const criteriaSchema = z
+  .array(criterionSchema)
+  .max(30)
+  .default([])
+  .transform((criteria) => {
+    const signals = new Set<string>();
+    return criteria.filter((criterion) => {
+      const signal = normalizedCriterion(criterion);
+      if (signals.has(signal)) return false;
+      signals.add(signal);
+      return true;
+    });
+  });
+
 export const campaignStatusSchema = z.enum([
   "draft",
   "active",
@@ -60,8 +77,8 @@ export const campaignFormSchema = z
       .array(leadHunterSourceSchema)
       .min(1, "Elegí al menos una fuente.")
       .transform((sources) => [...new Set(sources)]),
-    positiveCriteria: z.array(criterionSchema).max(30).default([]),
-    negativeCriteria: z.array(criterionSchema).max(30).default([]),
+    positiveCriteria: criteriaSchema,
+    negativeCriteria: criteriaSchema,
     strategy: campaignStrategySchema.optional(),
     searchDays: nonEmptyWeekdays,
     searchTime: timeSchema,
@@ -115,6 +132,19 @@ export const campaignFormSchema = z
         code: "custom",
         path: ["sequenceSteps", 0, "delayDays"],
         message: "El primer correo debe comenzar sin demora.",
+      });
+    }
+
+    const positiveSignals = new Set(
+      campaign.positiveCriteria.map(normalizedCriterion),
+    );
+    if (campaign.negativeCriteria.some(
+      (criterion) => positiveSignals.has(normalizedCriterion(criterion)),
+    )) {
+      context.addIssue({
+        code: "custom",
+        path: ["negativeCriteria"],
+        message: "Un criterio no puede ser positivo y negativo a la vez.",
       });
     }
   });

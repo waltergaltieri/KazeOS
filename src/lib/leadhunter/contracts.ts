@@ -12,7 +12,7 @@ const httpUrlSchema = z
   .trim()
   .url()
   .max(2_048)
-  .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), {
+  .refine((value) => /^https?:\/\//i.test(value), {
     message: "La URL debe usar http o https.",
   });
 
@@ -142,6 +142,27 @@ export const messagePolicySchema = z
   })
   .strict();
 
+const messageByCountrySchema = z
+  .record(
+    z.string().regex(/^[A-Z]{2}$/),
+    messagePolicySchema,
+  )
+  .default({})
+  .superRefine((policies, context) => {
+    const expectedLocales = { AR: "es-AR", US: "en-US" } as const;
+
+    for (const [country, language] of Object.entries(expectedLocales)) {
+      const policy = policies[country];
+      if (policy && policy.language !== language) {
+        context.addIssue({
+          code: "custom",
+          path: [country, "language"],
+          message: `La política de ${country} debe usar ${language}.`,
+        });
+      }
+    }
+  });
+
 const researchStrategySchema = z
   .object({
     questions: z
@@ -185,6 +206,7 @@ export const campaignStrategySchema = z
     research: researchStrategySchema,
     qualification: qualificationStrategySchema,
     message: messagePolicySchema,
+    messageByCountry: messageByCountrySchema,
   })
   .strict();
 
@@ -230,10 +252,106 @@ function discoveryQueryFromObjective(objective: string): string {
   return normalized.slice(0, end);
 }
 
+function messagePolicyForCountry(country: string): MessagePolicy {
+  const useEnglish = country === "US";
+
+  return {
+    language: useEnglish ? "en-US" : "es-AR",
+    tone: useEnglish
+      ? "Direct, professional, and specific"
+      : "Directo, profesional y específico",
+    minimumSpecificFacts: 3,
+    wordRange: { minimum: 120, maximum: 220 },
+    intro: useEnglish
+      ? "Introduce KazeCode briefly and explain the reason for reaching out."
+      : "Presentar KazeCode brevemente y explicar el motivo del contacto.",
+    commercialModel: useEnglish
+      ? "Propose a concrete improvement with an agreed scope."
+      : "Proponer una mejora concreta con un alcance acordado.",
+    cta: useEnglish
+      ? "Ask whether a brief conversation would be useful."
+      : "Preguntar si tiene sentido conversar brevemente.",
+    signature: useEnglish ? "KazeCode Team" : "Equipo KazeCode",
+    requiredSections: [
+      "opening",
+      "introduction",
+      "business_understanding",
+      "primary_opportunity",
+      "secondary_opportunity",
+      "commercial_model",
+      "cta",
+      "signature",
+    ],
+    restrictedPhrases: [],
+  };
+}
+
+function messagePoliciesForCountries(
+  countries: string[],
+): Record<string, MessagePolicy> {
+  return Object.fromEntries(
+    [...new Set(countries)]
+      .sort()
+      .map((country) => [country, messagePolicyForCountry(country)]),
+  );
+}
+
+function defaultMessagePolicy(countries: string[]): MessagePolicy {
+  const uniqueCountries = new Set(countries);
+  return messagePolicyForCountry(
+    uniqueCountries.size === 1 && uniqueCountries.has("US") ? "US" : "AR",
+  );
+}
+
+function normalizedSignal(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function reconcileQualificationRules(
+  rules: QualificationRule[],
+  positiveCriteria: string[],
+  negativeCriteria: string[],
+): QualificationRule[] {
+  const formRules = [
+    ...positiveCriteria.map((criterion) => ({ criterion, weight: 10 })),
+    ...negativeCriteria.map((criterion) => ({ criterion, weight: -10 })),
+  ];
+  const formSignals = new Set(formRules.map((rule) => normalizedSignal(rule.criterion)));
+  const preservedSignals = new Set<string>();
+  const preservedRules = rules.filter((rule) => {
+    const signal = normalizedSignal(rule.criterion);
+    if (formSignals.has(signal) || preservedSignals.has(signal)) return false;
+    preservedSignals.add(signal);
+    return true;
+  });
+
+  return [...preservedRules, ...formRules];
+}
+
+function reconciledMessagePolicies(
+  strategy: CampaignStrategy,
+  countries: string[],
+): Record<string, MessagePolicy> {
+  return Object.fromEntries(
+    [...new Set(countries)]
+      .sort()
+      .map((country) => [
+        country,
+        strategy.messageByCountry[country] ?? messagePolicyForCountry(country),
+      ]),
+  );
+}
+
+export function selectMessagePolicy(
+  strategy: CampaignStrategy,
+  country: string,
+): MessagePolicy {
+  return strategy.messageByCountry[country.trim().toUpperCase()] ?? strategy.message;
+}
+
 export function createDefaultCampaignStrategy(
   values: CampaignStrategyDefaults,
 ): CampaignStrategy {
-  const useEnglish = values.countries[0] === "US";
   const service = serviceLabels[values.serviceFocus] ?? "una solución digital a medida";
 
   return campaignStrategySchema.parse({
@@ -277,34 +395,31 @@ export function createDefaultCampaignStrategy(
         ...values.negativeCriteria.map((criterion) => ({ criterion, weight: -10 })),
       ],
     },
-    message: {
-      language: useEnglish ? "en-US" : "es-AR",
-      tone: useEnglish
-        ? "Direct, professional, and specific"
-        : "Directo, profesional y específico",
-      minimumSpecificFacts: 3,
-      wordRange: { minimum: 120, maximum: 220 },
-      intro: useEnglish
-        ? "Introduce KazeCode briefly and explain the reason for reaching out."
-        : "Presentar KazeCode brevemente y explicar el motivo del contacto.",
-      commercialModel: useEnglish
-        ? "Propose a concrete improvement with an agreed scope."
-        : "Proponer una mejora concreta con un alcance acordado.",
-      cta: useEnglish
-        ? "Ask whether a brief conversation would be useful."
-        : "Preguntar si tiene sentido conversar brevemente.",
-      signature: "Equipo KazeCode",
-      requiredSections: [
-        "opening",
-        "introduction",
-        "business_understanding",
-        "primary_opportunity",
-        "secondary_opportunity",
-        "commercial_model",
-        "cta",
-        "signature",
-      ],
-      restrictedPhrases: [],
+    message: defaultMessagePolicy(values.countries),
+    messageByCountry: messagePoliciesForCountries(values.countries),
+  });
+}
+
+export function reconcileCampaignStrategy(
+  values: CampaignStrategyDefaults & { strategy?: CampaignStrategy },
+): CampaignStrategy {
+  const strategy = values.strategy ?? createDefaultCampaignStrategy(values);
+
+  return campaignStrategySchema.parse({
+    ...strategy,
+    discovery: {
+      ...strategy.discovery,
+      countries: values.countries,
+      sources: values.sources,
     },
+    qualification: {
+      ...strategy.qualification,
+      rules: reconcileQualificationRules(
+        strategy.qualification.rules,
+        values.positiveCriteria,
+        values.negativeCriteria,
+      ),
+    },
+    messageByCountry: reconciledMessagePolicies(strategy, values.countries),
   });
 }

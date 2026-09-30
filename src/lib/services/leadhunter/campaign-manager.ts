@@ -9,7 +9,7 @@ import {
   leadHunterCampaignVersions,
   type LeadHunterCampaignSnapshot,
 } from "@/db/schema";
-import { createDefaultCampaignStrategy } from "@/lib/leadhunter/contracts";
+import { reconcileCampaignStrategy } from "@/lib/leadhunter/contracts";
 import type { CampaignFormValues } from "@/lib/validations/leadhunter";
 
 export type LeadHunterDatabase = Pick<PostgresJsDatabase<typeof schema>, "insert">;
@@ -22,7 +22,7 @@ function snapshotFromValues(values: CampaignFormValues): LeadHunterCampaignSnaps
     sources: values.sources,
     positiveCriteria: values.positiveCriteria,
     negativeCriteria: values.negativeCriteria,
-    strategy: values.strategy ?? createDefaultCampaignStrategy(values),
+    strategy: reconcileCampaignStrategy(values),
     schedule: {
       searchDays: values.searchDays,
       searchTime: values.searchTime,
