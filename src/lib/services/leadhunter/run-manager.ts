@@ -178,6 +178,7 @@ export async function planDueRuns(
   if (!Number.isSafeInteger(maximumQueriesPerRun) || maximumQueriesPerRun < 0) {
     throw new RangeError("maximumQueriesPerRun must be a non-negative integer");
   }
+  const nowTimestamp = now.toISOString();
 
   const dueCampaigns = await database.execute(sql<DueCampaign>`
     select
@@ -193,7 +194,7 @@ export async function planDueRuns(
      and ${leadHunterCampaignVersions.version} = ${leadHunterCampaigns.configVersion}
     where ${leadHunterCampaigns.status} = 'active'
       and ${leadHunterCampaigns.nextSearchAt} is not null
-      and ${leadHunterCampaigns.nextSearchAt} <= ${now}
+      and ${leadHunterCampaigns.nextSearchAt} <= ${nowTimestamp}
     order by ${leadHunterCampaigns.nextSearchAt}, ${leadHunterCampaigns.id}
     for update of ${leadHunterCampaigns} skip locked
   `) as unknown as DueCampaign[];
@@ -203,13 +204,14 @@ export async function planDueRuns(
 
   for (const campaign of dueCampaigns) {
     const scheduledFor = databaseDate(campaign.scheduledFor);
+    const scheduledForTimestamp = scheduledFor.toISOString();
     const previousRuns = await database.execute(sql<PreviousRun>`
       select ${leadHunterRuns.cursor}
       from ${leadHunterRuns}
       where ${leadHunterRuns.ownerId} = ${campaign.ownerId}
         and ${leadHunterRuns.campaignId} = ${campaign.campaignId}
         and ${leadHunterRuns.campaignVersion} = ${campaign.campaignVersion}
-        and ${leadHunterRuns.scheduledFor} < ${scheduledFor}
+        and ${leadHunterRuns.scheduledFor} < ${scheduledForTimestamp}
       order by ${leadHunterRuns.scheduledFor} desc
       limit 1
     `) as unknown as PreviousRun[];
@@ -238,7 +240,7 @@ export async function planDueRuns(
         ${campaign.ownerId},
         ${campaign.campaignId},
         ${campaign.campaignVersion},
-        ${scheduledFor},
+        ${scheduledForTimestamp},
         ${JSON.stringify(plan)}::jsonb,
         ${JSON.stringify({
           planningCursor: plan.nextPlanningCursor,
@@ -285,8 +287,8 @@ export async function planDueRuns(
             'succeeded', 0,
             'failed', 0
           ),
-          started_at = ${now},
-          finished_at = ${now}
+          started_at = ${nowTimestamp},
+          finished_at = ${nowTimestamp}
         where ${leadHunterRuns.id} = ${run.id}
           and ${leadHunterRuns.state} = 'planned'
       `);
@@ -295,14 +297,14 @@ export async function planDueRuns(
     await database.execute(sql`
       update ${leadHunterCampaigns}
       set
-        last_run_at = ${scheduledFor},
+        last_run_at = ${scheduledForTimestamp},
         next_search_at = ${nextScheduledSearch(
           scheduledFor,
           campaign.snapshot.schedule,
-        )}
+        ).toISOString()}
       where ${leadHunterCampaigns.ownerId} = ${campaign.ownerId}
         and ${leadHunterCampaigns.id} = ${campaign.campaignId}
-        and ${leadHunterCampaigns.nextSearchAt} = ${scheduledFor}
+        and ${leadHunterCampaigns.nextSearchAt} = ${scheduledForTimestamp}
     `);
   }
 

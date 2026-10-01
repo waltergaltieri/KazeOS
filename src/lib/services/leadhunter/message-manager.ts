@@ -27,6 +27,7 @@ const opportunity: Record<string, string> = {
 };
 
 export async function prepareValidatedMessage(database: MessageDatabase, ownerId: string, enrollmentId: string, now = new Date()) {
+  const nowTimestamp = now.toISOString();
   const rows = await database.execute(sql<ContextRow>`
     select enrollment.id as "enrollmentId", enrollment.lead_id as "leadId", enrollment.campaign_id as "campaignId",
       enrollment.campaign_version as "campaignVersion", enrollment.evaluation, enrollment.status,
@@ -85,7 +86,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     `) as unknown as Array<{ id: string; subject: string; body: string }>;
     message = inserted[0]!;
   }
-  await database.execute(sql`update ${leadHunterEnrollments} set message_version_id=${message.id}, status='ready', next_action_at=${now} where owner_id=${ownerId} and id=${enrollmentId}`);
+  await database.execute(sql`update ${leadHunterEnrollments} set message_version_id=${message.id}, status='ready', next_action_at=${nowTimestamp} where owner_id=${ownerId} and id=${enrollmentId}`);
 
   let queued = 0;
   if (context.campaignStatus === "active" && context.automationMode === "automatic" && context.mailboxId) {
@@ -111,7 +112,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
       }
       const result = await database.execute(sql<{ id: string }>`
         insert into ${leadHunterOutbox} (owner_id,enrollment_id,message_version_id,recipient_email,subject,body,due_at,logical_step,idempotency_key)
-        values (${ownerId},${enrollmentId},${commandMessageVersionId},${context.email},${command.subject},${command.body},${command.dueAt},${logicalStep},${`${enrollmentId}:${context.campaignVersion}:${logicalStep}`})
+        values (${ownerId},${enrollmentId},${commandMessageVersionId},${context.email},${command.subject},${command.body},${command.dueAt.toISOString()},${logicalStep},${`${enrollmentId}:${context.campaignVersion}:${logicalStep}`})
         on conflict (owner_id,idempotency_key) do nothing returning id
       `) as unknown as Array<{ id: string }>;
       queued += result.length;

@@ -49,9 +49,9 @@ def request_for(name: str, keys: list[str] | None = None) -> ExtractionRequest:
     )
 
 
-def test_worker_metadata_enforces_python_3_12_runtime() -> None:
+def test_worker_metadata_supports_python_3_12_and_3_13() -> None:
     metadata = tomllib.loads((WORKER_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert metadata["project"]["requires-python"] == ">=3.12,<3.13"
+    assert metadata["project"]["requires-python"] == ">=3.12,<3.14"
     assert (WORKER_ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.12"
     assert metadata["project"]["optional-dependencies"]["scrapegraph"] == [
         "scrapegraphai==2.3.0",

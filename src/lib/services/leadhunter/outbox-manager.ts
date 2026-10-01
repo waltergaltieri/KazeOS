@@ -13,13 +13,14 @@ interface ClaimedRow { outboxId: string; recipient: string; subject: string; bod
 export async function claimDueMail(database: OutboxDatabase, input: { now: Date; leaseOwner: string; limit?: number; leaseMinutes?: number }): Promise<MailTransportCommand[]> {
   const limit = Math.max(1, Math.min(input.limit ?? 10, 50));
   const leaseMinutes = Math.max(1, Math.min(input.leaseMinutes ?? 10, 60));
+  const nowTimestamp = input.now.toISOString();
   const rows = await database.execute(sql<ClaimedRow>`
     with base as (
       select outbox.id,outbox.owner_id,outbox.due_at,campaign.id as campaign_id,campaign.daily_email_limit,campaign.schedule
       from ${leadHunterOutbox} outbox
       join ${leadHunterEnrollments} enrollment on enrollment.owner_id=outbox.owner_id and enrollment.id=outbox.enrollment_id
       join lh_campaigns campaign on campaign.owner_id=enrollment.owner_id and campaign.id=enrollment.campaign_id
-      where outbox.state='queued' and outbox.due_at<=${input.now}
+      where outbox.state='queued' and outbox.due_at<=${nowTimestamp}
         and campaign.status='active' and campaign.automation_mode='automatic' and campaign.mailbox_id is not null
         and enrollment.status in ('ready','contacting')
       order by outbox.due_at,outbox.id
@@ -29,13 +30,13 @@ export async function claimDueMail(database: OutboxDatabase, input: { now: Date;
         row_number() over (partition by base.campaign_id order by base.due_at,base.id) as campaign_rank,
         (select count(*) from lh_outbox sent join lh_enrollments sent_enrollment on sent_enrollment.owner_id=sent.owner_id and sent_enrollment.id=sent.enrollment_id
           where sent.owner_id=base.owner_id and sent_enrollment.campaign_id=base.campaign_id and sent.state='provider_accepted'
-            and (sent.updated_at at time zone (base.schedule->>'timezone'))::date=(${input.now}::timestamptz at time zone (base.schedule->>'timezone'))::date) as sent_today
+            and (sent.updated_at at time zone (base.schedule->>'timezone'))::date=(${nowTimestamp}::timestamptz at time zone (base.schedule->>'timezone'))::date) as sent_today
       from base
     ), candidates as (
       select id from ranked where campaign_rank<=greatest(daily_email_limit-sent_today,0) order by id limit ${limit}
     )
     update ${leadHunterOutbox} outbox set state='leased', lease_owner=${input.leaseOwner},
-      lease_expires_at=${input.now} + (${leaseMinutes} * interval '1 minute'), attempt_count=attempt_count+1
+      lease_expires_at=${nowTimestamp}::timestamptz + (${leaseMinutes} * interval '1 minute'), attempt_count=attempt_count+1
     from candidates where outbox.id=candidates.id
     returning outbox.id as "outboxId", outbox.recipient_email as recipient, outbox.subject, outbox.body,
       outbox.due_at as "dueAt", outbox.idempotency_key as "idempotencyKey"
@@ -67,10 +68,10 @@ export async function recordMailEvent(database: OutboxDatabase, input: { provide
   if (!row) return false;
   await database.execute(sql`update ${leadHunterEnrollments} set status=${input.event === "replied" ? "replied" : "stopped"}::lh_enrollment_status,next_action_at=null where owner_id=${row.ownerId} and id=${row.enrollmentId}`);
   await database.execute(sql`update ${leadHunterOutbox} set state='cancelled' where owner_id=${row.ownerId} and enrollment_id=${row.enrollmentId} and state='queued'`);
-  await database.execute(sql`insert into ${leadHunterActivities} (owner_id,campaign_id,lead_id,actor_type,event_type,detail,occurred_at) values (${row.ownerId},${row.campaignId},${row.leadId},'system',${`mail.${input.event}`},${JSON.stringify({ providerMessageId: input.providerMessageId })}::jsonb,${input.occurredAt})`);
+  await database.execute(sql`insert into ${leadHunterActivities} (owner_id,campaign_id,lead_id,actor_type,event_type,detail,occurred_at) values (${row.ownerId},${row.campaignId},${row.leadId},'system',${`mail.${input.event}`},${JSON.stringify({ providerMessageId: input.providerMessageId })}::jsonb,${input.occurredAt.toISOString()})`);
   return true;
 }
 
 export async function releaseExpiredMail(database: OutboxDatabase, now = new Date()) {
-  await database.execute(sql`update ${leadHunterOutbox} set state=case when attempt_count>=3 then 'failed'::lh_outbox_state else 'queued'::lh_outbox_state end, lease_owner=null,lease_expires_at=null,last_error='Transport lease expired' where state='leased' and lease_expires_at<=${now}`);
+  await database.execute(sql`update ${leadHunterOutbox} set state=case when attempt_count>=3 then 'failed'::lh_outbox_state else 'queued'::lh_outbox_state end, lease_owner=null,lease_expires_at=null,last_error='Transport lease expired' where state='leased' and lease_expires_at<=${now.toISOString()}`);
 }

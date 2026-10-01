@@ -94,8 +94,12 @@ def result_for(job: dict[str, Any]) -> dict[str, Any]:
 
 def run_once(base_url: str, token: str) -> bool:
     status, job = api("POST", f"{base_url.rstrip('/')}/api/internal/leadhunter/jobs/next", token, {"kinds": ["research", "audit_website", "qualify", "enrich_contact"]})
-    if status == 204 or not job:
+    if status == 204:
         return False
+    if status != 200:
+        raise RuntimeError(f"KazeOS job claim failed with status {status}")
+    if not isinstance(job, dict) or not all(key in job for key in ("id", "kind", "leaseToken", "payload")):
+        raise RuntimeError("KazeOS returned an invalid job claim")
     try:
         body = {"leaseToken": job["leaseToken"], "result": result_for(job)}
     except Exception as error:

@@ -127,8 +127,8 @@ describe("planDueRuns", () => {
       sql.includes("update \"lh_campaigns\""));
     expect(campaignUpdate?.sql).toContain("last_run_at");
     expect(campaignUpdate?.sql).toContain("next_search_at");
-    expect(campaignUpdate?.params).toContainEqual(
-      new Date("2026-10-02T12:00:00.000Z"),
+    expect(campaignUpdate?.params).toContain(
+      "2026-10-02T12:00:00.000Z",
     );
     expect(mocks.createSearchPlan).toHaveBeenCalledWith(expect.objectContaining({
       campaignVersion: 4,

@@ -40,4 +40,4 @@ Cada comando incluye `outboxId`, destinatario, asunto, cuerpo, fecha e `idempote
 
 La búsqueda general, directorios, Instagram público y páginas públicas de empresas en LinkedIn se descubren mediante SearXNG. Las páginas encontradas se investigan con evidencia trazable. CSV y carga manual permanecen disponibles como entrada del usuario; no generan búsquedas automáticas.
 
-No se aplican migraciones automáticamente. Antes de activar una campaña en un entorno nuevo, ejecutar las migraciones `0009` a `0013` contra la base de datos correspondiente.
+No se aplican migraciones automáticamente. Antes de activar una campaña en un entorno nuevo, ejecutar `pnpm db:migrate -- --dry-run`, revisar las migraciones pendientes y después ejecutar `pnpm db:migrate` contra la base de datos correspondiente.

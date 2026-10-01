@@ -276,6 +276,7 @@ export async function settleLeadHunterRun(
   runId: string,
   now: Date,
 ) {
+  const nowTimestamp = now.toISOString();
   await database.execute(sql`
     select ${leadHunterRuns.id}
     from ${leadHunterRuns}
@@ -295,7 +296,7 @@ export async function settleLeadHunterRun(
         'succeeded', summary.succeeded_count,
         'failed', summary.failed_count
       ),
-      finished_at = ${now}
+      finished_at = ${nowTimestamp}
     from (
       select
         count(*)::integer as total_count,
@@ -317,6 +318,7 @@ export async function claimNextJob(
   options: ClaimNextJobOptions,
 ): Promise<ClaimedJob | null> {
   validateRuntimeOptions(options);
+  const nowTimestamp = options.now.toISOString();
 
   const expiredLeases = await database.execute(sql<ExpiredLeaseRow>`
     update ${leadHunterJobs}
@@ -331,7 +333,7 @@ export async function claimNextJob(
       lease_expires_at = null,
       last_error = 'Lease expired'
     where ${leadHunterJobs.state} = 'leased'
-      and ${leadHunterJobs.leaseExpiresAt} <= ${options.now}
+      and ${leadHunterJobs.leaseExpiresAt} <= ${nowTimestamp}
     returning
       ${leadHunterJobs.runId} as "runId",
       ${leadHunterJobs.state}
@@ -351,6 +353,7 @@ export async function claimNextJob(
   const leaseExpiresAt = new Date(
     options.now.getTime() + options.leaseDurationMs,
   );
+  const leaseExpiresAtTimestamp = leaseExpiresAt.toISOString();
   const rows = await database.execute(sql<ClaimedJobRow>`
     with candidate as (
       select ${leadHunterJobs.id}
@@ -368,7 +371,7 @@ export async function claimNextJob(
       attempt_count = job.attempt_count + 1,
       lease_owner = 'worker-api',
       lease_token_digest = ${leaseTokenDigest},
-      lease_expires_at = ${leaseExpiresAt},
+      lease_expires_at = ${leaseExpiresAtTimestamp},
       last_error = null
     from candidate
     where job.id = candidate.id
@@ -387,7 +390,7 @@ export async function claimNextJob(
     update ${leadHunterRuns}
     set
       state = 'running',
-      started_at = coalesce(${leadHunterRuns.startedAt}, ${options.now})
+      started_at = coalesce(${leadHunterRuns.startedAt}, ${nowTimestamp})
     where ${leadHunterRuns.id} = ${claimed.runId}
       and ${leadHunterRuns.state} = 'planned'
   `);

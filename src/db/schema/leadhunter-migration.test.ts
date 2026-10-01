@@ -10,12 +10,12 @@ function normalizeSql(value: string) {
 }
 
 const foundationMigration = normalizeSql(readFileSync(
-  resolve(process.cwd(), "supabase/migrations/0009_add_leadhunter.sql"),
+  resolve(process.cwd(), "supabase/migrations/20260930010000_add_leadhunter.sql"),
   "utf8",
 ));
 const migrationPath = resolve(
   process.cwd(),
-  "supabase/migrations/0010_add_leadhunter_pipeline.sql",
+  "supabase/migrations/20260930010100_add_leadhunter_pipeline.sql",
 );
 const snapshotPath = resolve(
   process.cwd(),
@@ -27,7 +27,7 @@ const journalPath = resolve(
 );
 const runtimeMigrationPath = resolve(
   process.cwd(),
-  "supabase/migrations/0011_add_leadhunter_job_runtime.sql",
+  "supabase/migrations/20260930010200_add_leadhunter_job_runtime.sql",
 );
 const runtimeSnapshotPath = resolve(
   process.cwd(),
@@ -35,7 +35,7 @@ const runtimeSnapshotPath = resolve(
 );
 const provenanceMigrationPath = resolve(
   process.cwd(),
-  "supabase/migrations/0012_protect_leadhunter_source_provenance.sql",
+  "supabase/migrations/20260930010300_protect_leadhunter_source_provenance.sql",
 );
 const provenanceSnapshotPath = resolve(
   process.cwd(),
@@ -43,7 +43,7 @@ const provenanceSnapshotPath = resolve(
 );
 const researchMigrationPath = resolve(
   process.cwd(),
-  "supabase/migrations/0013_add_leadhunter_research_provenance.sql",
+  "supabase/migrations/20260930010400_add_leadhunter_research_provenance.sql",
 );
 const researchSnapshotPath = resolve(
   process.cwd(),
