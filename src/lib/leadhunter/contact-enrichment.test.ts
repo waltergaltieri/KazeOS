@@ -113,6 +113,44 @@ describe("LeadHunter contact enrichment", () => {
     expect(result.chosen).toMatchObject({ firstName: null, lastName: null, role: null });
   });
 
+  it.each([
+    { field: "firstName", value: "ana", email: "ana@example.com" },
+    { field: "role", value: "owner", email: "owner@example.com" },
+  ])("does not ground $field from inside an email-address span", ({ field, value, email }) => {
+    const result = deriveContactSelection({
+      officialDomain: "example.com",
+      sources: [official],
+      observations: [observation({
+        email,
+        extract: email,
+        [field]: value,
+      })],
+      crossLeadEmails: [],
+    });
+
+    expect(result.outcome).toBe("no_email");
+    expect(result.reasons).toContain("person_field_not_exactly_published");
+  });
+
+  it.each([
+    { field: "firstName", value: "ana", email: "ana@example.com" },
+    { field: "role", value: "owner", email: "owner@example.com" },
+  ])("accepts $field when separately published outside the email span", ({ field, value, email }) => {
+    const result = deriveContactSelection({
+      officialDomain: "example.com",
+      sources: [official],
+      observations: [observation({
+        email,
+        extract: `${value}: ${email}`,
+        [field]: value,
+      })],
+      crossLeadEmails: [],
+    });
+
+    expect(result.outcome).toBe("selected");
+    expect(result.chosen?.[field as "firstName" | "role"]).toBe(value);
+  });
+
   it("ranks an explicitly evidenced owner above a generic mailbox", () => {
     const result = deriveContactSelection({
       officialDomain: "example.com",
@@ -150,6 +188,22 @@ describe("LeadHunter contact enrichment", () => {
       observations: [
         observation({ email: "sales@example.com", extract: "Ana Owner sales@example.com", firstName: "Ana", role: "Owner" }),
         observation({ email: "sales@example.com", extract: "Ana Accountant sales@example.com", firstName: "Ana", role: "Accountant" }),
+      ],
+      reason: "conflicting_contact_identity",
+    },
+    {
+      name: "one person and source publishing two decision roles",
+      observations: [
+        observation({ email: "ana@example.com", extract: "Ana Owner ana@example.com", firstName: "Ana", role: "Owner" }),
+        observation({ email: "ana@example.com", extract: "Ana Founder ana@example.com", firstName: "Ana", role: "Founder" }),
+      ],
+      reason: "conflicting_contact_identity",
+    },
+    {
+      name: "one person and source publishing two nondecision roles",
+      observations: [
+        observation({ email: "ana@example.com", extract: "Ana Accountant ana@example.com", firstName: "Ana", role: "Accountant" }),
+        observation({ email: "ana@example.com", extract: "Ana Designer ana@example.com", firstName: "Ana", role: "Designer" }),
       ],
       reason: "conflicting_contact_identity",
     },
@@ -278,5 +332,50 @@ describe("LeadHunter contact enrichment", () => {
     expect(deriveContactSelection({ ...base, observations })).toEqual(
       deriveContactSelection({ ...base, observations: [...observations].reverse() }),
     );
+  });
+
+  it("uses total deterministic tie-breakers for duplicate observations", () => {
+    const observations = [
+      observation({
+        email: "Sales@Example.com",
+        extract: "Sales@Example.com",
+      }),
+      observation({
+        email: "sales@example.com",
+        extract: "sales@example.com",
+      }),
+    ];
+    const base = {
+      officialDomain: "example.com",
+      sources: [official],
+      crossLeadEmails: [] as string[],
+    };
+
+    expect(deriveContactSelection({ ...base, observations })).toEqual(
+      deriveContactSelection({ ...base, observations: [...observations].reverse() }),
+    );
+  });
+
+  it("returns the same role conflict after reversing observations", () => {
+    const observations = [
+      observation({ email: "ana@example.com", extract: "Ana Owner ana@example.com", firstName: "Ana", role: "Owner" }),
+      observation({ email: "ana@example.com", extract: "Ana Founder ana@example.com", firstName: "Ana", role: "Founder" }),
+    ];
+    const base = {
+      officialDomain: "example.com",
+      sources: [official],
+      crossLeadEmails: [] as string[],
+    };
+
+    const forward = deriveContactSelection({ ...base, observations });
+    const reversed = deriveContactSelection({
+      ...base,
+      observations: [...observations].reverse(),
+    });
+    expect(forward).toEqual(reversed);
+    expect(forward).toMatchObject({
+      outcome: "needs_review",
+      reasons: expect.arrayContaining(["conflicting_contact_identity"]),
+    });
   });
 });

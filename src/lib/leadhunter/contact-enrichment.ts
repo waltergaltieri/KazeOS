@@ -164,7 +164,30 @@ function registrableDomain(value: string | null): string | null {
   return getDomain(ascii, { allowPrivateDomains: true });
 }
 
-function exactSpan(extract: string, value: string): boolean {
+interface TextSpan {
+  start: number;
+  end: number;
+}
+
+function emailAddressSpans(extract: string): TextSpan[] {
+  const spans: TextSpan[] = [];
+  const pattern = /[\p{L}\p{N}!#$%&'*+/=?^_`{|}~.-]+@(?:[\p{L}\p{N}-]+\.)+[\p{L}\p{N}-]+/gu;
+  for (const match of extract.matchAll(pattern)) {
+    if (match.index === undefined) continue;
+    spans.push({ start: match.index, end: match.index + match[0].length });
+  }
+  return spans;
+}
+
+function overlaps(left: TextSpan, right: TextSpan): boolean {
+  return left.start < right.end && right.start < left.end;
+}
+
+function exactSpan(
+  extract: string,
+  value: string,
+  forbiddenSpans: readonly TextSpan[] = [],
+): boolean {
   let offset = extract.indexOf(value);
   while (offset >= 0) {
     const before = offset === 0
@@ -175,7 +198,15 @@ function exactSpan(extract: string, value: string): boolean {
       ? ""
       : Array.from(extract.slice(afterOffset))[0] ?? "";
     const unsafeBoundary = /[\p{L}\p{N}._%+'-]/u;
-    if ((!before || !unsafeBoundary.test(before)) && (!after || !unsafeBoundary.test(after))) {
+    const candidate = { start: offset, end: offset + value.length };
+    const outsideForbiddenSpans = forbiddenSpans.every((span) => (
+      !overlaps(candidate, span)
+    ));
+    if (
+      outsideForbiddenSpans
+      && (!before || !unsafeBoundary.test(before))
+      && (!after || !unsafeBoundary.test(after))
+    ) {
       return true;
     }
     offset = extract.indexOf(value, offset + 1);
@@ -201,24 +232,39 @@ function roleRank(contact: SelectedContact): number {
   return 0;
 }
 
-function isDecisionRole(value: string): boolean {
-  return decisionRolePattern.test(value);
-}
-
 function genericMailbox(contact: SelectedContact): boolean {
   return genericMailboxPattern.test(contact.normalizedEmail.split("@")[0] ?? "");
+}
+
+function compareText(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
+function deterministicContactKey(contact: SelectedContact): string {
+  return JSON.stringify([
+    contact.displayEmail.normalize("NFC"),
+    contact.firstName?.normalize("NFC") ?? "",
+    contact.lastName?.normalize("NFC") ?? "",
+    contact.role?.normalize("NFC") ?? "",
+    contact.sourceUrl,
+    contact.sourceType,
+    contact.verifiedAt,
+    contact.evidenceRefs,
+  ]);
 }
 
 function comparison(left: SelectedContact, right: SelectedContact): number {
   return right.confidenceScore - left.confidenceScore
     || roleRank(right) - roleRank(left)
     || Number(genericMailbox(left)) - Number(genericMailbox(right))
-    || left.normalizedEmail.localeCompare(right.normalizedEmail)
-    || left.sourceRef.localeCompare(right.sourceRef);
+    || compareText(left.normalizedEmail, right.normalizedEmail)
+    || compareText(left.sourceRef, right.sourceRef)
+    || compareText(deterministicContactKey(left), deterministicContactKey(right));
 }
 
 function uniqueSorted(values: Iterable<string>): string[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+  return [...new Set(values)].sort(compareText);
 }
 
 function selectBestObservation(
@@ -299,7 +345,10 @@ export function deriveContactSelection(
     }
     const personFields = [observation.firstName, observation.lastName, observation.role]
       .filter((value): value is string => value !== undefined);
-    if (personFields.some((value) => !exactSpan(observation.extract, value))) {
+    const emailSpans = emailAddressSpans(observation.extract);
+    if (personFields.some((value) => (
+      !exactSpan(observation.extract, value, emailSpans)
+    ))) {
       rejectedCount += 1;
       reasons.push("person_field_not_exactly_published");
       continue;
@@ -325,13 +374,22 @@ export function deriveContactSelection(
       normalizedPersonPart(observation.firstName ?? null),
       normalizedPersonPart(observation.lastName ?? null),
     ].filter(Boolean).join(" ")).filter(Boolean));
-    const roles = uniqueSorted(observations.map(({ observation }) => (
-      normalizedPersonPart(observation.role ?? null)
-    )).filter(Boolean));
-    const incompatibleRoles = roles.length > 1
-      && roles.some(isDecisionRole)
-      && roles.some((role) => !isDecisionRole(role));
-    if (identities.length > 1 || incompatibleRoles) identityConflict = true;
+    const rolesByPersonAndSource = new Map<string, Set<string>>();
+    for (const { observation, source } of observations) {
+      const person = [
+        normalizedPersonPart(observation.firstName ?? null),
+        normalizedPersonPart(observation.lastName ?? null),
+      ].filter(Boolean).join(" ");
+      const role = normalizedPersonPart(observation.role ?? null);
+      if (!role) continue;
+      const key = `${source.ref}\u0000${person}`;
+      const roles = rolesByPersonAndSource.get(key) ?? new Set<string>();
+      roles.add(role);
+      rolesByPersonAndSource.set(key, roles);
+    }
+    const conflictingRoles = [...rolesByPersonAndSource.values()]
+      .some((roles) => roles.size > 1);
+    if (identities.length > 1 || conflictingRoles) identityConflict = true;
     contacts.push(selectBestObservation(observations));
   }
   contacts.sort(comparison);
