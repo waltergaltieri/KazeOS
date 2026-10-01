@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import * as schema from "@/db/schema";
 import { leadHunterJobs, leadHunterRuns } from "@/db/schema";
+import { contactEnrichmentPayloadSchema } from "@/lib/leadhunter/contact-enrichment";
 import { leadHunterSourceSchema } from "@/lib/leadhunter/contracts";
 
 type JobKind =
@@ -111,7 +112,7 @@ const jobPayloadSchemas = {
     ).nullable().optional(),
   }).strict(),
   qualify: leadPayloadSchema,
-  enrich_contact: leadPayloadSchema,
+  enrich_contact: contactEnrichmentPayloadSchema,
   prepare_message: z.object({ enrollmentId: z.string().uuid() }).strict(),
   validate_message: z.object({ messageVersionId: z.string().uuid() }).strict(),
 };
@@ -142,7 +143,10 @@ const jobResultSchemas = {
     score: z.number().int().min(0).max(100),
   }).strict()),
   enrich_contact: resultSchema("enrich_contact", z.object({
+    outcome: z.enum(["selected", "needs_review", "no_email"]),
     contactIds: z.array(z.string().uuid()).max(50),
+    primaryContactId: z.string().uuid().nullable(),
+    outboundBlocked: z.boolean(),
   }).strict()),
   prepare_message: resultSchema("prepare_message", z.object({
     messageVersionId: z.string().uuid(),
@@ -422,7 +426,7 @@ export async function completeJob(
 
   if (
     "result" in input.completion
-    && ["research", "audit_website", "qualify"].includes(job.kind)
+    && ["research", "audit_website", "qualify", "enrich_contact"].includes(job.kind)
   ) {
     throw new JobCompletionValidationError();
   }

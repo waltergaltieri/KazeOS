@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   persistResearchResultInTransaction: vi.fn(),
   persistWebsiteAuditResultInTransaction: vi.fn(),
   persistQualificationResultInTransaction: vi.fn(),
+  persistContactEnrichmentResultInTransaction: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -21,6 +22,10 @@ vi.mock("./research-manager", () => ({
 vi.mock("./qualification-manager", () => ({
   persistWebsiteAuditResultInTransaction: mocks.persistWebsiteAuditResultInTransaction,
   persistQualificationResultInTransaction: mocks.persistQualificationResultInTransaction,
+}));
+vi.mock("./contact-manager", () => ({
+  persistContactEnrichmentResultInTransaction:
+    mocks.persistContactEnrichmentResultInTransaction,
 }));
 
 import { completeClaimedJob } from "./completion-manager";
@@ -52,7 +57,7 @@ function researchDatabase() {
   return { database: { execute } as unknown as LeadHunterJobDatabase, execute };
 }
 
-function specializedDatabase(kind: "audit_website" | "qualify") {
+function specializedDatabase(kind: "audit_website" | "qualify" | "enrich_contact") {
   const execute = vi.fn(async (query: unknown) => {
     const rendered = dialect.sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]);
     expect(rendered.sql).not.toContain("for update");
@@ -200,6 +205,7 @@ describe("LeadHunter completion dispatcher", () => {
   it.each([
     ["audit_website" as const, "persistWebsiteAuditResultInTransaction" as const, { observations: [] }],
     ["qualify" as const, "persistQualificationResultInTransaction" as const, {}],
+    ["enrich_contact" as const, "persistContactEnrichmentResultInTransaction" as const, { observations: [] }],
   ])("routes %s output through its evidence manager", async (kind, manager, output) => {
     const { database } = specializedDatabase(kind);
     mocks[manager].mockResolvedValue({ status: "processed" });
@@ -222,7 +228,7 @@ describe("LeadHunter completion dispatcher", () => {
     expect(mocks.completeJob).not.toHaveBeenCalled();
   });
 
-  it.each(["audit_website", "qualify"] as const)(
+  it.each(["audit_website", "qualify", "enrich_contact"] as const)(
     "preserves generic worker failures for %s",
     async (kind) => {
       const { database } = specializedDatabase(kind);
@@ -240,10 +246,11 @@ describe("LeadHunter completion dispatcher", () => {
       expect(mocks.completeJob).toHaveBeenCalledWith(database, input);
       expect(mocks.persistWebsiteAuditResultInTransaction).not.toHaveBeenCalled();
       expect(mocks.persistQualificationResultInTransaction).not.toHaveBeenCalled();
+      expect(mocks.persistContactEnrichmentResultInTransaction).not.toHaveBeenCalled();
     },
   );
 
-  it.each(["audit_website", "qualify"] as const)(
+  it.each(["audit_website", "qualify", "enrich_contact"] as const)(
     "rejects a wrong %s lease before specialized dispatch",
     async (kind) => {
       const execute = vi.fn(async () => [{
@@ -266,6 +273,7 @@ describe("LeadHunter completion dispatcher", () => {
 
       expect(mocks.persistWebsiteAuditResultInTransaction).not.toHaveBeenCalled();
       expect(mocks.persistQualificationResultInTransaction).not.toHaveBeenCalled();
+      expect(mocks.persistContactEnrichmentResultInTransaction).not.toHaveBeenCalled();
       expect(mocks.completeJob).not.toHaveBeenCalled();
     },
   );

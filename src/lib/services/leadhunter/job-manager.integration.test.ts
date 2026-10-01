@@ -66,8 +66,22 @@ const validJobContracts = [
   },
   {
     kind: "enrich_contact",
-    payload: { leadId },
-    output: { contactIds: ["66666666-6666-4666-8666-666666666666"] },
+    payload: {
+      leadId,
+      sources: [{
+        ref: "official-contact",
+        sourceUrl: "https://example.com/contact",
+        sourceType: "official_site",
+        contentSha256: "a".repeat(64),
+        suppliedAt: "2026-09-30T12:00:00.000Z",
+      }],
+    },
+    output: {
+      outcome: "selected",
+      contactIds: ["66666666-6666-4666-8666-666666666666"],
+      primaryContactId: "66666666-6666-4666-8666-666666666666",
+      outboundBlocked: false,
+    },
   },
   {
     kind: "prepare_message",
@@ -210,7 +224,7 @@ describe("claimNextJob query contract", () => {
 
 describe("completeJob", () => {
   it.each(validJobContracts.filter(({ kind }) => (
-    !["research", "audit_website", "qualify"].includes(kind)
+    !["research", "audit_website", "qualify", "enrich_contact"].includes(kind)
   )))(
     "accepts the declared $kind payload and result contract",
     async ({

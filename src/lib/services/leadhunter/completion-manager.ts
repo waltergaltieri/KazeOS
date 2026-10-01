@@ -17,6 +17,7 @@ import {
   persistQualificationResultInTransaction,
   persistWebsiteAuditResultInTransaction,
 } from "./qualification-manager";
+import { persistContactEnrichmentResultInTransaction } from "./contact-manager";
 
 interface CompletionDispatchRow {
   ownerId: string;
@@ -46,7 +47,7 @@ export async function completeClaimedJob(
 
   if (
     job
-    && ["research", "audit_website", "qualify"].includes(job.kind)
+    && ["research", "audit_website", "qualify", "enrich_contact"].includes(job.kind)
     && "result" in input.completion
   ) {
     const suppliedDigest = digestLeaseToken(input.leaseToken);
@@ -82,7 +83,10 @@ export async function completeClaimedJob(
     if (job.kind === "audit_website") {
       return persistWebsiteAuditResultInTransaction(database, managerInput);
     }
-    return persistQualificationResultInTransaction(database, managerInput);
+    if (job.kind === "qualify") {
+      return persistQualificationResultInTransaction(database, managerInput);
+    }
+    return persistContactEnrichmentResultInTransaction(database, managerInput);
   }
 
   return completeJob(database, input);

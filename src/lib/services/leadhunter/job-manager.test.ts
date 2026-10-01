@@ -39,7 +39,7 @@ describe("LeadHunter research job result bounds", () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
-  it.each(["audit_website", "qualify"] as const)(
+  it.each(["audit_website", "qualify", "enrich_contact"] as const)(
     "rejects generic successful %s completion before any write",
     async (kind) => {
       const execute = vi.fn(async () => [{
