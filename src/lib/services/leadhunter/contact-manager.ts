@@ -600,7 +600,7 @@ export async function persistContactEnrichmentResultInTransaction(
     if (selection.outcome === "selected") {
       await transaction.execute(sql`
         update ${leadHunterEnrollments}
-        set evaluation = case when evaluation = 'no_email' then 'pending' else evaluation end
+        set evaluation = case when evaluation = 'no_email' then 'eligible' else evaluation end
         where ${leadHunterEnrollments.ownerId} = ${input.ownerId}
           and ${leadHunterEnrollments.id} = ${trustedJob.enrollmentId}
           and ${leadHunterEnrollments.leadId} = ${trustedJob.leadId}

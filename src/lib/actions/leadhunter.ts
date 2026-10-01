@@ -3,12 +3,14 @@
 import { revalidatePath } from "next/cache";
 import type { ZodError } from "zod";
 
-import { withAuthenticatedDb } from "@/db";
+import { planDueLeadHunterRuns, withAuthenticatedDb } from "@/db";
 import { requireUser } from "@/lib/auth/require-user";
 import { createCampaign } from "@/lib/services/leadhunter/campaign-manager";
 import { createLead } from "@/lib/services/leadhunter/lead-manager";
+import { controlCampaign } from "@/lib/services/leadhunter/campaign-control";
 import {
   campaignFormSchema,
+  campaignIdSchema,
   leadFormSchema,
 } from "@/lib/validations/leadhunter";
 
@@ -59,6 +61,10 @@ function campaignInput(formData: FormData): Record<string, unknown> {
     dailyLeadLimit: formData.get("dailyLeadLimit"),
     dailyEmailLimit: formData.get("dailyEmailLimit"),
     sequenceSteps: parseSequence(formData.get("sequenceSteps")),
+    messageLanguage: formData.get("messageLanguage"),
+    messageCta: formData.get("messageCta"),
+    messageSignature: formData.get("messageSignature"),
+    restrictedPhrases: lines(formData.get("restrictedPhrases")),
   };
 }
 
@@ -141,4 +147,15 @@ export async function createLeadHunterLeadAction(
   } catch {
     return { status: "error", message: "No pudimos crear el prospecto." };
   }
+}
+
+export async function controlLeadHunterCampaignAction(formData: FormData): Promise<void> {
+  const campaignId = campaignIdSchema.parse(formData.get("campaignId"));
+  const command = formData.get("command");
+  if (command !== "activate" && command !== "pause" && command !== "run_now") throw new Error("Acción inválida");
+  const user = await requireUser();
+  await withAuthenticatedDb(user.id, (database) => controlCampaign(database, { ownerId: user.id, campaignId, command }));
+  if (command !== "pause") await planDueLeadHunterRuns();
+  revalidatePath("/leadhunter");
+  revalidatePath(`/leadhunter/campaigns/${campaignId}`);
 }

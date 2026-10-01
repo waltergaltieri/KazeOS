@@ -116,6 +116,10 @@ export const campaignFormSchema = z
       )
       .min(1, "Agregá al menos un correo a la secuencia.")
       .max(12),
+    messageLanguage: z.enum(["es-AR", "en-US"]).optional(),
+    messageCta: trimmedText(1, 500, "Indicá cómo cerrar el mensaje.").optional(),
+    messageSignature: trimmedText(1, 500, "Indicá la firma.").optional(),
+    restrictedPhrases: criteriaSchema.optional(),
   })
   .strict()
   .superRefine((campaign, context) => {

@@ -11,6 +11,9 @@ import {
 } from "@/lib/services/leadhunter/job-manager";
 import { completeClaimedJob } from "@/lib/services/leadhunter/completion-manager";
 import { planDueRuns } from "@/lib/services/leadhunter/run-manager";
+import { claimDueMail, recordMailEvent, releaseExpiredMail, settleMail } from "@/lib/services/leadhunter/outbox-manager";
+import { prepareValidatedMessage } from "@/lib/services/leadhunter/message-manager";
+import { runAgentDiscovery } from "@/lib/services/leadhunter/agent-runner";
 
 /**
  * Default application database entry point. The id must come from a verified
@@ -29,11 +32,12 @@ export function planDueLeadHunterRuns() {
     planDueRuns(transaction, { now: new Date() }));
 }
 
-export function claimLeadHunterJob() {
+export function claimLeadHunterJob(kinds?: import("@/lib/services/leadhunter/job-manager").JobKind[]) {
   return adminDb.transaction((transaction) => claimNextJob(transaction, {
     now: new Date(),
     leaseDurationMs: leadHunterLeaseDurationMs,
     maxAttempts: leadHunterMaximumAttempts,
+    kinds,
   }));
 }
 
@@ -48,3 +52,24 @@ export function completeLeadHunterJob(input: {
     maxAttempts: leadHunterMaximumAttempts,
   }));
 }
+
+export function prepareLeadHunterMessage(ownerId: string, enrollmentId: string) {
+  return adminDb.transaction((transaction) => prepareValidatedMessage(transaction, ownerId, enrollmentId));
+}
+
+export function claimLeadHunterMail(leaseOwner: string, limit?: number) {
+  return adminDb.transaction(async (transaction) => {
+    await releaseExpiredMail(transaction);
+    return claimDueMail(transaction, { now: new Date(), leaseOwner, limit });
+  });
+}
+
+export function settleLeadHunterMail(input: Parameters<typeof settleMail>[1]) {
+  return adminDb.transaction((transaction) => settleMail(transaction, input));
+}
+
+export function recordLeadHunterMailEvent(input: Parameters<typeof recordMailEvent>[1]) {
+  return adminDb.transaction((transaction) => recordMailEvent(transaction, input));
+}
+
+export function runLeadHunterDiscovery() { return runAgentDiscovery(adminDb); }

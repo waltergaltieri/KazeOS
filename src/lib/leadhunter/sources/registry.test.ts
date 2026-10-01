@@ -37,6 +37,9 @@ describe("LeadHunter source registry", () => {
       supportsCursor: true,
       live: true,
     });
+    for (const source of ["directories", "instagram", "linkedin"] as const) {
+      expect(registry.get(source).capabilities).toMatchObject({ discovery: true, live: true });
+    }
     expect(registry.list()).toHaveLength(7);
   });
 

@@ -50,6 +50,8 @@ const researchPayloadSchema = z.object({
     maxOutputTokens: z.number().int().min(0).max(20_000),
     maxCostUsd: z.number().min(0).max(100),
   }).strict(),
+  content: z.string().max(100_000).optional(),
+  questions: z.array(researchQuestionSchema).max(100).optional(),
 }).strict();
 
 const storedResearchResultSchema = z.object({

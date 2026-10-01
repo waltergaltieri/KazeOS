@@ -5,10 +5,15 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { withAuthenticatedDb } from "@/db";
 import {
   leadHunterCampaigns,
+  leadHunterCampaignVersions,
   leadHunterContacts,
   leadHunterEnrollments,
   leadHunterEvidence,
   leadHunterLeads,
+  leadHunterMessageVersions,
+  leadHunterOutbox,
+  leadHunterRuns,
+  leadHunterWebsiteAudits,
 } from "@/db/schema";
 import { requireUser } from "@/lib/auth/require-user";
 import {
@@ -102,6 +107,10 @@ export async function getLeadHunterCampaignWorkspace(idInput: unknown) {
       .where(and(eq(leadHunterCampaigns.ownerId, user.id), eq(leadHunterCampaigns.id, id)))
       .limit(1);
     if (!campaign) return null;
+    const [version] = await database.select({ snapshot: leadHunterCampaignVersions.snapshot })
+      .from(leadHunterCampaignVersions)
+      .where(and(eq(leadHunterCampaignVersions.ownerId, user.id), eq(leadHunterCampaignVersions.campaignId, id), eq(leadHunterCampaignVersions.version, campaign.configVersion)))
+      .limit(1);
 
     const prospects = await database
       .select({
@@ -141,7 +150,13 @@ export async function getLeadHunterCampaignWorkspace(idInput: unknown) {
       )
       .orderBy(desc(leadHunterEnrollments.updatedAt), desc(leadHunterEnrollments.id));
 
-    return { campaign, prospects };
+    const runs = await database
+      .select({ id: leadHunterRuns.id, state: leadHunterRuns.state, counts: leadHunterRuns.counts, scheduledFor: leadHunterRuns.scheduledFor, startedAt: leadHunterRuns.startedAt, finishedAt: leadHunterRuns.finishedAt })
+      .from(leadHunterRuns)
+      .where(and(eq(leadHunterRuns.ownerId, user.id), eq(leadHunterRuns.campaignId, id)))
+      .orderBy(desc(leadHunterRuns.createdAt))
+      .limit(5);
+    return { campaign, strategy: version?.snapshot.strategy ?? null, prospects, runs };
   });
 }
 
@@ -177,7 +192,7 @@ export async function getLeadHunterLeadById(idInput: unknown) {
       .limit(1);
     if (!lead) return null;
 
-    const [contacts, evidence, campaigns] = await Promise.all([
+    const [contacts, evidence, campaigns, audits, messages, outbox] = await Promise.all([
       database
         .select({
           id: leadHunterContacts.id,
@@ -186,6 +201,10 @@ export async function getLeadHunterLeadById(idInput: unknown) {
           role: leadHunterContacts.role,
           email: leadHunterContacts.email,
           phone: leadHunterContacts.phone,
+          sourceUrl: leadHunterContacts.sourceUrl,
+          sourceType: leadHunterContacts.sourceType,
+          emailConfidence: leadHunterContacts.emailConfidence,
+          isPrimary: leadHunterContacts.isPrimary,
         })
         .from(leadHunterContacts)
         .where(and(eq(leadHunterContacts.ownerId, user.id), eq(leadHunterContacts.leadId, id)))
@@ -222,8 +241,25 @@ export async function getLeadHunterLeadById(idInput: unknown) {
         )
         .where(and(eq(leadHunterEnrollments.ownerId, user.id), eq(leadHunterEnrollments.leadId, id)))
         .orderBy(desc(leadHunterEnrollments.updatedAt)),
+      database
+        .select({ id: leadHunterWebsiteAudits.id, gateResult: leadHunterWebsiteAudits.gateResult, summary: leadHunterWebsiteAudits.summary, confidence: leadHunterWebsiteAudits.confidence, checks: leadHunterWebsiteAudits.checks, createdAt: leadHunterWebsiteAudits.createdAt })
+        .from(leadHunterWebsiteAudits)
+        .where(and(eq(leadHunterWebsiteAudits.ownerId, user.id), eq(leadHunterWebsiteAudits.leadId, id)))
+        .orderBy(desc(leadHunterWebsiteAudits.createdAt)),
+      database
+        .select({ id: leadHunterMessageVersions.id, enrollmentId: leadHunterMessageVersions.enrollmentId, subject: leadHunterMessageVersions.subject, body: leadHunterMessageVersions.body, state: leadHunterMessageVersions.state, validationResult: leadHunterMessageVersions.validationResult, createdAt: leadHunterMessageVersions.createdAt })
+        .from(leadHunterMessageVersions)
+        .innerJoin(leadHunterEnrollments, and(eq(leadHunterEnrollments.ownerId, leadHunterMessageVersions.ownerId), eq(leadHunterEnrollments.id, leadHunterMessageVersions.enrollmentId)))
+        .where(and(eq(leadHunterMessageVersions.ownerId, user.id), eq(leadHunterEnrollments.leadId, id)))
+        .orderBy(desc(leadHunterMessageVersions.createdAt)),
+      database
+        .select({ id: leadHunterOutbox.id, enrollmentId: leadHunterOutbox.enrollmentId, messageVersionId: leadHunterOutbox.messageVersionId, logicalStep: leadHunterOutbox.logicalStep, dueAt: leadHunterOutbox.dueAt, state: leadHunterOutbox.state, subject: leadHunterOutbox.subject, providerMessageId: leadHunterOutbox.providerMessageId, lastError: leadHunterOutbox.lastError })
+        .from(leadHunterOutbox)
+        .innerJoin(leadHunterEnrollments, and(eq(leadHunterEnrollments.ownerId, leadHunterOutbox.ownerId), eq(leadHunterEnrollments.id, leadHunterOutbox.enrollmentId)))
+        .where(and(eq(leadHunterOutbox.ownerId, user.id), eq(leadHunterEnrollments.leadId, id)))
+        .orderBy(leadHunterOutbox.logicalStep),
     ]);
 
-    return { lead, contacts, evidence, campaigns };
+    return { lead, contacts, evidence, campaigns, audits, messages, outbox };
   });
 }

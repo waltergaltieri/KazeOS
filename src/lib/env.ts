@@ -105,6 +105,8 @@ export const serverEnvSchema = z.object({
   SUPABASE_SECRET_KEY: optionalString,
   CRON_SECRET: optionalString,
   LEADHUNTER_WORKER_SECRET: optionalWorkerSecret,
+  LEADHUNTER_TRANSPORT_SECRET: optionalWorkerSecret,
+  LEADHUNTER_SEARXNG_ENDPOINT: optionalHttpsUrl,
   APP_ORIGIN: appOriginSchema,
 });
 

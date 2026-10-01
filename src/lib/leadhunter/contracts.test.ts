@@ -191,8 +191,8 @@ describe("LeadHunter campaign strategy contracts", () => {
     expect(arThenUs.message.language).toBe("es-AR");
     expect("messageByCountry" in arThenUs).toBe(false);
     expect(arThenUs.message).toMatchObject({
-      signature: "Equipo KazeCode",
-      cta: "Preguntar si tiene sentido conversar brevemente.",
+      signature: "Quime\nKazeCode",
+      cta: "¿Te serviría una conversación breve de 15 minutos la próxima semana?",
     });
   });
 

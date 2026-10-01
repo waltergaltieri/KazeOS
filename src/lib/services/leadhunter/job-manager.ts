@@ -15,7 +15,7 @@ import { leadHunterJobs, leadHunterRuns } from "@/db/schema";
 import { contactEnrichmentPayloadSchema } from "@/lib/leadhunter/contact-enrichment";
 import { leadHunterSourceSchema } from "@/lib/leadhunter/contracts";
 
-type JobKind =
+export type JobKind =
   | "discover"
   | "resolve_identity"
   | "research"
@@ -98,6 +98,8 @@ const researchPayloadSchema = z.object({
     maxOutputTokens: z.number().int().min(0).max(20_000),
     maxCostUsd: z.number().min(0).max(100),
   }).strict().optional(),
+  content: z.string().max(100_000).optional(),
+  questions: z.array(z.object({ key: z.string(), prompt: z.string(), required: z.boolean() }).strict()).max(100).optional(),
 }).strict();
 
 const jobPayloadSchemas = {
@@ -110,6 +112,7 @@ const jobPayloadSchemas = {
       (value) => /^https?:\/\//i.test(value),
       "Website must use HTTP(S)",
     ).nullable().optional(),
+    sourceUrl: z.string().url().max(2_048).optional(),
   }).strict(),
   qualify: leadPayloadSchema,
   enrich_contact: contactEnrichmentPayloadSchema,
@@ -168,6 +171,8 @@ export type LeadHunterJobDatabase = Pick<
 
 export interface ClaimedJob {
   id: string;
+  ownerId?: string;
+  runId?: string;
   kind: JobKind;
   leaseToken: string;
   leaseExpiresAt: string;
@@ -175,7 +180,6 @@ export interface ClaimedJob {
 }
 
 interface ClaimedJobRow extends Omit<ClaimedJob, "leaseToken" | "leaseExpiresAt"> {
-  runId: string;
   leaseExpiresAt: Date | string;
 }
 
@@ -200,6 +204,7 @@ export interface ClaimNextJobOptions {
   now: Date;
   leaseDurationMs: number;
   maxAttempts: number;
+  kinds?: JobKind[];
 }
 
 export type JobCompletion =
@@ -352,6 +357,7 @@ export async function claimNextJob(
       from ${leadHunterJobs}
       where ${leadHunterJobs.state} = 'queued'
         and ${leadHunterJobs.attemptCount} < ${options.maxAttempts}
+        ${options.kinds?.length ? sql`and ${leadHunterJobs.kind} in (${sql.join(options.kinds.map((kind) => sql`${kind}::lh_job_kind`), sql`, `)})` : sql``}
       order by ${leadHunterJobs.createdAt}, ${leadHunterJobs.id}
       for update skip locked
       limit 1
@@ -368,6 +374,7 @@ export async function claimNextJob(
     where job.id = candidate.id
     returning
       job.id,
+      job.owner_id as "ownerId",
       job.run_id as "runId",
       job.kind,
       job.lease_expires_at as "leaseExpiresAt",
@@ -387,6 +394,8 @@ export async function claimNextJob(
 
   return {
     id: claimed.id,
+    ownerId: claimed.ownerId,
+    runId: claimed.runId,
     kind: claimed.kind,
     leaseToken,
     leaseExpiresAt: databaseDate(claimed.leaseExpiresAt).toISOString(),

@@ -196,6 +196,7 @@ const normalizedWebsiteTargetSchema = websiteTargetSchema.refine(
 const jobPayloadSchema = z.object({
   leadId: z.string().uuid(),
   website: websiteTargetSchema.nullable().optional(),
+  sourceUrl: websiteTargetSchema.optional(),
 }).strict();
 
 const storedAuditChecksSchema = z.object({

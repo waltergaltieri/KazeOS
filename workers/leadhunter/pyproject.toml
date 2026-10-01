@@ -19,6 +19,9 @@ scrapegraph = [
   "scrapegraphai==2.3.0",
 ]
 
+[project.scripts]
+kazeos-leadhunter-worker = "leadhunter_worker.runner:main"
+
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
 testpaths = ["tests"]

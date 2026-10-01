@@ -236,6 +236,10 @@ interface CampaignStrategyDefaults {
   sources: LeadHunterSource[];
   positiveCriteria: string[];
   negativeCriteria: string[];
+  messageLanguage?: "es-AR" | "en-US";
+  messageCta?: string;
+  messageSignature?: string;
+  restrictedPhrases?: string[];
 }
 
 const serviceLabels: Record<string, string> = {
@@ -270,23 +274,22 @@ function messagePolicyForCountry(country: string): MessagePolicy {
       ? "Direct, professional, and specific"
       : "Directo, profesional y específico",
     minimumSpecificFacts: 3,
-    wordRange: { minimum: 120, maximum: 220 },
+    wordRange: { minimum: 65, maximum: 180 },
     intro: useEnglish
-      ? "Introduce KazeCode briefly and explain the reason for reaching out."
-      : "Presentar KazeCode brevemente y explicar el motivo del contacto.",
+      ? "I’m Quime from KazeCode. We build and operate digital systems that remove manual work and help businesses sell more efficiently."
+      : "Soy Quime de KazeCode. Desarrollamos y operamos soluciones digitales que reducen tareas manuales y ayudan a vender de manera más eficiente.",
     commercialModel: useEnglish
-      ? "Propose a concrete improvement with an agreed scope."
-      : "Proponer una mejora concreta con un alcance acordado.",
+      ? "We handle development, hosting, maintenance and ongoing improvements through one monthly subscription."
+      : "Nos ocupamos del desarrollo, hosting, mantenimiento y mejoras continuas mediante una única suscripción mensual.",
     cta: useEnglish
-      ? "Ask whether a brief conversation would be useful."
-      : "Preguntar si tiene sentido conversar brevemente.",
-    signature: useEnglish ? "KazeCode Team" : "Equipo KazeCode",
+      ? "Would a brief 15-minute conversation next week be useful?"
+      : "¿Te serviría una conversación breve de 15 minutos la próxima semana?",
+    signature: useEnglish ? "Quime\nKazeCode" : "Quime\nKazeCode",
     requiredSections: [
       "opening",
       "introduction",
       "business_understanding",
       "primary_opportunity",
-      "secondary_opportunity",
       "commercial_model",
       "cta",
       "signature",
@@ -423,6 +426,13 @@ export function reconcileCampaignStrategy(
         values.positiveCriteria,
         values.negativeCriteria,
       ),
+    },
+    message: {
+      ...strategy.message,
+      language: values.messageLanguage ?? strategy.message.language,
+      cta: values.messageCta ?? strategy.message.cta,
+      signature: values.messageSignature ?? strategy.message.signature,
+      restrictedPhrases: values.restrictedPhrases ?? strategy.message.restrictedPhrases,
     },
   });
 }

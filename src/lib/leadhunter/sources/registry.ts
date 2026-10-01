@@ -6,6 +6,7 @@ import {
   type SearchPlanWorkItem,
   type SourceAdapter,
   type SourceAdapterId,
+  type SourceQueryWorkItem,
   SourceUnavailableError,
 } from "./contracts";
 import { createSearxngAdapter } from "./searxng";
@@ -50,17 +51,32 @@ function unavailableAdapter(source: SourceAdapterId, reason: string): SourceAdap
   };
 }
 
+function publicChannelAdapter(source: "directories" | "instagram" | "linkedin", search: SourceAdapter): SourceAdapter {
+  const suffix = source === "instagram" ? "site:instagram.com" : source === "linkedin" ? "site:linkedin.com/company" : "(directory OR chamber OR Yelp OR Paginas Amarillas OR Yellow Pages)";
+  return {
+    source,
+    capabilities: { ...search.capabilities, enrichment: false, contactSearch: false },
+    async discover(work) {
+      if (work.kind !== "source_query" || work.source !== source) throw new TypeError(`${source} accepts only its own source queries`);
+      const delegated: SourceQueryWorkItem = { ...work, source: "web_search", query: `${work.query.slice(0, 499 - suffix.length)} ${suffix}` };
+      const page = await search.discover(delegated);
+      return { ...page, candidates: page.candidates.map((candidate) => ({ ...candidate, sourceType: source })) };
+    },
+  };
+}
+
 export function createSourceRegistry({
-  searxngEndpoint,
+  searxngEndpoint = process.env.LEADHUNTER_SEARXNG_ENDPOINT,
   fetch,
   resolve,
 }: SourceRegistryOptions = {}): SourceRegistry {
+  const webSearch = createSearxngAdapter({ endpoint: searxngEndpoint, fetch, resolve });
   const configured: SourceAdapter[] = [
-    createSearxngAdapter({ endpoint: searxngEndpoint, fetch, resolve }),
+    webSearch,
     createSeedUrlAdapter({ resolve }),
-    unavailableAdapter("directories", "Directory discovery is not implemented"),
-    unavailableAdapter("instagram", "Instagram discovery is not implemented"),
-    unavailableAdapter("linkedin", "LinkedIn discovery is not implemented"),
+    publicChannelAdapter("directories", webSearch),
+    publicChannelAdapter("instagram", webSearch),
+    publicChannelAdapter("linkedin", webSearch),
     unavailableAdapter("csv", "CSV discovery is not implemented"),
     unavailableAdapter("manual", "Manual discovery does not have an automated adapter"),
   ];

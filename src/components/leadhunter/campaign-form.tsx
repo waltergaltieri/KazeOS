@@ -65,7 +65,7 @@ export function CampaignForm({ action }: { action: CampaignFormAction }) {
     setSteps((current) => [
       ...current,
       {
-        delayDays: (current.at(-1)?.delayDays ?? 0) + 3,
+        delayDays: 3,
         subjectInstruction: "Continuar el hilo anterior",
         bodyInstruction: "Agregar valor sin repetir el mensaje anterior",
       },
@@ -93,8 +93,8 @@ export function CampaignForm({ action }: { action: CampaignFormAction }) {
           <label><input type="checkbox" name="sources" value="directories" defaultChecked /><span><strong>Directorios</strong><small>Listados y cámaras habilitadas</small></span></label>
           <label><input type="checkbox" name="sources" value="csv" /><span><strong>Archivo CSV</strong><small>Importación manual posterior</small></span></label>
           <label><input type="checkbox" name="sources" value="manual" /><span><strong>Carga manual</strong><small>Prospectos que ya conocés</small></span></label>
-          <label className="is-unavailable"><input type="checkbox" name="sources" value="instagram" disabled /><span><strong>Instagram</strong><small>Pendiente de conexión</small></span></label>
-          <label className="is-unavailable"><input type="checkbox" name="sources" value="linkedin" disabled /><span><strong>LinkedIn</strong><small>Pendiente de conexión</small></span></label>
+          <label><input type="checkbox" name="sources" value="instagram" /><span><strong>Instagram</strong><small>Perfiles públicos encontrados por buscador</small></span></label>
+          <label><input type="checkbox" name="sources" value="linkedin" /><span><strong>LinkedIn</strong><small>Páginas públicas de empresas</small></span></label>
         </div>
         <FieldError message={error("sources")} />
       </section>
@@ -131,6 +131,13 @@ export function CampaignForm({ action }: { action: CampaignFormAction }) {
         </div>
         {steps.length < 12 ? <button type="button" className="secondary-button sequence-add" onClick={addStep}><Plus size={16} aria-hidden="true" /> Agregar seguimiento</button> : null}
         <FieldError message={error("sequenceSteps")} />
+      </section>
+
+      <section className="form-sheet" aria-labelledby="campaign-message">
+        <header className="form-sheet__heading"><span>06</span><div><h2 id="campaign-message">Forma de contacto</h2><p>Definí el idioma, el cierre y la firma. El agente redactará el resto con la evidencia del negocio.</p></div></header>
+        <div className="form-grid form-grid--two"><label className="field-stack"><span>Idioma</span><select className="form-control" name="messageLanguage" defaultValue="es-AR"><option value="es-AR">Español de Argentina</option><option value="en-US">Inglés de Estados Unidos</option></select></label><label className="field-stack"><span>Firma</span><textarea className="form-control" name="messageSignature" defaultValue={"Quime\nKazeCode"} /></label></div>
+        <label className="field-stack"><span>Pregunta final</span><input className="form-control" name="messageCta" defaultValue="¿Te serviría una conversación breve de 15 minutos la próxima semana?" /></label>
+        <label className="field-stack"><span>Frases que nunca debe usar</span><textarea className="form-control form-textarea" name="restrictedPhrases" placeholder={"Garantizamos resultados\nOferta por tiempo limitado"} /></label>
       </section>
 
       {state.status === "error" && state.message ? <p className="form-error" role="alert">{state.message}</p> : null}

@@ -8,6 +8,7 @@ vi.mock("@/lib/queries/leadhunter", () => ({
 }));
 vi.mock("@/lib/actions/leadhunter", () => ({
   createLeadHunterLeadAction: vi.fn(),
+  controlLeadHunterCampaignAction: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({
   notFound: vi.fn(),

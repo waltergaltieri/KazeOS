@@ -11,12 +11,12 @@ import { CampaignForm } from "./campaign-form";
 const action = vi.fn(async () => ({ status: "idle" as const }));
 
 describe("CampaignForm", () => {
-  it("makes available and pending sources explicit", () => {
+  it("shows the available public source channels", () => {
     render(<CampaignForm action={action} />);
 
     expect(screen.getByRole("checkbox", { name: /búsqueda web/i })).toBeEnabled();
-    expect(screen.getByRole("checkbox", { name: /linkedin/i })).toBeDisabled();
-    expect(screen.getAllByText(/pendiente de conexión/i)).toHaveLength(2);
+    expect(screen.getByRole("checkbox", { name: /linkedin/i })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: /instagram/i })).toBeEnabled();
   });
 
   it("lets the owner configure more follow-up steps", async () => {
@@ -29,6 +29,6 @@ describe("CampaignForm", () => {
     await user.click(screen.getByRole("button", { name: /agregar seguimiento/i }));
 
     expect(screen.getByRole("heading", { name: "Seguimiento 2" })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("6")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("3")).toHaveLength(2);
   });
 });

@@ -18,9 +18,14 @@ import {
   persistWebsiteAuditResultInTransaction,
 } from "./qualification-manager";
 import { persistContactEnrichmentResultInTransaction } from "./contact-manager";
+import { advancePipelineAfterResult } from "./pipeline-manager";
+import { prepareValidatedMessage } from "./message-manager";
 
 interface CompletionDispatchRow {
   ownerId: string;
+  runId: string;
+  enrollmentId: string | null;
+  leadId: string | null;
   kind: string;
   state: string;
   leaseOwner: string | null;
@@ -35,6 +40,9 @@ export async function completeClaimedJob(
   const rows = await database.execute(sql<CompletionDispatchRow>`
     select
       ${leadHunterJobs.ownerId} as "ownerId",
+      ${leadHunterJobs.runId} as "runId",
+      ${leadHunterJobs.enrollmentId} as "enrollmentId",
+      ${leadHunterJobs.leadId} as "leadId",
       ${leadHunterJobs.kind},
       ${leadHunterJobs.state},
       ${leadHunterJobs.leaseOwner} as "leaseOwner",
@@ -77,16 +85,22 @@ export async function completeClaimedJob(
       now: input.now,
       output: input.completion.result,
     };
-    if (job.kind === "research") {
-      return persistResearchResultInTransaction(database, managerInput);
+    let result: Record<string, unknown>;
+    if (job.kind === "research") result = await persistResearchResultInTransaction(database, managerInput) as unknown as Record<string, unknown>;
+    else if (job.kind === "audit_website") result = await persistWebsiteAuditResultInTransaction(database, managerInput) as unknown as Record<string, unknown>;
+    else if (job.kind === "qualify") result = await persistQualificationResultInTransaction(database, managerInput) as unknown as Record<string, unknown>;
+    else result = await persistContactEnrichmentResultInTransaction(database, managerInput) as unknown as Record<string, unknown>;
+    const output = job.kind === "research" ? { evidenceIds: result.evidenceIds }
+      : job.kind === "audit_website" ? { auditId: result.auditId, gateResult: result.gateResult }
+      : job.kind === "qualify" ? { decision: result.decision, score: result.score }
+      : { outcome: result.outcome, primaryContactId: result.primaryContactId, outboundBlocked: result.outboundBlocked };
+    if (job.kind !== "enrich_contact") {
+      await advancePipelineAfterResult(database, { ownerId: job.ownerId, runId: job.runId, enrollmentId: job.enrollmentId, leadId: job.leadId, kind: job.kind as "research" | "audit_website" | "qualify" }, output);
     }
-    if (job.kind === "audit_website") {
-      return persistWebsiteAuditResultInTransaction(database, managerInput);
+    if (job.kind === "enrich_contact" && output.outcome === "selected" && !output.outboundBlocked && job.enrollmentId) {
+      await prepareValidatedMessage(database, job.ownerId, job.enrollmentId, input.now);
     }
-    if (job.kind === "qualify") {
-      return persistQualificationResultInTransaction(database, managerInput);
-    }
-    return persistContactEnrichmentResultInTransaction(database, managerInput);
+    return result;
   }
 
   return completeJob(database, input);

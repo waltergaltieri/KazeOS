@@ -22,6 +22,7 @@ import * as databaseSchema from "@/db/schema";
 import { leadHunterJobs, leadHunterRuns } from "@/db/schema";
 
 const jobId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const claimedOwnerId = "99999999-9999-4999-8999-999999999999";
 const runId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const now = new Date("2026-09-30T12:00:00.000Z");
 const leaseExpiresAt = new Date("2026-09-30T12:05:00.000Z");
@@ -122,6 +123,7 @@ describe("claimNextJob query contract", () => {
         if (rendered.sql.includes("for update skip locked")) {
           return [{
             id: jobId,
+            ownerId: claimedOwnerId,
             runId,
             kind: "discover",
             leaseExpiresAt: leaseExpiresAt.toISOString(),
@@ -140,6 +142,8 @@ describe("claimNextJob query contract", () => {
 
     expect(claimed).toEqual({
       id: jobId,
+      ownerId: claimedOwnerId,
+      runId,
       kind: "discover",
       leaseToken: expect.any(String),
       leaseExpiresAt: leaseExpiresAt.toISOString(),
@@ -152,7 +156,9 @@ describe("claimNextJob query contract", () => {
       "kind",
       "leaseExpiresAt",
       "leaseToken",
+      "ownerId",
       "payload",
+      "runId",
     ]);
     const claim = statements.find(({ sql }) => sql.includes("for update skip locked"));
     expect(claim?.sql).toContain("for update skip locked");
