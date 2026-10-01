@@ -11,7 +11,10 @@ import {
   exactDigestMatch,
   JobCompletionRejectedError,
   type LeadHunterJobDatabase,
+  workerDiscoveryOutputSchema,
+  workerDiscoveryWorkSchema,
 } from "./job-manager";
+import { persistDiscoveryPageInTransaction } from "./discovery-manager";
 import { persistResearchResultInTransaction } from "./research-manager";
 import {
   persistQualificationResultInTransaction,
@@ -31,6 +34,7 @@ interface CompletionDispatchRow {
   leaseOwner: string | null;
   leaseTokenDigest: string | null;
   leaseExpiresAt: Date | string | null;
+  payload: unknown;
 }
 
 export async function completeClaimedJob(
@@ -48,10 +52,66 @@ export async function completeClaimedJob(
       ${leadHunterJobs.leaseOwner} as "leaseOwner",
       ${leadHunterJobs.leaseTokenDigest} as "leaseTokenDigest",
       ${leadHunterJobs.leaseExpiresAt} as "leaseExpiresAt"
+      ,${leadHunterJobs.payload}
     from ${leadHunterJobs}
     where ${leadHunterJobs.id} = ${input.id}
   `) as unknown as CompletionDispatchRow[];
   const job = rows[0];
+
+  if (
+    job
+    && job.kind === "discover"
+    && "result" in input.completion
+    && job.state !== "succeeded"
+  ) {
+    const envelope = input.completion.result;
+    if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) {
+      return completeJob(database, input);
+    }
+    const record = envelope as Record<string, unknown>;
+    if (record.kind !== "discover") return completeJob(database, input);
+    const output = workerDiscoveryOutputSchema.safeParse(record.output);
+    const work = workerDiscoveryWorkSchema.safeParse(job.payload);
+    if (!output.success || !work.success || !output.data.candidates) {
+      return completeJob(database, input);
+    }
+
+    const suppliedDigest = digestLeaseToken(input.leaseToken);
+    if (!exactDigestMatch(job.leaseTokenDigest, suppliedDigest)) {
+      throw new JobCompletionRejectedError();
+    }
+    let activeLease = false;
+    if (
+      !Number.isNaN(input.now.getTime())
+      && job.leaseOwner === "worker-api"
+      && job.leaseExpiresAt !== null
+    ) {
+      try {
+        activeLease = databaseDate(job.leaseExpiresAt).getTime() > input.now.getTime();
+      } catch {
+        activeLease = false;
+      }
+    }
+    if (!activeLease) throw new JobCompletionRejectedError();
+
+    const nextCursor = output.data.nextCursor ?? { state: "exhausted" as const };
+    const persisted = await persistDiscoveryPageInTransaction(database, {
+      ownerId: job.ownerId,
+      runId: job.runId,
+      work: work.data,
+      page: { candidates: output.data.candidates, nextCursor },
+    });
+    return completeJob(database, {
+      ...input,
+      completion: { result: {
+        kind: "discover",
+        output: {
+          candidateCount: persisted.storedCandidates,
+          nextCursor: persisted.nextCursor,
+        },
+      } },
+    });
+  }
 
   if (
     job

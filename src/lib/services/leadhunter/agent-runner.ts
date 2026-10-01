@@ -7,9 +7,6 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { leadHunterCampaignVersions, leadHunterEnrollments, leadHunterJobs, leadHunterSourceCandidates } from "@/db/schema";
 import type { BusinessIdentity } from "@/lib/leadhunter/identity";
-import { createSourceRegistry } from "@/lib/leadhunter/sources/registry";
-import type { SearchPlanWorkItem } from "@/lib/leadhunter/sources/contracts";
-import { persistDiscoveryPage } from "./discovery-manager";
 import { resolveSourceCandidateIdentity } from "./identity-manager";
 import { claimNextJob, completeJob } from "./job-manager";
 
@@ -32,22 +29,15 @@ function researchContent(candidate: CandidateContext) {
   return `<article><h1 data-lh-field="business_model">${escapeHtml(name)}</h1><p data-lh-field="digital_presence">${escapeHtml(candidate.canonicalUrl)}</p><p data-lh-field="observable_process">${escapeHtml(snippet)}</p><p data-lh-field="service_opportunity">${escapeHtml(snippet)}</p></article>`;
 }
 
-export async function runAgentDiscovery(database: Database, maximumJobs = 20) {
-  const registry = createSourceRegistry();
+export async function runAgentIdentityResolution(database: Database, maximumJobs = 20) {
   let processed = 0;
   let failed = 0;
   for (let index = 0; index < maximumJobs; index += 1) {
-    const job = await database.transaction((tx) => claimNextJob(tx, { now: new Date(), leaseDurationMs: leaseMs, maxAttempts: 3, kinds: ["discover", "resolve_identity"] }));
+    const job = await database.transaction((tx) => claimNextJob(tx, { now: new Date(), leaseDurationMs: leaseMs, maxAttempts: 3, kinds: ["resolve_identity"] }));
     if (!job) break;
     if (!job.ownerId || !job.runId) throw new Error("Claimed job provenance is missing");
     try {
-      if (job.kind === "discover") {
-        const work = job.payload as SearchPlanWorkItem;
-        const page = await registry.forWork(work).discover(work);
-        const stored = await persistDiscoveryPage(database, { ownerId: job.ownerId, runId: job.runId, work, page });
-        await database.transaction((tx) => completeJob(tx, { id: job.id, leaseToken: job.leaseToken, now: new Date(), maxAttempts: 3, completion: { result: { kind: "discover", output: { candidateCount: stored.storedCandidates, nextCursor: stored.nextCursor } } } }));
-      } else {
-        const candidateId = String((job.payload as { candidateId?: unknown }).candidateId ?? "");
+      const candidateId = String((job.payload as { candidateId?: unknown }).candidateId ?? "");
         const rows = await database.execute(sql<CandidateContext>`
           select candidate.canonical_url as "canonicalUrl",candidate.source_type as "sourceType",candidate.raw_record as "rawRecord",
             run.campaign_id as "campaignId",run.campaign_version as "campaignVersion",version.snapshot
@@ -68,8 +58,7 @@ export async function runAgentDiscovery(database: Database, maximumJobs = 20) {
             await database.execute(sql`insert into ${leadHunterJobs} (owner_id,run_id,enrollment_id,lead_id,kind,payload,idempotency_key) values (${job.ownerId},${job.runId},${enrollmentId},${resolution.leadId},'research',${JSON.stringify(payload)}::jsonb,${`run:${job.runId}:research:${enrollmentId}`}) on conflict (owner_id,idempotency_key) do nothing`);
           }
         }
-        await database.transaction((tx) => completeJob(tx, { id: job.id, leaseToken: job.leaseToken, now: new Date(), maxAttempts: 3, completion: { result: { kind: "resolve_identity", output: { leadId: resolution.leadId, confidence: resolution.resolutionState === "resolved" ? 1 : .5 } } } }));
-      }
+      await database.transaction((tx) => completeJob(tx, { id: job.id, leaseToken: job.leaseToken, now: new Date(), maxAttempts: 3, completion: { result: { kind: "resolve_identity", output: { leadId: resolution.leadId, confidence: resolution.resolutionState === "resolved" ? 1 : .5 } } } }));
       processed += 1;
     } catch (error) {
       failed += 1;

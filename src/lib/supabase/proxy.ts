@@ -5,6 +5,7 @@ import { createResponseClient } from "./response";
 const CHARGE_GENERATION_CRON_PATH = "/api/cron/generate-charges";
 const LEADHUNTER_MACHINE_PATHS = new Set([
   "/api/cron/leadhunter",
+  "/api/internal/leadhunter/tick",
   "/api/internal/leadhunter/jobs/next",
 ]);
 const LEADHUNTER_COMPLETION_PATH =

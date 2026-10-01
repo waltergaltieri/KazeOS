@@ -12,12 +12,12 @@ Mover la búsqueda de prospectos fuera de Vercel. Oracle ejecuta SearXNG y el wo
 
 ## Flujo
 
-1. El cron de Vercel sólo planifica corridas y encola trabajos `discover`.
+1. El cron de Vercel planifica corridas, encola trabajos `discover` y procesa únicamente resoluciones de identidad pendientes, que no acceden a la web.
 2. El worker de Oracle reclama `discover` junto con investigación, auditoría, calificación y enriquecimiento.
 3. Para búsquedas, el worker llama al SearXNG local del stack Oracle; para URL semilla normaliza la propia URL.
 4. El worker devuelve candidatos, cursor y metadatos limitados por el contrato.
 5. KazeOS valida que fuente y trabajo coincidan, persiste la página, crea los trabajos `resolve_identity` y completa el trabajo original.
-6. La resolución de identidad permanece temporalmente en Vercel hasta trasladarla al worker en una entrega posterior; el cron puede procesarla sin consultar SearXNG.
+6. La resolución de identidad permanece temporalmente en Vercel hasta trasladarla al worker en una entrega posterior; el cron la procesa sin consultar SearXNG.
 
 ## Seguridad y fallos
 

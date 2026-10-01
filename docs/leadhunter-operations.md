@@ -8,15 +8,16 @@ LeadHunter separa tres responsabilidades:
 
 ## Variables
 
-- `LEADHUNTER_SEARXNG_ENDPOINT`: URL HTTPS de una instancia SearXNG accesible por KazeOS.
+- `LEADHUNTER_SEARXNG_ENDPOINT`: URL HTTPS opcional para ejecutar búsquedas desde KazeOS durante desarrollo.
 - `LEADHUNTER_WORKER_SECRET`: secreto de 32 caracteres o más compartido con el worker.
 - `LEADHUNTER_TRANSPORT_SECRET`: secreto de 32 caracteres o más compartido con el puente de correo.
 - `CRON_SECRET`: protege la corrida programada.
 - `KAZEOS_URL`: URL pública de KazeOS, utilizada por el worker.
+- `SEARXNG_URL`: URL interna de SearXNG utilizada por el worker de Oracle, por ejemplo `http://searxng:8080/search`.
 
 ## Ejecución
 
-El cron llama `GET /api/cron/leadhunter`. Esa llamada crea las corridas vencidas y procesa descubrimiento e identidad. El worker se mantiene activo con:
+El worker llama cada minuto al endpoint interno `tick`. Esa llamada crea las corridas vencidas y resuelve identidades; el mismo worker procesa las búsquedas y el resto de los trabajos pesados. Se mantiene activo con:
 
 ```powershell
 cd workers/leadhunter
@@ -24,7 +25,7 @@ python -m pip install -e .
 python -m leadhunter_worker
 ```
 
-Desde la pantalla de una campaña, **Activar agente** habilita la búsqueda y los envíos automáticos. **Buscar ahora** adelanta la próxima corrida. **Pausar** detiene búsquedas y cancela los correos todavía no retirados.
+Desde la pantalla de una campaña, **Activar agente** habilita la búsqueda y los envíos automáticos. **Buscar ahora** adelanta la próxima corrida. **Pausar** detiene búsquedas y cancela los correos todavía no retirados. No hace falta un cron separado ni que una PC permanezca encendida.
 
 ## Contrato del puente de correo
 

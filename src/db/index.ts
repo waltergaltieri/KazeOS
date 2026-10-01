@@ -13,7 +13,7 @@ import { completeClaimedJob } from "@/lib/services/leadhunter/completion-manager
 import { planDueRuns } from "@/lib/services/leadhunter/run-manager";
 import { claimDueMail, recordMailEvent, releaseExpiredMail, settleMail } from "@/lib/services/leadhunter/outbox-manager";
 import { prepareValidatedMessage } from "@/lib/services/leadhunter/message-manager";
-import { runAgentDiscovery } from "@/lib/services/leadhunter/agent-runner";
+import { runAgentIdentityResolution } from "@/lib/services/leadhunter/agent-runner";
 
 /**
  * Default application database entry point. The id must come from a verified
@@ -72,4 +72,4 @@ export function recordLeadHunterMailEvent(input: Parameters<typeof recordMailEve
   return adminDb.transaction((transaction) => recordMailEvent(transaction, input));
 }
 
-export function runLeadHunterDiscovery() { return runAgentDiscovery(adminDb); }
+export function runLeadHunterIdentityResolution() { return runAgentIdentityResolution(adminDb); }

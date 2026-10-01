@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   persistWebsiteAuditResultInTransaction: vi.fn(),
   persistQualificationResultInTransaction: vi.fn(),
   persistContactEnrichmentResultInTransaction: vi.fn(),
+  persistDiscoveryPageInTransaction: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -26,6 +27,9 @@ vi.mock("./qualification-manager", () => ({
 vi.mock("./contact-manager", () => ({
   persistContactEnrichmentResultInTransaction:
     mocks.persistContactEnrichmentResultInTransaction,
+}));
+vi.mock("./discovery-manager", () => ({
+  persistDiscoveryPageInTransaction: mocks.persistDiscoveryPageInTransaction,
 }));
 
 import { completeClaimedJob } from "./completion-manager";
@@ -76,6 +80,76 @@ function specializedDatabase(kind: "audit_website" | "qualify" | "enrich_contact
 describe("LeadHunter completion dispatcher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("persists worker discovery candidates before completing the job", async () => {
+    const work = {
+      kind: "source_query" as const,
+      id: "query:1",
+      source: "web_search" as const,
+      country: "AR",
+      region: null,
+      industry: "comercio",
+      query: "comercios Argentina",
+      cursor: { state: "initial" as const },
+      geographyEvidence: null,
+    };
+    const candidate = {
+      sourceType: "web_search" as const,
+      sourceIdentity: "https://example.com/",
+      sourceUrl: "https://example.com/",
+      observedUrl: "https://example.com/",
+      canonicalUrl: "https://example.com/",
+      observedName: "Example",
+      observedLocation: null,
+      providerRank: 1,
+      metadata: {},
+    };
+    const execute = vi.fn(async () => [{
+      ownerId,
+      runId: "00000000-0000-4000-8000-000000000003",
+      kind: "discover",
+      state: "leased",
+      leaseOwner: "worker-api",
+      leaseTokenDigest: digestLeaseToken(leaseToken),
+      leaseExpiresAt: "2026-09-30T12:05:00.000Z",
+      payload: work,
+    }]);
+    const database = { execute } as unknown as LeadHunterJobDatabase;
+    mocks.persistDiscoveryPageInTransaction.mockResolvedValue({
+      storedCandidates: 1,
+      scheduledIdentityJobs: 1,
+      nextCursor: { state: "exhausted" },
+    });
+    mocks.completeJob.mockResolvedValue({ status: "succeeded" });
+
+    await completeClaimedJob(database, {
+      id: jobId,
+      leaseToken,
+      completion: { result: {
+        kind: "discover",
+        output: {
+          candidateCount: 1,
+          candidates: [candidate],
+          nextCursor: { state: "exhausted" },
+        },
+      } },
+      now,
+      maxAttempts: 3,
+    });
+
+    expect(mocks.persistDiscoveryPageInTransaction).toHaveBeenCalledWith(database, {
+      ownerId,
+      runId: "00000000-0000-4000-8000-000000000003",
+      work,
+      page: { candidates: [candidate], nextCursor: { state: "exhausted" } },
+    });
+    expect(mocks.completeJob).toHaveBeenCalledWith(database, expect.objectContaining({
+      completion: { result: {
+        kind: "discover",
+        output: { candidateCount: 1, nextCursor: { state: "exhausted" } },
+      } },
+    }));
   });
 
   it.each([

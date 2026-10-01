@@ -138,6 +138,7 @@ describe("updateSession", () => {
 
   it.each([
     "/api/cron/leadhunter",
+    "/api/internal/leadhunter/tick",
     "/api/internal/leadhunter/jobs/next",
     "/api/internal/leadhunter/jobs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/complete",
   ])("allows the exact LeadHunter machine route %s without a session", async (path) => {
@@ -186,6 +187,7 @@ describe("updateSession", () => {
   it.each([
     "/api/cron/leadhunter/extra",
     "/api/cron/leadhunterx",
+    "/api/internal/leadhunter/tick/extra",
     "/api/internal/leadhunter/jobs/next/extra",
     "/api/internal/leadhunter/jobs/not-a-uuid/complete",
     "/api/internal/leadhunter/jobs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaax/complete",

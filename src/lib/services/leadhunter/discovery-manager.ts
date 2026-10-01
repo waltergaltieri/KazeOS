@@ -71,6 +71,14 @@ export async function persistDiscoveryPage(
   database: LeadHunterDiscoveryDatabase,
   input: PersistDiscoveryPageInput,
 ): Promise<PersistDiscoveryPageResult> {
+  return database.transaction((transaction) =>
+    persistDiscoveryPageInTransaction(transaction, input));
+}
+
+export async function persistDiscoveryPageInTransaction(
+  database: LeadHunterDiscoveryTransaction,
+  input: PersistDiscoveryPageInput,
+): Promise<PersistDiscoveryPageResult> {
   const sourceType = sourceTypeForWork(input.work);
   const query = queryForWork(input.work);
   const uniqueCandidates: SourceCandidate[] = [];
@@ -84,9 +92,8 @@ export async function persistDiscoveryPage(
     uniqueCandidates.push(candidate);
   }
 
-  return database.transaction(async (transaction) => {
-    const persistedCandidates: Array<{ id: string; inserted: boolean }> = [];
-    for (const candidate of uniqueCandidates) {
+  const persistedCandidates: Array<{ id: string; inserted: boolean }> = [];
+  for (const candidate of uniqueCandidates) {
       const rawRecord = {
         sourceUrl: candidate.sourceUrl,
         observedUrl: candidate.observedUrl,
@@ -95,7 +102,7 @@ export async function persistDiscoveryPage(
         observedLocation: candidate.observedLocation,
         metadata: candidate.metadata,
       };
-      const inserted = await transaction.execute(sql<InsertedRow>`
+      const inserted = await database.execute(sql<InsertedRow>`
         insert into ${leadHunterSourceCandidates} (
           owner_id,
           run_id,
@@ -122,7 +129,7 @@ export async function persistDiscoveryPage(
         continue;
       }
 
-      const existing = await transaction.execute(sql<InsertedRow>`
+      const existing = await database.execute(sql<InsertedRow>`
         select ${leadHunterSourceCandidates.id}
         from ${leadHunterSourceCandidates}
         where ${leadHunterSourceCandidates.ownerId} = ${input.ownerId}
@@ -135,12 +142,12 @@ export async function persistDiscoveryPage(
         throw new Error("Source candidate conflict could not be resolved");
       }
       persistedCandidates.push({ id: existing[0].id, inserted: false });
-    }
+  }
 
-    let scheduledIdentityJobs = 0;
-    for (const candidate of persistedCandidates) {
+  let scheduledIdentityJobs = 0;
+  for (const candidate of persistedCandidates) {
       const idempotencyKey = `run:${input.runId}:resolve_identity:${candidate.id}`;
-      const scheduled = await transaction.execute(sql<InsertedRow>`
+      const scheduled = await database.execute(sql<InsertedRow>`
         insert into ${leadHunterJobs} (
           owner_id,
           run_id,
@@ -157,13 +164,12 @@ export async function persistDiscoveryPage(
         on conflict (owner_id, idempotency_key) do nothing
         returning id
       `) as unknown as InsertedRow[];
-      if (scheduled[0]) scheduledIdentityJobs += 1;
-    }
+    if (scheduled[0]) scheduledIdentityJobs += 1;
+  }
 
-    return {
-      storedCandidates: persistedCandidates.filter(({ inserted }) => inserted).length,
-      scheduledIdentityJobs,
-      nextCursor: input.page.nextCursor,
-    };
-  });
+  return {
+    storedCandidates: persistedCandidates.filter(({ inserted }) => inserted).length,
+    scheduledIdentityJobs,
+    nextCursor: input.page.nextCursor,
+  };
 }

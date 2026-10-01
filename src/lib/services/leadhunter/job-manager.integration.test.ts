@@ -40,7 +40,21 @@ const validJobContracts = [
       id: "seed:one",
       url: "https://example.com",
     },
-    output: { candidateCount: 1 },
+    output: {
+      candidateCount: 1,
+      candidates: [{
+        sourceType: "seed_url",
+        sourceIdentity: "https://example.com/",
+        sourceUrl: "https://example.com/",
+        observedUrl: "https://example.com/",
+        canonicalUrl: "https://example.com/",
+        observedName: "Example",
+        observedLocation: null,
+        providerRank: 1,
+        metadata: {},
+      }],
+      nextCursor: { state: "exhausted" },
+    },
   },
   {
     kind: "resolve_identity",

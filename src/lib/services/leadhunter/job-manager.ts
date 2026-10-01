@@ -43,6 +43,37 @@ const sourceResultCursorSchema = z.union([
   }).strict(),
 ]);
 
+const workerSourceCandidateSchema = z.object({
+  sourceType: z.union([leadHunterSourceSchema, z.literal("seed_url")]),
+  sourceIdentity: z.string().trim().min(1).max(2_048),
+  sourceUrl: z.string().url().max(2_048).refine(
+    (value) => /^https?:\/\//i.test(value),
+    "Source URL must use HTTP(S)",
+  ),
+  observedUrl: z.string().url().max(2_048).refine(
+    (value) => /^https?:\/\//i.test(value),
+    "Observed URL must use HTTP(S)",
+  ),
+  canonicalUrl: z.string().url().max(2_048).refine(
+    (value) => /^https?:\/\//i.test(value),
+    "Canonical URL must use HTTP(S)",
+  ),
+  observedName: z.string().trim().min(1).max(500).nullable(),
+  observedLocation: z.string().trim().min(1).max(500).nullable(),
+  providerRank: z.number().int().min(1).max(1_000),
+  metadata: z.record(z.string().max(100), z.json()),
+}).strict();
+
+export const workerDiscoveryOutputSchema = z.object({
+  candidateCount: z.number().int().nonnegative().max(50),
+  candidates: z.array(workerSourceCandidateSchema).max(50).optional(),
+  nextCursor: sourceResultCursorSchema.optional(),
+}).strict().refine(
+  ({ candidateCount, candidates }) =>
+    candidates === undefined || candidateCount === candidates.length,
+  "Candidate count must match candidates",
+);
+
 const runnableSourceCursorSchema = z.union([
   z.object({ state: z.literal("initial") }).strict(),
   z.object({
@@ -76,6 +107,7 @@ const discoverPayloadSchema = z.discriminatedUnion("kind", [
   sourceQueryPayloadSchema,
   seedUrlPayloadSchema,
 ]);
+export const workerDiscoveryWorkSchema = discoverPayloadSchema;
 const leadPayloadSchema = z.object({ leadId: z.string().uuid() }).strict();
 const researchPayloadSchema = z.object({
   leadId: z.string().uuid(),
@@ -121,10 +153,7 @@ const jobPayloadSchemas = {
 };
 
 const jobResultSchemas = {
-  discover: resultSchema("discover", z.object({
-    candidateCount: z.number().int().nonnegative(),
-    nextCursor: sourceResultCursorSchema.optional(),
-  }).strict()),
+  discover: resultSchema("discover", workerDiscoveryOutputSchema),
   resolve_identity: resultSchema("resolve_identity", z.object({
     leadId: z.string().uuid().nullable(),
     confidence: z.number().min(0).max(1),
