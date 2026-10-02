@@ -7,6 +7,9 @@ const LEADHUNTER_MACHINE_PATHS = new Set([
   "/api/cron/leadhunter",
   "/api/internal/leadhunter/tick",
   "/api/internal/leadhunter/jobs/next",
+  "/api/public/leadhunter/mail/claim",
+  "/api/public/leadhunter/mail/settle",
+  "/api/public/leadhunter/mail/events",
 ]);
 const LEADHUNTER_COMPLETION_PATH =
   /^\/api\/internal\/leadhunter\/jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/complete$/i;

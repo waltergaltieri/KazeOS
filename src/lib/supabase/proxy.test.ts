@@ -141,6 +141,9 @@ describe("updateSession", () => {
     "/api/internal/leadhunter/tick",
     "/api/internal/leadhunter/jobs/next",
     "/api/internal/leadhunter/jobs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/complete",
+    "/api/public/leadhunter/mail/claim",
+    "/api/public/leadhunter/mail/settle",
+    "/api/public/leadhunter/mail/events",
   ])("allows the exact LeadHunter machine route %s without a session", async (path) => {
     const response = await updateSession(
       new NextRequest(`https://app.local${path}`, { method: "POST" }),
@@ -192,6 +195,9 @@ describe("updateSession", () => {
     "/api/internal/leadhunter/jobs/not-a-uuid/complete",
     "/api/internal/leadhunter/jobs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaax/complete",
     "/api/internal/leadhunter/jobs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/complete/extra",
+    "/api/public/leadhunter/mail/claim/extra",
+    "/api/public/leadhunter/mail/settlex",
+    "/api/public/leadhunter/mail/events/extra",
   ])("keeps the LeadHunter near-match %s session-protected", async (path) => {
     mockClaims(null);
 
