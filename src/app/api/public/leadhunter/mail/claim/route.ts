@@ -10,6 +10,6 @@ export async function POST(request: Request) {
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Invalid request" }, { status: 400 });
-  const commands = await claimLeadHunterMail("chatgpt-mail-bridge", parsed.data.limit);
+  const commands = await claimLeadHunterMail("kazeos-mail-worker", parsed.data.limit);
   return Response.json({ commands });
 }

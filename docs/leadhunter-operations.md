@@ -29,7 +29,7 @@ Desde la pantalla de una campaña, **Activar agente** habilita la búsqueda y lo
 
 ## Contrato del puente de correo
 
-Todas las llamadas usan `Authorization: Bearer <LEADHUNTER_TRANSPORT_SECRET>`.
+Todas las llamadas usan `Authorization: Bearer <LEADHUNTER_TRANSPORT_SECRET>`. El worker de Oracle ejecuta el transporte con Gmail mediante `GMAIL_ADDRESS` y `GMAIL_APP_PASSWORD`; su estado idempotente de envíos y el cursor de entrada se conservan en `MAIL_STATE_PATH`.
 
 - `POST /api/public/leadhunter/mail/claim` con `{ "limit": 10 }`: retira comandos vencidos.
 - `POST /api/public/leadhunter/mail/settle`: informa `accepted`, `failed` o `unknown` junto con el identificador del proveedor.

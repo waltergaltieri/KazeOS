@@ -13,6 +13,6 @@ export async function POST(request: Request) {
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Invalid request" }, { status: 400 });
-  const settled = await settleLeadHunterMail({ ...parsed.data, leaseOwner: "chatgpt-mail-bridge" });
+  const settled = await settleLeadHunterMail({ ...parsed.data, leaseOwner: "kazeos-mail-worker" });
   return settled ? Response.json({ settled: true }) : Response.json({ error: "Command is not leased" }, { status: 409 });
 }

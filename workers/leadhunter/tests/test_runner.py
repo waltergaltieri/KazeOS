@@ -115,3 +115,51 @@ def test_trigger_tick_uses_worker_auth_api(monkeypatch: pytest.MonkeyPatch) -> N
         "secret",
         {},
     )]
+
+
+def test_research_uses_minimax_when_the_subscription_key_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = {"source_url": "https://example.com/", "findings": []}
+
+    class FakeClient:
+        def __init__(self, api_key: str, base_url: str, model: str) -> None:
+            assert api_key == "subscription-key"
+            assert base_url == "https://api.minimax.io/v1"
+            assert model == "MiniMax-M3"
+
+        def extract(self, _request: object) -> object:
+            class Result:
+                def model_dump(self, mode: str) -> dict[str, object]:
+                    assert mode == "json"
+                    return expected
+
+            return Result()
+
+    monkeypatch.setenv("MINIMAX_API_KEY", "subscription-key")
+    monkeypatch.setenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
+    monkeypatch.setenv("MINIMAX_MODEL", "MiniMax-M3")
+    monkeypatch.setattr(runner, "MiniMaxClient", FakeClient)
+
+    result = runner.result_for({
+        "kind": "research",
+        "payload": {
+            "source": {
+                "sourceUrl": "https://example.com/",
+                "sourceType": "official_site",
+                "suppliedAt": "2026-10-02T12:00:00Z",
+                "contentSha256": "0" * 64,
+            },
+            "content": "<p>Example</p>",
+            "questions": [{"key": "business_model", "prompt": "What?", "required": True}],
+            "budget": {
+                "maxRuntimeMs": 30_000,
+                "maxModelCalls": 1,
+                "maxInputTokens": 5_000,
+                "maxOutputTokens": 500,
+                "maxCostUsd": 1,
+            },
+        },
+    })
+
+    assert result == expected

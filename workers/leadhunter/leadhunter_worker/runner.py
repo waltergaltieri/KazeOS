@@ -5,6 +5,7 @@ import ipaddress
 import json
 import os
 import re
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -16,6 +17,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .contracts import ExtractionRequest
 from .extract import extract_offline
+from .mail_transport import GmailMailTransport, dispatch_due_mail, report_mail_events
+from .minimax import MiniMaxClient
 
 UrlOpener = Callable[..., Any]
 
@@ -198,6 +201,13 @@ def result_for(job: dict[str, Any]) -> dict[str, Any]:
     if job["kind"] == "research":
         budget = payload["budget"]
         request = ExtractionRequest.model_validate({"source_url": payload["source"]["sourceUrl"], "source_type": payload["source"]["sourceType"], "supplied_at": payload["source"]["suppliedAt"], "content": payload.get("content", ""), "questions": payload.get("questions", []), "budget": {"max_runtime_ms": budget["maxRuntimeMs"], "max_model_calls": budget["maxModelCalls"], "max_input_tokens": budget["maxInputTokens"], "max_output_tokens": budget["maxOutputTokens"], "max_cost_usd": budget["maxCostUsd"]}})
+        minimax_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+        if minimax_key:
+            return MiniMaxClient(
+                minimax_key,
+                os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
+                os.environ.get("MINIMAX_MODEL", "MiniMax-M3"),
+            ).extract(request).model_dump(mode="json")
         return extract_offline(request).model_dump(mode="json")
     if job["kind"] == "audit_website":
         return audit(payload)
@@ -241,12 +251,29 @@ def main() -> None:
     args = parser.parse_args()
     base_url = os.environ["KAZEOS_URL"]
     token = os.environ["LEADHUNTER_WORKER_SECRET"]
+    gmail_address = os.environ.get("GMAIL_ADDRESS", "").strip()
+    gmail_password = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    transport_secret = os.environ.get("LEADHUNTER_TRANSPORT_SECRET", "").strip()
+    mail_settings = [gmail_address, gmail_password, transport_secret]
+    if (gmail_address or gmail_password) and not all(mail_settings):
+        raise RuntimeError("Gmail transport configuration is incomplete")
+    mail_transport = GmailMailTransport(
+        gmail_address,
+        gmail_password,
+        os.environ.get("MAIL_STATE_PATH", "/var/lib/kazeos-leadhunter/mail.sqlite3"),
+    ) if all(mail_settings) else None
     tick_interval_seconds = max(30, int(os.environ.get("TICK_INTERVAL_SECONDS", "60")))
     next_tick = 0.0
     while True:
         now = time.monotonic()
         if now >= next_tick:
             trigger_tick(base_url, token)
+            if mail_transport is not None:
+                try:
+                    dispatch_due_mail(base_url, transport_secret, mail_transport)
+                    report_mail_events(base_url, transport_secret, mail_transport)
+                except Exception as error:
+                    print(f"LeadHunter mail cycle failed: {error}", file=sys.stderr)
             next_tick = now + tick_interval_seconds
         worked = run_once(base_url, token)
         if args.once:
