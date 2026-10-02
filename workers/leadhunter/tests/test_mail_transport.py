@@ -26,6 +26,28 @@ class FakeSMTP:
         self.sent.append(message)
 
 
+class BaselineIMAP:
+    def __init__(self, host: str, port: int) -> None:
+        assert (host, port) == ("imap.gmail.com", 993)
+
+    def __enter__(self) -> "BaselineIMAP":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def login(self, user: str, password: str) -> None:
+        assert (user, password) == ("quime@example.com", "app-password")
+
+    def select(self, mailbox: str, readonly: bool) -> tuple[str, list[bytes]]:
+        assert (mailbox, readonly) == ("INBOX", True)
+        return "OK", [b"500"]
+
+    def uid(self, command: str, *_args: object) -> tuple[str, list[bytes]]:
+        assert command == "search"
+        return "OK", [b"498 499 500"]
+
+
 def test_gmail_transport_sends_plain_text_once_per_idempotency_key(tmp_path: Path) -> None:
     FakeSMTP.sent.clear()
     FakeSMTP.logins.clear()
@@ -121,3 +143,18 @@ def test_bounce_parser_links_original_message_id(tmp_path: Path) -> None:
     )
 
     assert transport.classify_event(message) == ("bounced", provider_id)
+
+
+def test_first_poll_sets_baseline_without_fetching_historical_mail(tmp_path: Path) -> None:
+    transport = GmailMailTransport(
+        "quime@example.com",
+        "app-password",
+        tmp_path / "mail.sqlite3",
+        smtp_factory=FakeSMTP,
+        imap_factory=BaselineIMAP,
+    )
+
+    events, highest_uid = transport.poll_events()
+
+    assert events == []
+    assert highest_uid == 500

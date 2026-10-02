@@ -187,6 +187,10 @@ class GmailMailTransport:
             if status != "OK":
                 raise RuntimeError("Gmail inbox search failed")
             raw_uids = data[0].split() if data and isinstance(data[0], bytes) else []
+            if not self._known_provider_ids():
+                if raw_uids:
+                    highest_uid = max(int(raw_uid) for raw_uid in raw_uids)
+                return events, highest_uid
             for raw_uid in raw_uids[-500:]:
                 uid = int(raw_uid)
                 highest_uid = max(highest_uid, uid)
