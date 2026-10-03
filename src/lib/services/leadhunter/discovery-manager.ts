@@ -6,6 +6,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import {
   leadHunterJobs,
+  leadHunterRuns,
   leadHunterSourceCandidates,
 } from "@/db/schema";
 import type {
@@ -42,6 +43,11 @@ export interface PersistDiscoveryPageResult {
 
 interface InsertedRow {
   id: string;
+}
+
+interface CandidateBudgetRow {
+  maxCandidates: number;
+  existingCandidates: number;
 }
 
 function sourceTypeForWork(work: SearchPlanWorkItem): SourceAdapterId {
@@ -92,6 +98,35 @@ export async function persistDiscoveryPageInTransaction(
     uniqueCandidates.push(candidate);
   }
 
+  const budgetRows = await database.execute(sql<CandidateBudgetRow>`
+    select
+      (${leadHunterRuns.plan}->'budget'->>'maxCandidates')::integer as "maxCandidates",
+      (
+        select count(*)::integer
+        from ${leadHunterSourceCandidates} existing
+        where existing.owner_id = ${input.ownerId}
+          and existing.run_id = ${input.runId}
+      ) as "existingCandidates"
+    from ${leadHunterRuns}
+    where ${leadHunterRuns.ownerId} = ${input.ownerId}
+      and ${leadHunterRuns.id} = ${input.runId}
+    for update of ${leadHunterRuns}
+  `) as unknown as CandidateBudgetRow[];
+  const budget = budgetRows[0];
+  if (
+    !budget
+    || !Number.isSafeInteger(budget.maxCandidates)
+    || budget.maxCandidates < 0
+    || !Number.isSafeInteger(budget.existingCandidates)
+    || budget.existingCandidates < 0
+  ) {
+    throw new Error("Discovery candidate budget is invalid");
+  }
+  let remainingCandidates = Math.max(
+    0,
+    budget.maxCandidates - budget.existingCandidates,
+  );
+
   const persistedCandidates: Array<{ id: string; inserted: boolean }> = [];
   for (const candidate of uniqueCandidates) {
       const rawRecord = {
@@ -102,7 +137,8 @@ export async function persistDiscoveryPageInTransaction(
         observedLocation: candidate.observedLocation,
         metadata: candidate.metadata,
       };
-      const inserted = await database.execute(sql<InsertedRow>`
+      const inserted = remainingCandidates > 0
+        ? await database.execute(sql<InsertedRow>`
         insert into ${leadHunterSourceCandidates} (
           owner_id,
           run_id,
@@ -122,10 +158,12 @@ export async function persistDiscoveryPageInTransaction(
         )
         on conflict (owner_id, run_id, source_type, source_identity) do nothing
         returning id
-      `) as unknown as InsertedRow[];
+      `) as unknown as InsertedRow[]
+        : [];
 
       if (inserted[0]) {
         persistedCandidates.push({ id: inserted[0].id, inserted: true });
+        remainingCandidates -= 1;
         continue;
       }
 
@@ -138,10 +176,12 @@ export async function persistDiscoveryPageInTransaction(
           and ${leadHunterSourceCandidates.sourceIdentity} = ${candidate.sourceIdentity}
         limit 1
       `) as unknown as InsertedRow[];
-      if (!existing[0]) {
+      if (!existing[0] && remainingCandidates > 0) {
         throw new Error("Source candidate conflict could not be resolved");
       }
-      persistedCandidates.push({ id: existing[0].id, inserted: false });
+      if (existing[0]) {
+        persistedCandidates.push({ id: existing[0].id, inserted: false });
+      }
   }
 
   let scheduledIdentityJobs = 0;

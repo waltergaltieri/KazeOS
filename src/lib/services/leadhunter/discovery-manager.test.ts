@@ -24,9 +24,19 @@ function queryText(query: unknown) {
 }
 
 function transactionalDatabase(execute: (query: unknown) => Promise<unknown>) {
+  const guardedExecute = async (query: unknown) => {
+    const rendered = queryText(query);
+    if (
+      rendered.sql.includes('from "lh_runs"')
+      && rendered.sql.includes('"maxCandidates"')
+    ) {
+      return [{ maxCandidates: 100, existingCandidates: 0 }];
+    }
+    return execute(query);
+  };
   const transaction = vi.fn(async (
     operation: (database: LeadHunterDiscoveryTransaction) => Promise<unknown>,
-  ) => operation({ execute } as unknown as LeadHunterDiscoveryTransaction));
+  ) => operation({ execute: guardedExecute } as unknown as LeadHunterDiscoveryTransaction));
   return {
     database: { transaction } as unknown as LeadHunterDiscoveryDatabase,
     transaction,
@@ -72,6 +82,53 @@ function page(candidates: SourceCandidate[]): SourceDiscoveryPage {
 }
 
 describe("LeadHunter discovery manager", () => {
+  it("does not persist more candidates than the run budget", async () => {
+    let candidateNumber = 0;
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query);
+      if (
+        rendered.sql.includes('from "lh_runs"')
+        && rendered.sql.includes('"maxCandidates"')
+      ) {
+        return [{ maxCandidates: 1, existingCandidates: 0 }];
+      }
+      if (rendered.sql.includes('insert into "lh_source_candidates"')) {
+        candidateNumber += 1;
+        return [{ id: `00000000-0000-4000-8000-00000000000${candidateNumber}` }];
+      }
+      if (rendered.sql.includes('insert into "lh_jobs"')) {
+        return [{ id: "00000000-0000-4000-8000-000000000020" }];
+      }
+      return [];
+    });
+    const transaction = vi.fn(async (
+      operation: (database: LeadHunterDiscoveryTransaction) => Promise<unknown>,
+    ) => operation({ execute } as unknown as LeadHunterDiscoveryTransaction));
+    const database = { transaction } as unknown as LeadHunterDiscoveryDatabase;
+
+    const result = await persistDiscoveryPage(database, {
+      ownerId: "00000000-0000-4000-8000-000000000001",
+      runId: "00000000-0000-4000-8000-000000000002",
+      work,
+      page: page([
+        candidate(),
+        candidate({
+          sourceIdentity: "https://second.example/",
+          sourceUrl: "https://second.example/",
+          observedUrl: "https://second.example/",
+          canonicalUrl: "https://second.example/",
+          providerRank: 4,
+        }),
+      ]),
+    });
+
+    expect(result).toMatchObject({
+      storedCandidates: 1,
+      scheduledIdentityJobs: 1,
+    });
+    expect(candidateNumber).toBe(1);
+  });
+
   it("stores all source candidates before scheduling identity work", async () => {
     const events: string[] = [];
     let candidateNumber = 0;
@@ -264,6 +321,12 @@ describe("LeadHunter discovery manager", () => {
       let stagedJob = committedJob;
       const execute = vi.fn(async (query: unknown) => {
         const rendered = queryText(query);
+        if (
+          rendered.sql.includes('from "lh_runs"')
+          && rendered.sql.includes('"maxCandidates"')
+        ) {
+          return [{ maxCandidates: 100, existingCandidates: 0 }];
+        }
         if (rendered.sql.includes('insert into "lh_source_candidates"')) {
           if (stagedCandidate) return [];
           stagedCandidate = true;
