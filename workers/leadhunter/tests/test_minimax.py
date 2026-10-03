@@ -73,6 +73,7 @@ def test_minimax_extracts_only_grounded_structured_findings() -> None:
     assert sent["model"] == "MiniMax-M3"
     assert sent["reasoning"] == {"effort": "none"}
     assert "untrusted evidence" in sent["instructions"]
+    assert "one complete line" in sent["instructions"]
     assert result.findings[0].value == "vende insumos mayoristas"
     assert result.usage.extractor == "minimax:MiniMax-M3"
     assert result.usage.model_calls == 1

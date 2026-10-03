@@ -119,8 +119,9 @@ class MiniMaxClient:
             "findings must be an array of objects with exactly field, value, status, "
             "confidence, source_url and extract. status must be verified, inferred or conflicting. "
             "confidence must be an integer from 0 to 100. Use only requested field keys. "
-            "Every value must appear verbatim inside extract, and every extract must be "
-            "a contiguous verbatim span from the supplied page. Keep extracts under 1000 characters. Omit a field when the "
+            "Every value must appear verbatim inside extract. Every extract must be one complete line "
+            "copied verbatim from the supplied page; never join separate lines. Return separate findings "
+            "when different lines support the same field. Keep extracts under 1000 characters. Omit a field when the "
             "page does not support an answer. Never infer contact details or results."
         )
         model_input = json.dumps({
