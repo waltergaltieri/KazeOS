@@ -39,18 +39,22 @@ def _normalized_findings(
     confidence_labels = {"high": 90, "medium": 70, "low": 40}
     status_labels = {"ok": "verified", "verified": "verified", "inferred": "inferred", "conflicting": "conflicting"}
     normalized: list[dict[str, Any]] = []
+    rejected = 0
     for raw in raw_findings:
         if not isinstance(raw, dict):
-            raise ProviderOutputRejected("provider returned an invalid finding")
+            rejected += 1
+            continue
         field = raw.get("field")
         if not isinstance(field, str) or field not in allowed:
-            raise ProviderOutputRejected("provider returned an unsupported field")
+            rejected += 1
+            continue
         status_raw = raw.get("status")
         if status_raw in {"no_evidence", "unknown", None}:
             continue
         status = status_labels.get(str(status_raw).casefold())
         if status is None:
-            raise ProviderOutputRejected("provider returned an invalid finding status")
+            rejected += 1
+            continue
         confidence_raw = raw.get("confidence")
         if isinstance(confidence_raw, str):
             confidence = confidence_labels.get(confidence_raw.casefold())
@@ -59,13 +63,16 @@ def _normalized_findings(
         else:
             confidence = None
         if confidence is None or not 0 <= confidence <= 100:
-            raise ProviderOutputRejected("provider returned an invalid confidence")
+            rejected += 1
+            continue
         extract = raw.get("extract")
         if not isinstance(extract, str):
-            raise ProviderOutputRejected("provider finding requires an exact extract")
+            rejected += 1
+            continue
         extract = extract.strip()
         if not extract or len(extract) > 1_000 or extract not in request.content:
-            raise ProviderOutputRejected("provider finding extract is not grounded")
+            rejected += 1
+            continue
         value = raw.get("value")
         if not isinstance(value, str) or not value.strip() or value.strip() not in extract:
             value = extract
@@ -79,6 +86,8 @@ def _normalized_findings(
             "source_url": str(request.source_url),
             "extract": extract,
         })
+    if rejected and not normalized:
+        raise ProviderOutputRejected("provider findings are not grounded")
     return normalized
 
 

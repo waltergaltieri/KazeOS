@@ -130,6 +130,38 @@ def test_minimax_normalizes_common_status_and_confidence_labels_without_weakenin
     assert str(finding.source_url) == "https://example.com/"
 
 
+def test_minimax_keeps_grounded_findings_when_another_finding_is_ungrounded() -> None:
+    def opener(_request: object, timeout: int) -> FakeResponse:
+        assert timeout == 30
+        return FakeResponse({
+            "status": "completed",
+            "output_text": json.dumps({"findings": [
+                {
+                    "field": "business_model",
+                    "value": "una afirmación inventada",
+                    "status": "verified",
+                    "confidence": 99,
+                    "source_url": "https://example.com/",
+                    "extract": "una afirmación inventada",
+                },
+                {
+                    "field": "business_model",
+                    "value": "vende insumos mayoristas",
+                    "status": "verified",
+                    "confidence": 92,
+                    "source_url": "https://example.com/",
+                    "extract": "Acme vende insumos mayoristas en Córdoba.",
+                },
+            ]}),
+            "usage": {"input_tokens": 100, "output_tokens": 50},
+        })
+
+    findings = MiniMaxClient("secret", opener=opener).extract(request()).findings
+
+    assert len(findings) == 1
+    assert findings[0].value == "vende insumos mayoristas"
+
+
 def test_minimax_refuses_a_request_whose_budget_disallows_model_calls() -> None:
     value = request().model_copy(update={
         "budget": ExtractionBudget(

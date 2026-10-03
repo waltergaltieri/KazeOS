@@ -254,44 +254,44 @@ export async function planDueRuns(
       returning id
     `) as unknown as CreatedRun[];
     const run = insertedRuns[0];
-    if (!run) continue;
+    if (run) {
+      createdRuns += 1;
+      if (plan.work.length > 0) {
+        const jobValues = plan.work.map((work) => sql`(
+          ${campaign.ownerId},
+          ${run.id},
+          'discover',
+          ${JSON.stringify(work)}::jsonb,
+          ${`run:${run.id}:discover:${work.id}`}
+        )`);
 
-    createdRuns += 1;
-    if (plan.work.length > 0) {
-      const jobValues = plan.work.map((work) => sql`(
-        ${campaign.ownerId},
-        ${run.id},
-        'discover',
-        ${JSON.stringify(work)}::jsonb,
-        ${`run:${run.id}:discover:${work.id}`}
-      )`);
-
-      await database.execute(sql`
-        insert into ${leadHunterJobs} (
-          owner_id,
-          run_id,
-          kind,
-          payload,
-          idempotency_key
-        ) values ${sql.join(jobValues, sql`, `)}
-        on conflict (owner_id, idempotency_key) do nothing
-      `);
-      createdJobs += plan.work.length;
-    } else {
-      await database.execute(sql`
-        update ${leadHunterRuns}
-        set
-          state = 'completed',
-          counts = jsonb_build_object(
-            'total', 0,
-            'succeeded', 0,
-            'failed', 0
-          ),
-          started_at = ${nowTimestamp},
-          finished_at = ${nowTimestamp}
-        where ${leadHunterRuns.id} = ${run.id}
-          and ${leadHunterRuns.state} = 'planned'
-      `);
+        await database.execute(sql`
+          insert into ${leadHunterJobs} (
+            owner_id,
+            run_id,
+            kind,
+            payload,
+            idempotency_key
+          ) values ${sql.join(jobValues, sql`, `)}
+          on conflict (owner_id, idempotency_key) do nothing
+        `);
+        createdJobs += plan.work.length;
+      } else {
+        await database.execute(sql`
+          update ${leadHunterRuns}
+          set
+            state = 'completed',
+            counts = jsonb_build_object(
+              'total', 0,
+              'succeeded', 0,
+              'failed', 0
+            ),
+            started_at = ${nowTimestamp},
+            finished_at = ${nowTimestamp}
+          where ${leadHunterRuns.id} = ${run.id}
+            and ${leadHunterRuns.state} = 'planned'
+        `);
+      }
     }
 
     await database.execute(sql`
@@ -304,7 +304,8 @@ export async function planDueRuns(
         ).toISOString()}
       where ${leadHunterCampaigns.ownerId} = ${campaign.ownerId}
         and ${leadHunterCampaigns.id} = ${campaign.campaignId}
-        and ${leadHunterCampaigns.nextSearchAt} = ${scheduledForTimestamp}
+        and ${leadHunterCampaigns.configVersion} = ${campaign.campaignVersion}
+        and ${leadHunterCampaigns.nextSearchAt} <= ${nowTimestamp}
     `);
   }
 

@@ -246,4 +246,37 @@ describe("planDueRuns", () => {
 
     expect(statements[0]).toContain("for update of \"lh_campaigns\" skip locked");
   });
+
+  it("advances a stale due slot when an active run already owns it", async () => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const database = {
+      execute: vi.fn(async (query: unknown) => {
+        const rendered = queryText(query);
+        statements.push(rendered);
+        if (rendered.sql.includes("from \"lh_campaigns\"")) {
+          return [{
+            ownerId,
+            campaignId,
+            campaignVersion: 4,
+            scheduledFor,
+            snapshot,
+          }];
+        }
+        if (rendered.sql.includes("from \"lh_runs\"")) return [];
+        if (rendered.sql.includes("insert into \"lh_runs\"")) return [];
+        return [];
+      }),
+    } as unknown as LeadHunterRunDatabase;
+
+    await expect(planDueRuns(database, { now: scheduledFor })).resolves.toEqual({
+      dueCampaigns: 1,
+      createdRuns: 0,
+      createdJobs: 0,
+    });
+
+    const campaignUpdate = statements.find(({ sql }) =>
+      sql.includes("update \"lh_campaigns\""));
+    expect(campaignUpdate?.sql).toMatch(/next_search_at[^<]*<=/);
+    expect(campaignUpdate?.sql).toContain("config_version");
+  });
 });

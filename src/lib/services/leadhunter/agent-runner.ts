@@ -16,6 +16,41 @@ const leaseMs = 5 * 60_000;
 
 interface CandidateContext { canonicalUrl: string; sourceType: string; rawRecord: { observedName?: string | null; observedLocation?: string | null; metadata?: { identity?: unknown; snippet?: string } }; campaignId: string; campaignVersion: number; snapshot: schema.LeadHunterCampaignSnapshot }
 
+const htmlEntityNames: Record<string, string> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  lt: "<",
+  nbsp: " ",
+  quot: "\"",
+};
+
+function decodeHtmlEntities(value: string) {
+  return value.replace(/&(#(?:x[0-9a-f]+|\d+)|[a-z]+);/gi, (entity, key: string) => {
+    if (key.startsWith("#")) {
+      const hexadecimal = key[1]?.toLowerCase() === "x";
+      const codePoint = Number.parseInt(key.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10);
+      if (Number.isSafeInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff) {
+        try { return String.fromCodePoint(codePoint); } catch { return entity; }
+      }
+      return entity;
+    }
+    return htmlEntityNames[key.toLowerCase()] ?? entity;
+  });
+}
+
+export function htmlToResearchText(html: string) {
+  return decodeHtmlEntities(html
+    .replace(/<(script|style|noscript|svg|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<\/?(?:address|article|aside|blockquote|br|div|dl|dt|dd|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tbody|td|tfoot|th|thead|tr|ul)\b[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " "))
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 function identityFromCandidate(candidate: CandidateContext): BusinessIdentity {
   const persistedIdentity = candidate.rawRecord.metadata?.identity;
   if (persistedIdentity !== undefined) {
@@ -70,10 +105,10 @@ async function researchContent(candidate: CandidateContext, fetcher: FetchLike) 
     page = null;
   }
   return [
-    `<h1>${name}</h1>`,
-    `<p>Fuente pública: ${candidate.canonicalUrl}</p>`,
-    `<p>Resumen del buscador: ${snippet}</p>`,
-    page ? `<section aria-label="Sitio oficial">${page}</section>` : "",
+    `Negocio: ${name}`,
+    `Fuente pública: ${candidate.canonicalUrl}`,
+    `Resumen del buscador: ${snippet}`,
+    page ? `Contenido visible del sitio:\n${htmlToResearchText(page)}` : "",
   ].filter(Boolean).join("\n").slice(0, 100_000);
 }
 

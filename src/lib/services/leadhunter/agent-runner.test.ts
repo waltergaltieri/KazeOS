@@ -19,9 +19,18 @@ vi.mock("./identity-manager", () => ({
   resolveSourceCandidateIdentity: mocks.resolveSourceCandidateIdentity,
 }));
 
-import { runAgentIdentityResolution } from "./agent-runner";
+import { htmlToResearchText, runAgentIdentityResolution } from "./agent-runner";
 
 describe("LeadHunter agent identity resolution", () => {
+  it("reduces fetched HTML to visible business text before model research", () => {
+    expect(htmlToResearchText(`
+      <style>.hidden { display: none }</style>
+      <h1>Virales &amp; Mayorista</h1>
+      <script>window.secret = "tracking-code";</script>
+      <p>Venta mayorista<br>Compra mínima&nbsp;$90.000</p>
+    `)).toBe("Virales & Mayorista\nVenta mayorista\nCompra mínima $90.000");
+  });
+
   it("uses the identity persisted by the discovery adapter", async () => {
     const identity = {
       name: "Example Mayorista",
