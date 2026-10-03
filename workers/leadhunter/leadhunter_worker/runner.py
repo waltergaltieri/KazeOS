@@ -117,13 +117,28 @@ def discover(payload: dict[str, Any], searxng_url: str, opener: UrlOpener = urll
             metadata["snippet"] = item["content"].strip()[:2_000]
             metadata["snippetTrust"] = "untrusted"
         title = item.get("title")
+        observed_name = title.strip()[:240] if isinstance(title, str) and title.strip() else None
+        role = {
+            "web_search": "official_website",
+            "directories": "directory",
+            "instagram": "social_profile",
+            "linkedin": "social_profile",
+        }.get(source, "directory")
+        if observed_name:
+            metadata["identity"] = {
+                "name": observed_name,
+                "emails": [],
+                "urls": [{"url": canonical, "role": role}],
+                "location": {},
+                "organizationRole": "unknown",
+            }
         candidates.append({
             "sourceType": source,
             "sourceIdentity": canonical,
             "sourceUrl": source_url,
             "observedUrl": source_url,
             "canonicalUrl": canonical,
-            "observedName": title.strip()[:500] if isinstance(title, str) and title.strip() else None,
+            "observedName": observed_name,
             "observedLocation": None,
             "providerRank": rank,
             "metadata": metadata,

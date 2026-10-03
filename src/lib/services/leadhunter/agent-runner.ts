@@ -6,7 +6,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import * as schema from "@/db/schema";
 import { leadHunterCampaignVersions, leadHunterEnrollments, leadHunterJobs, leadHunterSourceCandidates } from "@/db/schema";
-import type { BusinessIdentity } from "@/lib/leadhunter/identity";
+import { businessIdentitySchema, type BusinessIdentity } from "@/lib/leadhunter/identity";
 import { resolveSourceCandidateIdentity } from "./identity-manager";
 import { claimNextJob, completeJob } from "./job-manager";
 
@@ -15,12 +15,22 @@ const leaseMs = 5 * 60_000;
 
 function escapeHtml(value: string) { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;"); }
 
-interface CandidateContext { canonicalUrl: string; sourceType: string; rawRecord: { observedName?: string | null; observedLocation?: string | null; metadata?: { snippet?: string } }; campaignId: string; campaignVersion: number; snapshot: schema.LeadHunterCampaignSnapshot }
+interface CandidateContext { canonicalUrl: string; sourceType: string; rawRecord: { observedName?: string | null; observedLocation?: string | null; metadata?: { identity?: unknown; snippet?: string } }; campaignId: string; campaignVersion: number; snapshot: schema.LeadHunterCampaignSnapshot }
 
 function identityFromCandidate(candidate: CandidateContext): BusinessIdentity {
-  const host = new URL(candidate.canonicalUrl).hostname.toLowerCase();
-  const role = /(^|\.)(instagram|linkedin|facebook|yelp)\.com$|paginasamarillas/i.test(host) ? (host.includes("instagram") || host.includes("linkedin") || host.includes("facebook") ? "social_profile" : "directory") : "official_website";
-  return { name: candidate.rawRecord.observedName?.trim() || null, emails: [], urls: [{ url: candidate.canonicalUrl, role }], location: { countryCode: candidate.snapshot.countries.length === 1 ? candidate.snapshot.countries[0]! : null, city: candidate.rawRecord.observedLocation ?? null, address: null }, organizationRole: "unknown", parentName: null };
+  const persistedIdentity = candidate.rawRecord.metadata?.identity;
+  if (persistedIdentity !== undefined) {
+    return businessIdentitySchema.parse(persistedIdentity);
+  }
+  return businessIdentitySchema.parse({
+    name: candidate.rawRecord.observedName?.trim() || null,
+    emails: [],
+    urls: [{ url: candidate.canonicalUrl, role: "directory" }],
+    location: candidate.rawRecord.observedLocation
+      ? { city: candidate.rawRecord.observedLocation }
+      : {},
+    organizationRole: "unknown",
+  });
 }
 
 function researchContent(candidate: CandidateContext) {
