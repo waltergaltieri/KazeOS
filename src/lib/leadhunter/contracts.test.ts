@@ -66,6 +66,20 @@ const validStrategy = {
 } as const;
 
 describe("LeadHunter campaign strategy contracts", () => {
+  it("treats the service opportunity as analysis rather than a required fact", () => {
+    const strategy = createDefaultCampaignStrategy({
+      objective: "Encontrar mayoristas que puedan ordenar su operación",
+      serviceFocus: "custom_management",
+      countries: ["AR"],
+      sources: ["web_search"],
+      positiveCriteria: [],
+      negativeCriteria: [],
+    });
+
+    expect(strategy.research.questions.find(({ key }) =>
+      key === "service_opportunity")?.required).toBe(false);
+  });
+
   it("parses a structured discovery, qualification and message strategy", () => {
     expect(campaignStrategySchema.parse(validStrategy)).toMatchObject({
       discovery: { countries: ["AR"], sources: ["web_search"] },

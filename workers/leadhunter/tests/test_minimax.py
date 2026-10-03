@@ -74,6 +74,7 @@ def test_minimax_extracts_only_grounded_structured_findings() -> None:
     assert sent["reasoning"] == {"effort": "none"}
     assert "untrusted evidence" in sent["instructions"]
     assert "one complete line" in sent["instructions"]
+    assert "at most one finding" in sent["instructions"]
     assert result.findings[0].value == "vende insumos mayoristas"
     assert result.usage.extractor == "minimax:MiniMax-M3"
     assert result.usage.model_calls == 1
@@ -161,6 +162,38 @@ def test_minimax_keeps_grounded_findings_when_another_finding_is_ungrounded() ->
 
     assert len(findings) == 1
     assert findings[0].value == "vende insumos mayoristas"
+
+
+def test_minimax_keeps_only_the_strongest_grounded_finding_per_field() -> None:
+    def opener(_request: object, timeout: int) -> FakeResponse:
+        assert timeout == 30
+        return FakeResponse({
+            "status": "completed",
+            "output_text": json.dumps({"findings": [
+                {
+                    "field": "business_model",
+                    "value": "Acme vende insumos mayoristas en Córdoba.",
+                    "status": "verified",
+                    "confidence": 80,
+                    "source_url": "https://example.com/",
+                    "extract": "Acme vende insumos mayoristas en Córdoba.",
+                },
+                {
+                    "field": "business_model",
+                    "value": "vende insumos mayoristas",
+                    "status": "verified",
+                    "confidence": 95,
+                    "source_url": "https://example.com/",
+                    "extract": "Acme vende insumos mayoristas en Córdoba.",
+                },
+            ]}),
+            "usage": {"input_tokens": 100, "output_tokens": 50},
+        })
+
+    findings = MiniMaxClient("secret", opener=opener).extract(request()).findings
+
+    assert len(findings) == 1
+    assert findings[0].confidence == 95
 
 
 def test_minimax_refuses_a_request_whose_budget_disallows_model_calls() -> None:

@@ -388,7 +388,7 @@ export function createDefaultCampaignStrategy(
         {
           key: "service_opportunity",
           prompt: `¿Qué evidencia respalda una oportunidad relacionada con ${service}?`,
-          required: true,
+          required: false,
         },
       ],
     },
