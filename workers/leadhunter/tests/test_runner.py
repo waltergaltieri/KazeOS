@@ -5,6 +5,7 @@ import json
 import pytest
 
 from leadhunter_worker import runner
+from leadhunter_worker.extract import ProviderOutputRejected
 
 
 def test_run_once_rejects_server_errors_before_reading_a_job(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -174,3 +175,48 @@ def test_research_uses_minimax_when_the_subscription_key_is_configured(
     })
 
     assert result == expected
+
+
+def test_research_falls_back_to_grounded_offline_extraction_when_minimax_output_is_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InvalidClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def extract(self, _request: object) -> object:
+            raise ProviderOutputRejected("provider returned an invalid finding")
+
+    monkeypatch.setenv("MINIMAX_API_KEY", "subscription-key")
+    monkeypatch.setattr(runner, "MiniMaxClient", InvalidClient)
+
+    result = runner.result_for({
+        "kind": "research",
+        "payload": {
+            "source": {
+                "sourceUrl": "https://example.com/",
+                "sourceType": "official_site",
+                "suppliedAt": "2026-10-02T12:00:00Z",
+                "contentSha256": "0" * 64,
+            },
+            "content": '<p data-lh-field="business_model">Acme vende insumos mayoristas.</p>',
+            "questions": [{"key": "business_model", "prompt": "What?", "required": True}],
+            "budget": {
+                "maxRuntimeMs": 30_000,
+                "maxModelCalls": 1,
+                "maxInputTokens": 5_000,
+                "maxOutputTokens": 500,
+                "maxCostUsd": 1,
+            },
+        },
+    })
+
+    assert result["findings"] == [{
+        "field": "business_model",
+        "value": "Acme vende insumos mayoristas.",
+        "status": "verified",
+        "confidence": 90,
+        "source_url": "https://example.com/",
+        "extract": "Acme vende insumos mayoristas.",
+    }]
+    assert result["usage"]["extractor"] == "offline-v1"

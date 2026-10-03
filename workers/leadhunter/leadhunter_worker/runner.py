@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .contracts import ExtractionRequest
-from .extract import extract_offline
+from .extract import ProviderOutputRejected, extract_offline
 from .mail_transport import GmailMailTransport, dispatch_due_mail, report_mail_events
 from .minimax import MiniMaxClient
 
@@ -218,11 +218,14 @@ def result_for(job: dict[str, Any]) -> dict[str, Any]:
         request = ExtractionRequest.model_validate({"source_url": payload["source"]["sourceUrl"], "source_type": payload["source"]["sourceType"], "supplied_at": payload["source"]["suppliedAt"], "content": payload.get("content", ""), "questions": payload.get("questions", []), "budget": {"max_runtime_ms": budget["maxRuntimeMs"], "max_model_calls": budget["maxModelCalls"], "max_input_tokens": budget["maxInputTokens"], "max_output_tokens": budget["maxOutputTokens"], "max_cost_usd": budget["maxCostUsd"]}})
         minimax_key = os.environ.get("MINIMAX_API_KEY", "").strip()
         if minimax_key:
-            return MiniMaxClient(
-                minimax_key,
-                os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
-                os.environ.get("MINIMAX_MODEL", "MiniMax-M3"),
-            ).extract(request).model_dump(mode="json")
+            try:
+                return MiniMaxClient(
+                    minimax_key,
+                    os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
+                    os.environ.get("MINIMAX_MODEL", "MiniMax-M3"),
+                ).extract(request).model_dump(mode="json")
+            except ProviderOutputRejected:
+                return extract_offline(request).model_dump(mode="json")
         return extract_offline(request).model_dump(mode="json")
     if job["kind"] == "audit_website":
         return audit(payload)
