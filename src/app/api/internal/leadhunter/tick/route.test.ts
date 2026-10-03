@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   planDueLeadHunterRuns: vi.fn(),
   runLeadHunterIdentityResolution: vi.fn(),
+  runLeadHunterMessagePreparation: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -33,6 +34,7 @@ describe("POST /api/internal/leadhunter/tick", () => {
     process.env.LEADHUNTER_WORKER_SECRET = secret;
     mocks.planDueLeadHunterRuns.mockResolvedValue({ dueCampaigns: 1, createdRuns: 1, createdJobs: 2 });
     mocks.runLeadHunterIdentityResolution.mockResolvedValue({ processed: 3, failed: 0 });
+    mocks.runLeadHunterMessagePreparation.mockResolvedValue({ processed: 2, failed: 0 });
   });
 
   afterEach(() => {
@@ -46,9 +48,11 @@ describe("POST /api/internal/leadhunter/tick", () => {
     expect(await response.json()).toEqual({
       planned: { dueCampaigns: 1, createdRuns: 1, createdJobs: 2 },
       identity: { processed: 3, failed: 0 },
+      messages: { processed: 2, failed: 0 },
     });
     expect(mocks.planDueLeadHunterRuns).toHaveBeenCalledOnce();
     expect(mocks.runLeadHunterIdentityResolution).toHaveBeenCalledOnce();
+    expect(mocks.runLeadHunterMessagePreparation).toHaveBeenCalledOnce();
   });
 
   it("rejects invalid authentication and input", async () => {

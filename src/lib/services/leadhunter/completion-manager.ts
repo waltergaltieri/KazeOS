@@ -22,7 +22,6 @@ import {
 } from "./qualification-manager";
 import { persistContactEnrichmentResultInTransaction } from "./contact-manager";
 import { advancePipelineAfterResult } from "./pipeline-manager";
-import { prepareValidatedMessage } from "./message-manager";
 
 interface CompletionDispatchRow {
   ownerId: string;
@@ -154,12 +153,13 @@ export async function completeClaimedJob(
       : job.kind === "audit_website" ? { auditId: result.auditId, gateResult: result.gateResult }
       : job.kind === "qualify" ? { decision: result.decision, score: result.score }
       : { outcome: result.outcome, primaryContactId: result.primaryContactId, outboundBlocked: result.outboundBlocked };
-    if (job.kind !== "enrich_contact") {
-      await advancePipelineAfterResult(database, { ownerId: job.ownerId, runId: job.runId, enrollmentId: job.enrollmentId, leadId: job.leadId, kind: job.kind as "research" | "audit_website" | "qualify" }, output);
-    }
-    if (job.kind === "enrich_contact" && output.outcome === "selected" && !output.outboundBlocked && job.enrollmentId) {
-      await prepareValidatedMessage(database, job.ownerId, job.enrollmentId, input.now);
-    }
+    await advancePipelineAfterResult(database, {
+      ownerId: job.ownerId,
+      runId: job.runId,
+      enrollmentId: job.enrollmentId,
+      leadId: job.leadId,
+      kind: job.kind as "research" | "audit_website" | "qualify" | "enrich_contact",
+    }, output);
     return result;
   }
 

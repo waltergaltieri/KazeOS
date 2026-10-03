@@ -32,6 +32,8 @@ export async function advancePipelineAfterResult(database: LeadHunterJobDatabase
     `) as unknown as Array<{ id: string; sourceUrl: string; sourceType: string; contentHash: string; suppliedAt: Date | string }>;
     if (!rows.length) return null;
     payload = { leadId: context.leadId, sources: rows.map((row) => ({ ref: `evidence:${row.id}`, sourceUrl: row.sourceUrl, sourceType: row.sourceType, contentSha256: row.contentHash, suppliedAt: new Date(row.suppliedAt).toISOString() })) };
+  } else if (next === "prepare_message") {
+    payload = { enrollmentId: context.enrollmentId };
   } else {
     payload = next === "validate_message" ? { messageVersionId: String(output.messageVersionId) } : { leadId: context.leadId };
   }

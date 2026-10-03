@@ -1,4 +1,4 @@
-import { planDueLeadHunterRuns, runLeadHunterIdentityResolution } from "@/db";
+import { planDueLeadHunterRuns, runLeadHunterIdentityResolution, runLeadHunterMessagePreparation } from "@/db";
 import { isExactBearerToken } from "@/lib/leadhunter/worker-auth";
 
 export const runtime = "nodejs";
@@ -17,7 +17,8 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const planned = await planDueLeadHunterRuns();
     const identity = await runLeadHunterIdentityResolution();
-    return Response.json({ planned, identity });
+    const messages = await runLeadHunterMessagePreparation();
+    return Response.json({ planned, identity, messages });
   } catch {
     console.error("LeadHunter planning failed");
     return Response.json(

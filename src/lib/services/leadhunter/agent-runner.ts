@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { z } from "zod";
 
 import * as schema from "@/db/schema";
 import { leadHunterCampaignVersions, leadHunterEnrollments, leadHunterJobs, leadHunterSourceCandidates } from "@/db/schema";
@@ -10,6 +11,7 @@ import { businessIdentitySchema, type BusinessIdentity } from "@/lib/leadhunter/
 import { validatePublicUrl, type FetchLike } from "@/lib/leadhunter/safe-url";
 import { resolveSourceCandidateIdentity } from "./identity-manager";
 import { claimNextJob, completeJob } from "./job-manager";
+import { prepareValidatedMessage } from "./message-manager";
 
 type Database = PostgresJsDatabase<typeof schema>;
 const leaseMs = 5 * 60_000;
@@ -146,6 +148,50 @@ export async function runAgentIdentityResolution(database: Database, maximumJobs
     } catch (error) {
       failed += 1;
       await database.transaction((tx) => completeJob(tx, { id: job.id, leaseToken: job.leaseToken, now: new Date(), maxAttempts: 3, completion: { error: error instanceof Error ? error.message : "Agent stage failed" } })).catch(() => undefined);
+    }
+  }
+  return { processed, failed };
+}
+
+const prepareMessagePayloadSchema = z.object({
+  enrollmentId: z.string().uuid(),
+}).strict();
+
+export async function runAgentMessagePreparation(database: Database, maximumJobs = 5) {
+  let processed = 0;
+  let failed = 0;
+  for (let index = 0; index < maximumJobs; index += 1) {
+    const job = await database.transaction((tx) => claimNextJob(tx, {
+      now: new Date(),
+      leaseDurationMs: leaseMs,
+      maxAttempts: 3,
+      kinds: ["prepare_message"],
+    }));
+    if (!job) break;
+    if (!job.ownerId) throw new Error("Claimed job provenance is missing");
+    try {
+      const { enrollmentId } = prepareMessagePayloadSchema.parse(job.payload);
+      const prepared = await prepareValidatedMessage(database, job.ownerId, enrollmentId);
+      await database.transaction((tx) => completeJob(tx, {
+        id: job.id,
+        leaseToken: job.leaseToken,
+        now: new Date(),
+        maxAttempts: 3,
+        completion: { result: {
+          kind: "prepare_message",
+          output: { messageVersionId: prepared.messageVersionId },
+        } },
+      }));
+      processed += 1;
+    } catch (error) {
+      failed += 1;
+      await database.transaction((tx) => completeJob(tx, {
+        id: job.id,
+        leaseToken: job.leaseToken,
+        now: new Date(),
+        maxAttempts: 3,
+        completion: { error: error instanceof Error ? error.message : "Message preparation failed" },
+      })).catch(() => undefined);
     }
   }
   return { processed, failed };

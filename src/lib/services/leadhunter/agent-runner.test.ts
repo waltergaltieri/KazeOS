@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   claimNextJob: vi.fn(),
   completeJob: vi.fn(),
   resolveSourceCandidateIdentity: vi.fn(),
+  prepareValidatedMessage: vi.fn(),
 }));
 
 vi.mock("./job-manager", () => ({
@@ -18,10 +19,15 @@ vi.mock("./job-manager", () => ({
 vi.mock("./identity-manager", () => ({
   resolveSourceCandidateIdentity: mocks.resolveSourceCandidateIdentity,
 }));
+vi.mock("./message-manager", () => ({
+  prepareValidatedMessage: mocks.prepareValidatedMessage,
+}));
 
-import { htmlToResearchText, runAgentIdentityResolution } from "./agent-runner";
+import { htmlToResearchText, runAgentIdentityResolution, runAgentMessagePreparation } from "./agent-runner";
 
 describe("LeadHunter agent identity resolution", () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it("reduces fetched HTML to visible business text before model research", () => {
     expect(htmlToResearchText(`
       <style>.hidden { display: none }</style>
@@ -76,5 +82,41 @@ describe("LeadHunter agent identity resolution", () => {
       database,
       expect.objectContaining({ observation: identity }),
     );
+  });
+
+  it("prepares messages outside the job-claim transaction and settles the server-side job", async () => {
+    const database = {
+      transaction: vi.fn(async (operation: (database: unknown) => Promise<unknown>) => operation(database)),
+      execute: vi.fn(),
+    };
+    mocks.claimNextJob.mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000010",
+      ownerId: "00000000-0000-4000-8000-000000000001",
+      runId: "00000000-0000-4000-8000-000000000002",
+      kind: "prepare_message",
+      leaseToken: "lease-token",
+      payload: { enrollmentId: "00000000-0000-4000-8000-000000000003" },
+    });
+    mocks.prepareValidatedMessage.mockResolvedValue({
+      messageVersionId: "00000000-0000-4000-8000-000000000004",
+    });
+    mocks.completeJob.mockResolvedValue({ status: "succeeded" });
+
+    await expect(runAgentMessagePreparation(database as never, 1)).resolves.toEqual({
+      processed: 1,
+      failed: 0,
+    });
+
+    expect(mocks.prepareValidatedMessage).toHaveBeenCalledWith(
+      database,
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000003",
+    );
+    expect(mocks.completeJob).toHaveBeenCalledWith(database, expect.objectContaining({
+      completion: { result: {
+        kind: "prepare_message",
+        output: { messageVersionId: "00000000-0000-4000-8000-000000000004" },
+      } },
+    }));
   });
 });

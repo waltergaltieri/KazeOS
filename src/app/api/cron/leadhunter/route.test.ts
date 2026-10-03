@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   planDueLeadHunterRuns: vi.fn(),
   runLeadHunterIdentityResolution: vi.fn(),
+  runLeadHunterMessagePreparation: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/db", () => ({
   planDueLeadHunterRuns: mocks.planDueLeadHunterRuns,
   runLeadHunterIdentityResolution: mocks.runLeadHunterIdentityResolution,
+  runLeadHunterMessagePreparation: mocks.runLeadHunterMessagePreparation,
 }));
 
 const secret = "cron-secret-with-enough-entropy";
@@ -70,6 +72,7 @@ describe("GET /api/cron/leadhunter", () => {
       createdJobs: 4,
     });
     mocks.runLeadHunterIdentityResolution.mockResolvedValue({ processed: 3, failed: 0 });
+    mocks.runLeadHunterMessagePreparation.mockResolvedValue({ processed: 2, failed: 0 });
 
     const response = await invokeGet(request(`Bearer ${secret}`));
 
@@ -77,10 +80,12 @@ describe("GET /api/cron/leadhunter", () => {
     expect(await response.json()).toEqual({
       planned: { dueCampaigns: 2, createdRuns: 1, createdJobs: 4 },
       identity: { processed: 3, failed: 0 },
+      messages: { processed: 2, failed: 0 },
     });
     expect(mocks.planDueLeadHunterRuns).toHaveBeenCalledOnce();
     expect(mocks.planDueLeadHunterRuns.mock.calls[0]).toHaveLength(0);
     expect(mocks.runLeadHunterIdentityResolution).toHaveBeenCalledOnce();
+    expect(mocks.runLeadHunterMessagePreparation).toHaveBeenCalledOnce();
   });
 
   it("keeps secrets out of internal errors and logs", async () => {

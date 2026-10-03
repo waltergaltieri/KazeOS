@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   persistQualificationResultInTransaction: vi.fn(),
   persistContactEnrichmentResultInTransaction: vi.fn(),
   persistDiscoveryPageInTransaction: vi.fn(),
+  advancePipelineAfterResult: vi.fn(),
+  prepareValidatedMessage: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -30,6 +32,12 @@ vi.mock("./contact-manager", () => ({
 }));
 vi.mock("./discovery-manager", () => ({
   persistDiscoveryPageInTransaction: mocks.persistDiscoveryPageInTransaction,
+}));
+vi.mock("./pipeline-manager", () => ({
+  advancePipelineAfterResult: mocks.advancePipelineAfterResult,
+}));
+vi.mock("./message-manager", () => ({
+  prepareValidatedMessage: mocks.prepareValidatedMessage,
 }));
 
 import { completeClaimedJob } from "./completion-manager";
@@ -351,4 +359,46 @@ describe("LeadHunter completion dispatcher", () => {
       expect(mocks.completeJob).not.toHaveBeenCalled();
     },
   );
+
+  it("queues message preparation after contact enrichment without calling the model in the completion transaction", async () => {
+    const enrollmentId = "00000000-0000-4000-8000-000000000004";
+    const leadId = "00000000-0000-4000-8000-000000000005";
+    const runId = "00000000-0000-4000-8000-000000000003";
+    const execute = vi.fn(async () => [{
+      ownerId,
+      runId,
+      enrollmentId,
+      leadId,
+      kind: "enrich_contact",
+      state: "leased",
+      leaseOwner: "worker-api",
+      leaseTokenDigest: digestLeaseToken(leaseToken),
+      leaseExpiresAt: "2026-09-30T12:05:00.000Z",
+    }]);
+    const database = { execute } as unknown as LeadHunterJobDatabase;
+    mocks.persistContactEnrichmentResultInTransaction.mockResolvedValue({
+      status: "processed",
+      outcome: "selected",
+      contactIds: ["00000000-0000-4000-8000-000000000006"],
+      primaryContactId: "00000000-0000-4000-8000-000000000006",
+      outboundBlocked: false,
+    });
+
+    await completeClaimedJob(database, {
+      id: jobId,
+      leaseToken,
+      completion: { result: { observations: [] } },
+      now,
+      maxAttempts: 3,
+    });
+
+    expect(mocks.advancePipelineAfterResult).toHaveBeenCalledWith(database, {
+      ownerId,
+      runId,
+      enrollmentId,
+      leadId,
+      kind: "enrich_contact",
+    }, expect.objectContaining({ outcome: "selected", outboundBlocked: false }));
+    expect(mocks.prepareValidatedMessage).not.toHaveBeenCalled();
+  });
 });
