@@ -191,8 +191,8 @@ describe("LeadHunter campaign strategy contracts", () => {
     expect(arThenUs.message.language).toBe("es-AR");
     expect("messageByCountry" in arThenUs).toBe(false);
     expect(arThenUs.message).toMatchObject({
-      signature: "Quime\nKazeCode",
-      cta: "¿Te serviría una conversación breve de 15 minutos la próxima semana?",
+      signature: "Walter Quimey Galtieri\nCo-Founder, KazeCode\n+54 9 11 2505-0687\nWhatsApp: https://wa.me/5491125050687\nhttps://kazecode.com.ar",
+      wordRange: { minimum: 250, maximum: 400 },
     });
   });
 

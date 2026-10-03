@@ -106,6 +106,30 @@ def test_minimax_rejects_findings_not_grounded_in_the_supplied_page() -> None:
         raise AssertionError("ungrounded model output must be rejected")
 
 
+def test_minimax_normalizes_common_status_and_confidence_labels_without_weakening_grounding() -> None:
+    def opener(_request: object, timeout: int) -> FakeResponse:
+        assert timeout == 30
+        return FakeResponse({
+            "status": "completed",
+            "output_text": json.dumps({"findings": [{
+                "field": "business_model",
+                "value": "una paráfrasis que no aparece",
+                "status": "ok",
+                "confidence": "high",
+                "source_url": "https://wrong.example/",
+                "extract": "Acme vende insumos mayoristas en Córdoba.",
+            }]}),
+            "usage": {"input_tokens": 100, "output_tokens": 30},
+        })
+
+    finding = MiniMaxClient("secret", opener=opener).extract(request()).findings[0]
+
+    assert finding.status == "verified"
+    assert finding.confidence == 90
+    assert finding.value == "Acme vende insumos mayoristas en Córdoba."
+    assert str(finding.source_url) == "https://example.com/"
+
+
 def test_minimax_refuses_a_request_whose_budget_disallows_model_calls() -> None:
     value = request().model_copy(update={
         "budget": ExtractionBudget(

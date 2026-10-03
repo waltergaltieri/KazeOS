@@ -7,13 +7,12 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { leadHunterCampaignVersions, leadHunterEnrollments, leadHunterJobs, leadHunterSourceCandidates } from "@/db/schema";
 import { businessIdentitySchema, type BusinessIdentity } from "@/lib/leadhunter/identity";
+import { validatePublicUrl, type FetchLike } from "@/lib/leadhunter/safe-url";
 import { resolveSourceCandidateIdentity } from "./identity-manager";
 import { claimNextJob, completeJob } from "./job-manager";
 
 type Database = PostgresJsDatabase<typeof schema>;
 const leaseMs = 5 * 60_000;
-
-function escapeHtml(value: string) { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;"); }
 
 interface CandidateContext { canonicalUrl: string; sourceType: string; rawRecord: { observedName?: string | null; observedLocation?: string | null; metadata?: { identity?: unknown; snippet?: string } }; campaignId: string; campaignVersion: number; snapshot: schema.LeadHunterCampaignSnapshot }
 
@@ -33,13 +32,52 @@ function identityFromCandidate(candidate: CandidateContext): BusinessIdentity {
   });
 }
 
-function researchContent(candidate: CandidateContext) {
-  const name = candidate.rawRecord.observedName?.trim() || "Negocio encontrado";
-  const snippet = candidate.rawRecord.metadata?.snippet?.trim() || name;
-  return `<article><h1 data-lh-field="business_model">${escapeHtml(name)}</h1><p data-lh-field="digital_presence">${escapeHtml(candidate.canonicalUrl)}</p><p data-lh-field="observable_process">${escapeHtml(snippet)}</p><p data-lh-field="service_opportunity">${escapeHtml(snippet)}</p></article>`;
+async function fetchResearchPage(url: string, fetcher: FetchLike): Promise<string | null> {
+  let currentUrl = url;
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    const validated = await validatePublicUrl(currentUrl);
+    const response = await fetcher(validated.requestUrl, {
+      redirect: "manual",
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": "KazeOS-LeadHunter/1.0",
+      },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location) return null;
+      currentUrl = new URL(location, validated.requestUrl).toString();
+      continue;
+    }
+    if (!response.ok) return null;
+    const contentType = response.headers.get("content-type")?.toLocaleLowerCase() ?? "";
+    if (contentType && !contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) return null;
+    const contentLength = Number(response.headers.get("content-length") ?? "0");
+    if (Number.isFinite(contentLength) && contentLength > 500_000) return null;
+    return (await response.text()).slice(0, 95_000);
+  }
+  return null;
 }
 
-export async function runAgentIdentityResolution(database: Database, maximumJobs = 20) {
+async function researchContent(candidate: CandidateContext, fetcher: FetchLike) {
+  const name = candidate.rawRecord.observedName?.trim() || "Negocio encontrado";
+  const snippet = candidate.rawRecord.metadata?.snippet?.trim() || name;
+  let page: string | null = null;
+  try {
+    page = await fetchResearchPage(candidate.canonicalUrl, fetcher);
+  } catch {
+    page = null;
+  }
+  return [
+    `<h1>${name}</h1>`,
+    `<p>Fuente pública: ${candidate.canonicalUrl}</p>`,
+    `<p>Resumen del buscador: ${snippet}</p>`,
+    page ? `<section aria-label="Sitio oficial">${page}</section>` : "",
+  ].filter(Boolean).join("\n").slice(0, 100_000);
+}
+
+export async function runAgentIdentityResolution(database: Database, maximumJobs = 20, fetcher: FetchLike = fetch) {
   let processed = 0;
   let failed = 0;
   for (let index = 0; index < maximumJobs; index += 1) {
@@ -62,7 +100,7 @@ export async function runAgentIdentityResolution(database: Database, maximumJobs
           const enrollmentRows = await database.execute(sql<{ id: string }>`select id from ${leadHunterEnrollments} where owner_id=${job.ownerId} and campaign_id=${candidate.campaignId} and lead_id=${resolution.leadId} limit 1`) as unknown as Array<{ id: string }>;
           const enrollmentId = enrollmentRows[0]?.id;
           if (enrollmentId) {
-            const content = researchContent(candidate);
+            const content = await researchContent(candidate, fetcher);
             const suppliedAt = new Date().toISOString();
             const payload = { leadId: resolution.leadId, source: { sourceUrl: candidate.canonicalUrl, sourceType: candidate.sourceType, suppliedAt, contentSha256: createHash("sha256").update(content).digest("hex") }, content, questions: candidate.snapshot.strategy.research.questions, budget: { maxRuntimeMs: 60_000, maxModelCalls: 1, maxInputTokens: 50_000, maxOutputTokens: 4_000, maxCostUsd: 1 } };
             await database.execute(sql`insert into ${leadHunterJobs} (owner_id,run_id,enrollment_id,lead_id,kind,payload,idempotency_key) values (${job.ownerId},${job.runId},${enrollmentId},${resolution.leadId},'research',${JSON.stringify(payload)}::jsonb,${`run:${job.runId}:research:${enrollmentId}`}) on conflict (owner_id,idempotency_key) do nothing`);

@@ -6,8 +6,9 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { leadHunterActivities, leadHunterCampaigns, leadHunterCampaignVersions, leadHunterContacts, leadHunterEnrollments, leadHunterEvidence, leadHunterMessageBriefs, leadHunterMessageVersions, leadHunterOutbox } from "@/db/schema";
 import { buildMessageBrief, type BriefEvidence, type MessageBrief } from "@/lib/leadhunter/message-brief";
-import { composeFollowUps, composeProspectMessage, validateProspectMessage } from "@/lib/leadhunter/message-composer";
+import { validateFollowUpMessage, validateProspectMessage } from "@/lib/leadhunter/message-composer";
 import { nextDeliveryWindow } from "@/lib/leadhunter/outbox";
+import { composeFollowUpsWithMiniMax, composeProspectMessageWithMiniMax } from "@/lib/leadhunter/minimax-message";
 
 export type MessageDatabase = Pick<PostgresJsDatabase<typeof schema>, "execute">;
 
@@ -76,12 +77,18 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
   `) as unknown as Array<{ id: string; subject: string; body: string }>;
   let message = existingMessage[0];
   if (!message) {
-    const composed = composeProspectMessage(brief);
-    const validation = validateProspectMessage(brief, composed);
+    let composed = await composeProspectMessageWithMiniMax(brief);
+    let validation = validateProspectMessage(brief, composed);
+    for (let attempt = 1; !validation.valid && attempt < 3; attempt += 1) {
+      composed = await composeProspectMessageWithMiniMax(brief, {
+        qualityFeedback: validation.issues,
+      });
+      validation = validateProspectMessage(brief, composed);
+    }
     if (!validation.valid) throw new Error(validation.issues.join(" "));
     const inserted = await database.execute(sql<{ id: string; subject: string; body: string }>`
       insert into ${leadHunterMessageVersions} (owner_id,brief_id,enrollment_id,subject,body,state,validation_result,model_metadata)
-      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,'{"generator":"deterministic-v1"}'::jsonb)
+      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3" })}::jsonb)
       returning id,subject,body
     `) as unknown as Array<{ id: string; subject: string; body: string }>;
     message = inserted[0]!;
@@ -92,7 +99,18 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
   if (context.campaignStatus === "active" && context.automationMode === "automatic" && context.mailboxId) {
     const firstDueAt = nextDeliveryWindow(now, context.snapshot.schedule);
     const followUpSteps = context.snapshot.sequenceSteps.slice(1);
-    const followUps = composeFollowUps(brief, message.subject, followUpSteps.length);
+    let followUps = await composeFollowUpsWithMiniMax(brief, message.subject, followUpSteps);
+    let followUpValidations = followUps.map((followUp) => validateFollowUpMessage(brief, message.subject, followUp));
+    for (let attempt = 1; followUpValidations.some(({ valid }) => !valid) && attempt < 3; attempt += 1) {
+      followUps = await composeFollowUpsWithMiniMax(brief, message.subject, followUpSteps, {
+        qualityFeedback: followUpValidations.flatMap(({ issues }) => issues),
+      });
+      followUpValidations = followUps.map((followUp) => validateFollowUpMessage(brief, message.subject, followUp));
+    }
+    const invalidFollowUp = followUpValidations.find(({ valid }) => !valid);
+    if (invalidFollowUp) {
+      throw new Error(invalidFollowUp.issues.join(" "));
+    }
     let elapsedDays = 0;
     const commands = [{ subject: message.subject, body: message.body, dueAt: firstDueAt }, ...followUps.map((followUp, index) => {
       elapsedDays += followUpSteps[index]!.delayDays;
@@ -105,7 +123,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
       if (logicalStep > 0) {
         const followUpVersion = await database.execute(sql<{ id: string }>`
           insert into ${leadHunterMessageVersions} (owner_id,brief_id,enrollment_id,subject,body,state,validation_result,model_metadata)
-          values (${ownerId},${briefId},${enrollmentId},${command.subject},${command.body},'valid','{"valid":true,"issues":[]}'::jsonb,${JSON.stringify({ generator: "deterministic-v1", sequenceStep: logicalStep })}::jsonb)
+          values (${ownerId},${briefId},${enrollmentId},${command.subject},${command.body},'valid','{"valid":true,"issues":[]}'::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", sequenceStep: logicalStep })}::jsonb)
           returning id
         `) as unknown as Array<{ id: string }>;
         commandMessageVersionId = followUpVersion[0]!.id;

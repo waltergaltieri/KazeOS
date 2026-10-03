@@ -274,22 +274,26 @@ function messagePolicyForCountry(country: string): MessagePolicy {
       ? "Direct, professional, and specific"
       : "Directo, profesional y específico",
     minimumSpecificFacts: 3,
-    wordRange: { minimum: 65, maximum: 180 },
+    wordRange: { minimum: 250, maximum: 400 },
     intro: useEnglish
-      ? "I’m Quime from KazeCode. We build and operate digital systems that remove manual work and help businesses sell more efficiently."
-      : "Soy Quime de KazeCode. Desarrollamos y operamos soluciones digitales que reducen tareas manuales y ayudan a vender de manera más eficiente.",
+      ? "I’m Walter, co-founder of KazeCode. We help businesses strengthen their digital presence and build custom software and automation around the way they actually operate."
+      : "Soy Walter, cofundador de KazeCode. Ayudamos a empresas a mejorar su presencia digital y desarrollamos sistemas y automatizaciones a medida alrededor de la operación real del negocio.",
     commercialModel: useEnglish
-      ? "We handle development, hosting, maintenance and ongoing improvements through one monthly subscription."
-      : "Nos ocupamos del desarrollo, hosting, mantenimiento y mejoras continuas mediante una única suscripción mensual.",
+      ? "Custom technology is often perceived as complex or practical only for much larger companies. At KazeCode we use a different commercial model that has enabled businesses of different sizes to implement tailored solutions in their daily operations, with development, hosting, maintenance, support and ongoing improvements included in a monthly subscription."
+      : "La tecnología a medida suele percibirse como algo complejo o reservado para empresas mucho más grandes. En KazeCode trabajamos con un modelo comercial diferente que permitió a negocios de distintos tamaños incorporar soluciones propias en su operación cotidiana, con desarrollo, hosting, mantenimiento, soporte y mejoras continuas incluidos en una suscripción mensual.",
     cta: useEnglish
-      ? "Would a brief 15-minute conversation next week be useful?"
-      : "¿Te serviría una conversación breve de 15 minutos la próxima semana?",
-    signature: useEnglish ? "Quime\nKazeCode" : "Quime\nKazeCode",
+      ? "If this sounds worth exploring, I’d be happy to continue by email or set up a short Google Meet."
+      : "Si te parece interesante, podemos verlo en un Google Meet corto, seguir por este correo o hablar por WhatsApp.",
+    signature: useEnglish
+      ? "Walter Quimey Galtieri\nCo-Founder, KazeCode\nhttps://kazecode.com.ar/en/"
+      : "Walter Quimey Galtieri\nCo-Founder, KazeCode\n+54 9 11 2505-0687\nWhatsApp: https://wa.me/5491125050687\nhttps://kazecode.com.ar",
     requiredSections: [
       "opening",
       "introduction",
       "business_understanding",
       "primary_opportunity",
+      "operations_transition",
+      "secondary_opportunity",
       "commercial_model",
       "cta",
       "signature",
