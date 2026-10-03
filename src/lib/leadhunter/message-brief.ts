@@ -36,6 +36,20 @@ function usableCommercialFact(item: BriefEvidence): boolean {
   return value.length >= 20;
 }
 
+function displayBusinessName(value: string): string {
+  const title = value.trim().replace(/\s+/gu, " ");
+  const genericSegment = /^(?:inicio|home|contacto|contact|venta\s+(?:mayorista|minorista)|sitio\s+oficial|official\s+site)$/iu;
+  const segments = title.split(/\s*[|·]\s*|\s+[–—]\s+/u)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment && !genericSegment.test(segment));
+  const selected = segments[0] ?? title;
+  const withoutDescriptor = selected.replace(
+    /^(.+?)\s+(?:distribuidor(?:a)?|mayorista|minorista|venta\s+(?:mayorista|minorista))\b.*$/iu,
+    "$1",
+  ).trim();
+  return withoutDescriptor || selected;
+}
+
 export function buildMessageBrief(input: Omit<MessageBrief, "facts"> & { evidence: BriefEvidence[] }): MessageBrief {
   const seen = new Set<string>();
   const facts = input.evidence
@@ -53,5 +67,5 @@ export function buildMessageBrief(input: Omit<MessageBrief, "facts"> & { evidenc
     .slice(0, 8);
   if (!input.contact.email.trim()) throw new Error("A verified recipient is required");
   if (facts.length < input.policy.minimumSpecificFacts) throw new Error("Not enough verified commercial facts");
-  return { ...input, companyName: input.companyName.trim(), primaryOpportunity: input.primaryOpportunity.trim(), facts };
+  return { ...input, companyName: displayBusinessName(input.companyName), primaryOpportunity: input.primaryOpportunity.trim(), facts };
 }

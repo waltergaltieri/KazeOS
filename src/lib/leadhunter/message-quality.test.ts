@@ -30,6 +30,20 @@ const base = {
 };
 
 describe("LeadHunter message quality gates", () => {
+  it("uses a clean business name instead of the full website title", () => {
+    const brief = buildMessageBrief({
+      ...base,
+      companyName: "Contacto | Comersa Distribuidor Sanitario | Venta Mayorista",
+      evidence: [
+        { id: "00000000-0000-4000-8000-000000000011", field: "business_model", value: "Distribuye productos sanitarios mediante venta mayorista.", status: "verified", confidence: 90 },
+        { id: "00000000-0000-4000-8000-000000000012", field: "observable_process", value: "Publica un formulario para recibir consultas comerciales.", status: "verified", confidence: 90 },
+        { id: "00000000-0000-4000-8000-000000000013", field: "digital_presence", value: "Ofrece un boletín de ofertas y novedades para sus clientes.", status: "verified", confidence: 90 },
+      ],
+    });
+
+    expect(brief.companyName).toBe("Comersa");
+  });
+
   it("excludes technical audit JSON and keeps distinct commercial evidence", () => {
     const brief = buildMessageBrief({
       ...base,
@@ -73,6 +87,33 @@ describe("LeadHunter message quality gates", () => {
 
     expect(validation.valid).toBe(false);
     expect(validation.issues).toContain("El mensaje contiene datos técnicos o serializados.");
+  });
+
+  it("blocks internal evidence identifiers from the recipient-facing message", () => {
+    const brief = buildMessageBrief({
+      ...base,
+      evidence: [
+        { id: "00000000-0000-4000-8000-000000000011", field: "business_model", value: "Distribuye alimentos y bebidas a comercios de barrio.", status: "verified", confidence: 90 },
+        { id: "00000000-0000-4000-8000-000000000012", field: "observable_process", value: "Publica un catálogo para kioscos, almacenes y supermercados.", status: "verified", confidence: 90 },
+        { id: "00000000-0000-4000-8000-000000000013", field: "service_opportunity", value: "Recibe consultas comerciales para compras mayoristas.", status: "verified", confidence: 90 },
+      ],
+    });
+    const body = [
+      brief.policy.intro,
+      "El catálogo de la evidencia 00000000-0000-4000-8000-000000000012 permite revisar la oferta.",
+      ...brief.facts.map(({ value }) => value),
+      brief.policy.commercialModel,
+      brief.policy.cta,
+      brief.policy.signature,
+    ].join("\n\n");
+    const validation = validateProspectMessage(brief, {
+      subject: "Una idea para Distribuidora PPP",
+      body,
+      claims: brief.facts.map(({ id, value }) => ({ text: value, evidenceIds: [id] })),
+    });
+
+    expect(validation.valid).toBe(false);
+    expect(validation.issues).toContain("El mensaje expone identificadores internos.");
   });
 
   it("blocks an abbreviated or incorrect sender signature", () => {

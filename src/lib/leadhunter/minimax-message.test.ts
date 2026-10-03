@@ -63,6 +63,9 @@ describe("MiniMax LeadHunter message composition", () => {
     const fetchCall = fetcher.mock.calls[0] as unknown as [string, RequestInit];
     const request = JSON.parse(String(fetchCall[1].body));
     expect(request.instructions).toContain("at least three company-specific details");
+    expect(request.instructions).toContain("Do not add operational examples");
+    expect(request.instructions).toContain("correct Spanish spelling and accents");
+    expect(request.instructions).toContain("Never put evidence IDs");
     expect(request.input).toContain("Walter Quimey Galtieri");
   });
 
@@ -76,6 +79,28 @@ describe("MiniMax LeadHunter message composition", () => {
       apiKey: "secret",
       fetch: fetcher as typeof fetch,
     })).rejects.toThrow();
+  });
+
+  it("accepts grounded claims when the provider JSON-encodes the claims array", async () => {
+    const claims = brief.facts.map(({ id, value }) => ({ text: value, evidenceIds: [id] }));
+    const output = {
+      subject: "Una idea para Distribuidora PPP",
+      opening: "Estuve mirando Distribuidora PPP.",
+      businessUnderstanding: brief.facts[0]!.value,
+      primaryOpportunity: brief.facts[1]!.value,
+      operationsTransition: "Ordenar el ingreso de consultas puede reducir tareas manuales.",
+      secondaryOpportunity: brief.facts[2]!.value,
+      claims: JSON.stringify(claims),
+    };
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      status: "completed",
+      output_text: JSON.stringify(output),
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    await expect(composeProspectMessageWithMiniMax(brief, {
+      apiKey: "secret",
+      fetch: fetcher as typeof fetch,
+    })).resolves.toMatchObject({ claims });
   });
 
   it("creates exactly one structured follow-up per configured step", async () => {

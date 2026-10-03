@@ -45,11 +45,23 @@ function evidenceIdsForText(text: string, facts: MessageBrief["facts"]): string[
   }).map(({ id }) => id);
 }
 
+function claimItems(value: unknown): unknown {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return value;
+  try {
+    const parsed = JSON.parse(value.trim()) as unknown;
+    return Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+}
+
 function normalizedMessage(raw: unknown, facts: MessageBrief["facts"]): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
   const record = raw as Record<string, unknown>;
-  const claims = Array.isArray(record.claims)
-    ? record.claims.map((item) => {
+  const items = claimItems(record.claims);
+  const claims = Array.isArray(items)
+    ? items.map((item) => {
       if (typeof item === "string") {
         return { text: item, evidenceIds: evidenceIdsForText(item, facts) };
       }
@@ -151,10 +163,12 @@ export async function composeProspectMessageWithMiniMax(
     "Write only the six requested custom sections. The application will insert the introduction, commercial-model paragraph, CTA and signature separately.",
     "opening must be short and specific. businessUnderstanding must explain the outside-view understanding of the business. primaryOpportunity must propose the main evidence-based improvement. operationsTransition must bridge to reducing manual work. secondaryOpportunity must give one cautious operational or software idea.",
     "Do not pretend to know internal workflows. Invite correction when the public information may be incomplete.",
+    "Do not add operational examples such as spreadsheets, price lists, WhatsApp exchanges, lost inquiries or manual copying unless that exact detail appears in the supplied evidence. Phrase every proposed improvement as a possibility, not as a claim about the current operation.",
     "Use plain text only. Never output HTML, Markdown, code, JSON fragments inside the email, emojis or template placeholders.",
     "The six custom sections together must contain between 150 and 260 words; the application adds the fixed sections afterward.",
-    "Use only the Latin alphabet for prose. Never insert Chinese, Japanese, Korean or other foreign-script characters.",
-    "Every claim text must appear verbatim in one of the six custom sections and cite only supplied evidence IDs.",
+    "Use correct Spanish spelling and accents for es-AR, or correct American English for en-US. Never insert Chinese, Japanese, Korean or other foreign-script characters.",
+    "Every claim text must appear verbatim in one of the six custom sections and cite only supplied evidence IDs in the claims metadata.",
+    "Never put evidence IDs, UUIDs, field names or references to evidence inside the subject or recipient-facing prose.",
     "Avoid generic filler. Every paragraph must add useful information.",
     ...(options.qualityFeedback?.length
       ? [`A previous draft was rejected. Correct all of these issues: ${options.qualityFeedback.join(" ")}`]

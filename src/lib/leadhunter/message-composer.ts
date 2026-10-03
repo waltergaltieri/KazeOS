@@ -52,6 +52,7 @@ export function composeProspectMessage(brief: MessageBrief): ComposedMessage {
 export function validateProspectMessage(brief: MessageBrief, message: ComposedMessage) {
   const issues: string[] = [];
   const words = message.body.trim().split(/\s+/).filter(Boolean).length;
+  if (/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(`${message.subject} ${message.body}`)) issues.push("El mensaje expone identificadores internos.");
   if (/<[^>]+>|```|[\u{1F300}-\u{1FAFF}]|[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/u.test(`${message.subject} ${message.body}`)) issues.push("El mensaje debe ser texto simple y estar completamente en el idioma configurado.");
   if (/[{}\[\]]/u.test(message.body) || /"(?:result|statusCode|state|targetUrl|testedPaths|brokenPaths)"\s*:/u.test(message.body)) issues.push("El mensaje contiene datos técnicos o serializados.");
   if (words < brief.policy.wordRange.minimum || words > brief.policy.wordRange.maximum) issues.push("La longitud está fuera del rango configurado.");

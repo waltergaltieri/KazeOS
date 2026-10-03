@@ -51,6 +51,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     from ${leadHunterEvidence}
     where owner_id=${ownerId} and lead_id=${context.leadId} and campaign_id=${context.campaignId}
       and campaign_version=${context.campaignVersion} and status='verified'
+      and left(field, 8) <> 'website_'
     order by confidence desc, observed_at desc limit 8
   `) as unknown as BriefEvidence[];
   const brief = buildMessageBrief({
