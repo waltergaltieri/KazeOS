@@ -42,6 +42,7 @@ const sourceProvenanceSchema = z.object({
 
 const researchPayloadSchema = z.object({
   leadId: z.string().uuid(),
+  sourceCandidateId: z.string().uuid().optional(),
   source: sourceProvenanceSchema,
   budget: z.object({
     maxRuntimeMs: z.number().int().min(50).max(120_000),

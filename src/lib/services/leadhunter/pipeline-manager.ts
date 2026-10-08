@@ -31,9 +31,9 @@ export async function advancePipelineAfterResult(database: LeadHunterJobDatabase
       select id,payload from ${leadHunterJobs} where owner_id=${context.ownerId} and run_id=${context.runId}
         and enrollment_id=${context.enrollmentId} and kind='research' and state='succeeded'
         and payload->>'content' is not null order by id limit 25
-    `) as unknown as Array<{ id: string; payload: { source: { sourceUrl: string; sourceType: string; contentSha256: string; suppliedAt: string }; content: string } }>;
+    `) as unknown as Array<{ id: string; payload: { sourceCandidateId?: string; source: { sourceUrl: string; sourceType: string; contentSha256: string; suppliedAt: string }; content: string } }>;
     if (!rows.length) return null;
-    payload = { leadId: context.leadId, sources: rows.map((row) => ({ ref: `research:${row.id}`, ...row.payload.source, content: row.payload.content })) };
+    payload = { leadId: context.leadId, sources: rows.map((row) => ({ ref: `research:${row.id}`, ...row.payload.source, content: row.payload.content, ...(row.payload.sourceCandidateId ? { sourceCandidateId: row.payload.sourceCandidateId } : {}) })) };
   } else if (next === "prepare_message") {
     payload = { enrollmentId: context.enrollmentId };
   } else {

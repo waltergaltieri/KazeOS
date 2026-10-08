@@ -204,7 +204,7 @@ export async function runAgentIdentityResolution(database: Database, maximumJobs
             const suppliedAt = new Date().toISOString();
             await database.transaction(async (tx) => {
               for (const { sourceUrl, content } of pages) {
-                const payload = { leadId: resolution.leadId, source: { sourceUrl, sourceType: candidate.sourceType, suppliedAt, contentSha256: createHash("sha256").update(content).digest("hex") }, content, questions: candidate.snapshot.strategy.research.questions, budget: { maxRuntimeMs: 60_000, maxModelCalls: 1, maxInputTokens: 50_000, maxOutputTokens: 4_000, maxCostUsd: 1 } };
+                const payload = { leadId: resolution.leadId, sourceCandidateId: candidateId, source: { sourceUrl, sourceType: candidate.sourceType, suppliedAt, contentSha256: createHash("sha256").update(content).digest("hex") }, content, questions: candidate.snapshot.strategy.research.questions, budget: { maxRuntimeMs: 60_000, maxModelCalls: 1, maxInputTokens: 50_000, maxOutputTokens: 4_000, maxCostUsd: 1 } };
                 await tx.execute(sql`insert into ${leadHunterJobs} (owner_id,run_id,enrollment_id,lead_id,kind,payload,idempotency_key) values (${job.ownerId},${job.runId},${enrollmentId},${resolution.leadId},'research',${JSON.stringify(payload)}::jsonb,${`run:${job.runId}:research:${enrollmentId}:${createHash("sha256").update(sourceUrl).digest("hex").slice(0, 16)}`}) on conflict (owner_id,idempotency_key) do nothing`);
               }
             });
