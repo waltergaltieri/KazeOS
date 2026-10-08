@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 
 from leadhunter_worker.contracts import ExtractionBudget, ExtractionRequest
-from leadhunter_worker.minimax import MiniMaxClient
+from leadhunter_worker.minimax import MiniMaxClient, _normalized_findings
+
+
+def test_line_wrapping_does_not_discard_a_literal_published_fact() -> None:
+    source = request().model_copy(update={"content": "Abastecemos bares con productos frescos,\nsecos y enlatados."})
+    findings = _normalized_findings(source, [{"field":"business_model", "value":"Abastecemos bares con productos frescos, secos y enlatados.", "extract":"Abastecemos bares con productos frescos, secos y enlatados.", "confidence":95,"status":"verified"}])
+    assert findings[0]["extract"] == source.content
+    assert findings[0]["value"] == source.content
 
 
 class FakeResponse:

@@ -7,6 +7,7 @@
   },
   "packageManager": "pnpm@11.18.0",
   "scripts": {
+    "leadhunter": "node --conditions=react-server --dns-result-order=ipv4first --import tsx scripts/leadhunter.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

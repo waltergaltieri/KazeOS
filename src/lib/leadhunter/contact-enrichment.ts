@@ -35,6 +35,7 @@ export const contactSourceDescriptorSchema = z.object({
   contentSha256: z.string().regex(/^[0-9a-f]{64}$/),
   suppliedAt: z.string().datetime({ offset: true }),
   sourceCandidateId: z.string().uuid().optional(),
+  content: z.string().max(100_000).optional(),
 }).strict();
 
 export const contactEnrichmentPayloadSchema = z.object({
@@ -333,6 +334,7 @@ export function deriveContactSelection(
       || observation.sourceUrl !== source.sourceUrl
       || observation.observedAt !== source.suppliedAt
       || observation.contentSha256 !== source.contentSha256
+      || (source.content !== undefined && !source.content.replace(/\s+/gu, " ").includes(observation.extract))
     ) {
       rejectedCount += 1;
       reasons.push("source_provenance_mismatch");

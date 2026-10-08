@@ -70,6 +70,12 @@ def _normalized_findings(
             rejected += 1
             continue
         extract = extract.strip()
+        if extract and len(extract) <= 1_000 and extract not in request.content:
+            # HTML line wrapping is presentation, not a factual difference. Recover
+            # the exact source span; never accept paraphrases as literal evidence.
+            match = re.search(r"\s+".join(re.escape(word) for word in extract.split()), request.content)
+            if match:
+                extract = match.group()
         if not extract or len(extract) > 1_000 or extract not in request.content:
             rejected += 1
             continue

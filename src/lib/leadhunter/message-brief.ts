@@ -22,9 +22,12 @@ export interface MessageBrief {
 
 const evidencePriority = new Map([
   ["business_model", 0],
-  ["observable_process", 1],
-  ["service_opportunity", 2],
-  ["digital_presence", 3],
+  ["products_services", 1],
+  ["customer_profile", 2],
+  ["sales_channels", 3],
+  ["observable_process", 4],
+  ["service_opportunity", 5],
+  ["digital_presence", 6],
 ]);
 
 function usableCommercialFact(item: BriefEvidence): boolean {
@@ -39,7 +42,7 @@ function usableCommercialFact(item: BriefEvidence): boolean {
 function displayBusinessName(value: string): string {
   const title = value.trim().replace(/\s+/gu, " ");
   const genericSegment = /^(?:inicio|home|contacto|contact|venta\s+(?:mayorista|minorista)|sitio\s+oficial|official\s+site)$/iu;
-  const segments = title.split(/\s*[|·]\s*|\s+[–—]\s+/u)
+  const segments = title.split(/\s*[|·]\s*|\s+[–—-]\s+/u)
     .map((segment) => segment.trim())
     .filter((segment) => segment && !genericSegment.test(segment));
   const selected = segments[0] ?? title;

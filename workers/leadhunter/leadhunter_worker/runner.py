@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import ipaddress
 import json
 import os
@@ -16,11 +17,29 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .contracts import ExtractionRequest
-from .extract import ProviderOutputRejected, extract_offline
 from .mail_transport import GmailMailTransport, dispatch_due_mail, report_mail_events
 from .minimax import MiniMaxClient
 
 UrlOpener = Callable[..., Any]
+
+
+def business_source_role(url: str) -> str | None:
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower().removeprefix("www.")
+    def belongs(domains: tuple[str, ...]) -> bool:
+        return any(host == domain or host.endswith("." + domain) for domain in domains)
+    if belongs(("wa.me", "whatsapp.com", "youtube.com", "youtu.be", "tiktok.com", "pinterest.com")):
+        return None
+    if belongs(("instagram.com", "facebook.com", "linkedin.com")):
+        path = parsed.path.strip("/")
+        if not path or re.search(r"(^|/)(p|reel|reels|posts|watch|login|share|search|explore|jobs|in)(/|$)", path):
+            return None
+        return "social_profile"
+    if belongs(("yelp.com", "bbb.org", "paginasamarillas.com.ar", "yellowpages.com")):
+        return "directory"
+    if re.search(r"\.(pdf|jpg|png|zip)$", parsed.path, re.I):
+        return None
+    return "official_website"
 
 
 def canonical_public_url(value: str) -> str:
@@ -75,6 +94,10 @@ def discover(payload: dict[str, Any], searxng_url: str, opener: UrlOpener = urll
         "linkedin": "site:linkedin.com/company",
     }.get(source, "")
     query = str(payload.get("query", "")).strip()
+    country = {"AR": "Argentina", "US": "United States"}.get(payload.get("country"), payload.get("country"))
+    for term in (payload.get("industry"), payload.get("region"), country):
+        if isinstance(term, str) and term.strip() and term.casefold() not in query.casefold():
+            query += " " + term.strip()
     if suffix:
         query = f"{query[:499 - len(suffix)]} {suffix}"
     cursor = payload.get("cursor")
@@ -107,9 +130,17 @@ def discover(payload: dict[str, Any], searxng_url: str, opener: UrlOpener = urll
             canonical = canonical_public_url(source_url)
         except (TypeError, ValueError):
             continue
-        if canonical in seen:
+        role = business_source_role(canonical)
+        if role is None:
             continue
-        seen.add(canonical)
+        if source == "directories" and role == "official_website":
+            role = "directory"
+        if source in {"instagram", "linkedin"} and role != "social_profile":
+            continue
+        identity_key = urlsplit(canonical).netloc.removeprefix("www.") if role == "official_website" else canonical
+        if identity_key in seen:
+            continue
+        seen.add(identity_key)
         metadata: dict[str, Any] = {}
         if isinstance(item.get("engine"), str) and item["engine"].strip():
             metadata["engine"] = item["engine"].strip()
@@ -118,12 +149,9 @@ def discover(payload: dict[str, Any], searxng_url: str, opener: UrlOpener = urll
             metadata["snippetTrust"] = "untrusted"
         title = item.get("title")
         observed_name = title.strip()[:240] if isinstance(title, str) and title.strip() else None
-        role = {
-            "web_search": "official_website",
-            "directories": "directory",
-            "instagram": "social_profile",
-            "linkedin": "social_profile",
-        }.get(source, "directory")
+        if observed_name:
+            segments = re.split(r"\s+[|–—-]\s+", observed_name)
+            observed_name = " - ".join(segment for segment in segments if segment.casefold() not in {"contacto", "contact", "inicio", "home", "instagram", "linkedin"}) or observed_name
         if observed_name:
             metadata["identity"] = {
                 "name": observed_name,
@@ -134,7 +162,7 @@ def discover(payload: dict[str, Any], searxng_url: str, opener: UrlOpener = urll
             }
         candidates.append({
             "sourceType": source,
-            "sourceIdentity": canonical,
+            "sourceIdentity": identity_key,
             "sourceUrl": source_url,
             "observedUrl": source_url,
             "canonicalUrl": canonical,
@@ -150,7 +178,7 @@ def discover(payload: dict[str, Any], searxng_url: str, opener: UrlOpener = urll
 def api(method: str, url: str, token: str, body: dict[str, Any]) -> tuple[int, Any]:
     request = urllib.request.Request(url, data=json.dumps(body).encode(), method=method, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with urllib.request.urlopen(request, timeout=310) as response:
             raw = response.read(1_000_000)
             return response.status, json.loads(raw) if raw else None
     except urllib.error.HTTPError as error:
@@ -197,13 +225,18 @@ def audit(payload: dict[str, Any]) -> dict[str, Any]:
 def contacts(payload: dict[str, Any]) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     for source in payload.get("sources", [])[:25]:
-        try:
-            _, html = fetch_text(source["sourceUrl"])
-        except Exception:
+        text = source.get("content")
+        if not isinstance(text, str):
+            # Older jobs lack a captured page. Do not invent provenance for a new fetch.
             continue
-        text = unescape(re.sub(r"<[^>]+>", " ", html))
+        if hashlib.sha256(text.encode("utf-8")).hexdigest() != source["contentSha256"]:
+            raise ValueError("contact snapshot hash mismatch")
         for email in sorted(set(re.findall(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", text)))[:10]:
             position = text.find(email)
+            if re.search(r"(?:\bej(?:emplo)?|\bexample|e\.g\.)\s*[:(]?\s*$", text[max(0, position - 40):position], re.I):
+                continue
+            if re.fullmatch(r"(?:tu|nombre|your|name|usuario|user)@(?:email|example|ejemplo)\.com", email, re.I):
+                continue
             extract = " ".join(text[max(0, position - 100):position + len(email) + 100].split())
             observations.append({"sourceRef": source["ref"], "sourceUrl": source["sourceUrl"], "observedAt": source["suppliedAt"], "contentSha256": source["contentSha256"], "extract": extract, "email": email, "channel": "email"})
     return {"observations": observations[:50]}
@@ -218,15 +251,12 @@ def result_for(job: dict[str, Any]) -> dict[str, Any]:
         request = ExtractionRequest.model_validate({"source_url": payload["source"]["sourceUrl"], "source_type": payload["source"]["sourceType"], "supplied_at": payload["source"]["suppliedAt"], "content": payload.get("content", ""), "questions": payload.get("questions", []), "budget": {"max_runtime_ms": budget["maxRuntimeMs"], "max_model_calls": budget["maxModelCalls"], "max_input_tokens": budget["maxInputTokens"], "max_output_tokens": budget["maxOutputTokens"], "max_cost_usd": budget["maxCostUsd"]}})
         minimax_key = os.environ.get("MINIMAX_API_KEY", "").strip()
         if minimax_key:
-            try:
-                return MiniMaxClient(
-                    minimax_key,
-                    os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
-                    os.environ.get("MINIMAX_MODEL", "MiniMax-M3"),
-                ).extract(request).model_dump(mode="json")
-            except ProviderOutputRejected:
-                return extract_offline(request).model_dump(mode="json")
-        return extract_offline(request).model_dump(mode="json")
+            return MiniMaxClient(
+                minimax_key,
+                os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1"),
+                os.environ.get("MINIMAX_MODEL", "MiniMax-M3"),
+            ).extract(request).model_dump(mode="json")
+        raise RuntimeError("MINIMAX_API_KEY is required for live research")
     if job["kind"] == "audit_website":
         return audit(payload)
     if job["kind"] == "qualify":
@@ -248,7 +278,9 @@ def run_once(base_url: str, token: str) -> bool:
         body = {"leaseToken": job["leaseToken"], "result": result_for(job)}
     except Exception as error:
         body = {"leaseToken": job["leaseToken"], "error": str(error)[:2000]}
-    api("POST", f"{base_url.rstrip('/')}/api/internal/leadhunter/jobs/{job['id']}/complete", token, body)
+    status, _ = api("POST", f"{base_url.rstrip('/')}/api/internal/leadhunter/jobs/{job['id']}/complete", token, body)
+    if status != 200:
+        raise RuntimeError(f"KazeOS job completion failed with status {status}")
     return True
 
 

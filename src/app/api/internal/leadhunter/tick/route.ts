@@ -4,6 +4,7 @@ import { planDueLeadHunterRuns, runLeadHunterIdentityResolution, runLeadHunterMe
 import { authenticateWorkerRequest } from "@/lib/leadhunter/worker-auth";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 const tickRequestSchema = z.object({}).strict();
 

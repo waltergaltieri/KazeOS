@@ -194,6 +194,14 @@ function evidence(
 }
 
 describe("LeadHunter research dossier reducer", () => {
+  it("combines complementary descriptive facts from different pages", () => {
+    const dossier = reduceResearchDossier([{ key: "business_model", prompt: "Qué hace", required: true }], [
+      evidence("1", "business_model", "Venta mayorista de alimentos", "verified", 90),
+      evidence("2", "business_model", "Distribución de bebidas a comercios", "verified", 90),
+    ]);
+    expect(dossier.conflicts).toEqual([]);
+    expect(dossier.usableFactIds).toHaveLength(2);
+  });
   it("keeps unknown answers in memory without creating fake evidence", () => {
     const dossier = reduceResearchDossier(questions, [
       evidence("00000000-0000-5000-8000-000000000001", "business_name", "Acme", "verified", 90),

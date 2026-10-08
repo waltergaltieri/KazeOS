@@ -153,7 +153,7 @@ export async function completeClaimedJob(
       : job.kind === "audit_website" ? { auditId: result.auditId, gateResult: result.gateResult }
       : job.kind === "qualify" ? { decision: result.decision, score: result.score }
       : { outcome: result.outcome, primaryContactId: result.primaryContactId, outboundBlocked: result.outboundBlocked };
-    await advancePipelineAfterResult(database, {
+    if (result.status !== "rejected") await advancePipelineAfterResult(database, {
       ownerId: job.ownerId,
       runId: job.runId,
       enrollmentId: job.enrollmentId,

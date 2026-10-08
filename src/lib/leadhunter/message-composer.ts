@@ -52,6 +52,8 @@ export function composeProspectMessage(brief: MessageBrief): ComposedMessage {
 export function validateProspectMessage(brief: MessageBrief, message: ComposedMessage) {
   const issues: string[] = [];
   const words = message.body.trim().split(/\s+/).filter(Boolean).length;
+  if (/lo que (?:habla|demuestra|revela)|sin perder el trato directo que/iu.test(message.body)) issues.push("No agregues deducciones sobre el alcance comercial, clientes ni trato actual: describí únicamente el hecho publicado, sin ampliar su significado.");
+  if (/(?=\p{L})(?!\p{Script=Latin})/u.test(`${message.subject} ${message.body}`)) issues.push("El correo mezcla alfabetos ajenos al idioma configurado; redactá todas las palabras en español o inglés según corresponda.");
   if (/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(`${message.subject} ${message.body}`)) issues.push("El mensaje expone identificadores internos.");
   if (/<[^>]+>|```|[\u{1F300}-\u{1FAFF}]|[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/u.test(`${message.subject} ${message.body}`)) issues.push("El mensaje debe ser texto simple y estar completamente en el idioma configurado.");
   if (/[{}\[\]]/u.test(message.body) || /"(?:result|statusCode|state|targetUrl|testedPaths|brokenPaths)"\s*:/u.test(message.body)) issues.push("El mensaje contiene datos técnicos o serializados.");
@@ -64,12 +66,15 @@ export function validateProspectMessage(brief: MessageBrief, message: ComposedMe
   if (!message.subject.toLocaleLowerCase().includes(brief.companyName.toLocaleLowerCase())) issues.push("El asunto no identifica a la empresa.");
   const factsById = new Map(brief.facts.map((fact) => [fact.id, fact]));
   const groundedClaims = message.claims.filter(({ text, evidenceIds }) => (
-    tokenCoverage(text, message.body) >= 0.5
+    compact(message.body).includes(compact(text))
     && evidenceIds.length > 0
     && evidenceIds.every((id) => factsById.has(id))
     && evidenceIds.some((id) => tokenCoverage(text, factsById.get(id)!.value) >= 0.3)
   ));
-  if (groundedClaims.length < brief.policy.minimumSpecificFacts) issues.push("Las afirmaciones no tienen evidencia suficiente.");
+  const distinctEvidence = new Set(groundedClaims.flatMap(({ evidenceIds }) => evidenceIds));
+  const absentClaims = message.claims.filter(({ text }) => !compact(message.body).includes(compact(text)));
+  if (absentClaims.length) issues.push(`claims.text debe copiar frases LITERALES del correo, sin resumirlas ni reformularlas. Estas frases no aparecen en el cuerpo: ${absentClaims.slice(0, 3).map(({ text }) => text).join(" | ")}`);
+  if (groundedClaims.length < brief.policy.minimumSpecificFacts || distinctEvidence.size < brief.policy.minimumSpecificFacts || groundedClaims.length !== message.claims.length) issues.push("Las afirmaciones no tienen evidencia suficiente.");
   return { valid: issues.length === 0, issues };
 }
 
@@ -80,14 +85,17 @@ export function validateFollowUpMessage(
 ) {
   const issues: string[] = [];
   const words = message.body.trim().split(/\s+/u).filter(Boolean).length;
+  if (/(?=\p{L})(?!\p{Script=Latin})/u.test(`${message.subject} ${message.body}`)) issues.push("El seguimiento mezcla alfabetos ajenos al idioma configurado.");
+  if (/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(`${message.subject} ${message.body}`)) issues.push("El seguimiento expone identificadores internos.");
   if (message.subject !== `Re: ${initialSubject}`) issues.push("El seguimiento debe continuar el asunto original.");
   if (/<[^>]+>|```|[\u{1F300}-\u{1FAFF}]|[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/u.test(`${message.subject} ${message.body}`)) issues.push("El seguimiento debe ser texto simple y estar completamente en el idioma configurado.");
   if (/[{}\[\]]/u.test(message.body)) issues.push("El seguimiento contiene datos técnicos o serializados.");
   if (words < 55 || words > 140) issues.push("La longitud del seguimiento está fuera del rango permitido.");
   if (!message.body.endsWith(brief.policy.signature)) issues.push("La firma del seguimiento es incorrecta.");
   const factsById = new Map(brief.facts.map((fact) => [fact.id, fact]));
-  if (message.claims.some(({ evidenceIds }) => (
-    evidenceIds.length === 0 || evidenceIds.some((id) => !factsById.has(id))
+  if (message.claims.length === 0 || message.claims.some(({ text, evidenceIds }) => (
+    !compact(message.body).includes(compact(text)) || evidenceIds.length === 0 || evidenceIds.some((id) => !factsById.has(id))
+    || !evidenceIds.some((id) => factsById.has(id) && tokenCoverage(text, factsById.get(id)!.value) >= 0.3)
   ))) issues.push("El seguimiento no está respaldado por evidencia.");
   return { valid: issues.length === 0, issues };
 }

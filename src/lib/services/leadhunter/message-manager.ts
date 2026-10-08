@@ -8,7 +8,7 @@ import { leadHunterActivities, leadHunterCampaigns, leadHunterCampaignVersions, 
 import { buildMessageBrief, type BriefEvidence, type MessageBrief } from "@/lib/leadhunter/message-brief";
 import { validateFollowUpMessage, validateProspectMessage } from "@/lib/leadhunter/message-composer";
 import { nextDeliveryWindow } from "@/lib/leadhunter/outbox";
-import { composeFollowUpsWithMiniMax, composeProspectMessageWithMiniMax } from "@/lib/leadhunter/minimax-message";
+import { composeFollowUpsWithMiniMax, composeProspectMessageWithMiniMax, reviewMessageGrounding } from "@/lib/leadhunter/minimax-message";
 
 export type MessageDatabase = Pick<PostgresJsDatabase<typeof schema>, "execute">;
 
@@ -52,9 +52,9 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     where owner_id=${ownerId} and lead_id=${context.leadId} and campaign_id=${context.campaignId}
       and campaign_version=${context.campaignVersion} and status='verified'
       and left(field, 8) <> 'website_'
-    order by confidence desc, observed_at desc limit 8
+    order by confidence desc, observed_at desc limit 50
   `) as unknown as BriefEvidence[];
-  const brief = buildMessageBrief({
+  const builtBrief = buildMessageBrief({
     campaignId: context.campaignId, campaignVersion: context.campaignVersion, enrollmentId,
     companyName: context.companyName,
     contact: { id: context.contactId, email: context.email, firstName: context.firstName, role: context.role },
@@ -64,6 +64,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
   const existing = await database.execute(sql<{ id: string; brief: MessageBrief }>`
     select id, brief from ${leadHunterMessageBriefs} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and campaign_version=${context.campaignVersion} limit 1
   `) as unknown as Array<{ id: string; brief: MessageBrief }>;
+  const brief = existing[0]?.brief ?? builtBrief;
   let briefId = existing[0]?.id;
   if (!briefId) {
     const inserted = await database.execute(sql<{ id: string }>`
@@ -74,22 +75,26 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     briefId = inserted[0]!.id;
   }
   const existingMessage = await database.execute(sql<{ id: string; subject: string; body: string }>`
-    select id, subject, body from ${leadHunterMessageVersions} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and state='valid' order by created_at desc limit 1
+    select id, subject, body from ${leadHunterMessageVersions} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and state='valid'
+      and model_metadata->>'qualityVersion'='2' and coalesce(model_metadata->>'sequenceStep','0')='0'
+    order by created_at desc limit 1
   `) as unknown as Array<{ id: string; subject: string; body: string }>;
   let message = existingMessage[0];
   if (!message) {
     let composed = await composeProspectMessageWithMiniMax(brief);
     let validation = validateProspectMessage(brief, composed);
-    for (let attempt = 1; !validation.valid && attempt < 3; attempt += 1) {
+    if (validation.valid) validation = await reviewMessageGrounding(brief, [composed]);
+    for (let attempt = 1; !validation.valid && attempt < 2; attempt += 1) {
       composed = await composeProspectMessageWithMiniMax(brief, {
         qualityFeedback: validation.issues,
       });
       validation = validateProspectMessage(brief, composed);
+      if (validation.valid) validation = await reviewMessageGrounding(brief, [composed]);
     }
     if (!validation.valid) throw new Error(validation.issues.join(" "));
     const inserted = await database.execute(sql<{ id: string; subject: string; body: string }>`
       insert into ${leadHunterMessageVersions} (owner_id,brief_id,enrollment_id,subject,body,state,validation_result,model_metadata)
-      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3" })}::jsonb)
+      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", qualityVersion: 2, sequenceStep: 0 })}::jsonb)
       returning id,subject,body
     `) as unknown as Array<{ id: string; subject: string; body: string }>;
     message = inserted[0]!;
@@ -102,7 +107,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     const followUpSteps = context.snapshot.sequenceSteps.slice(1);
     let followUps = await composeFollowUpsWithMiniMax(brief, message.subject, followUpSteps);
     let followUpValidations = followUps.map((followUp) => validateFollowUpMessage(brief, message.subject, followUp));
-    for (let attempt = 1; followUpValidations.some(({ valid }) => !valid) && attempt < 3; attempt += 1) {
+    for (let attempt = 1; followUpValidations.some(({ valid }) => !valid) && attempt < 2; attempt += 1) {
       followUps = await composeFollowUpsWithMiniMax(brief, message.subject, followUpSteps, {
         qualityFeedback: followUpValidations.flatMap(({ issues }) => issues),
       });
@@ -111,6 +116,10 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     const invalidFollowUp = followUpValidations.find(({ valid }) => !valid);
     if (invalidFollowUp) {
       throw new Error(invalidFollowUp.issues.join(" "));
+    }
+    if (followUps.length) {
+      const review = await reviewMessageGrounding(brief, followUps);
+      if (!review.valid) throw new Error(review.issues.join(" "));
     }
     let elapsedDays = 0;
     const commands = [{ subject: message.subject, body: message.body, dueAt: firstDueAt }, ...followUps.map((followUp, index) => {

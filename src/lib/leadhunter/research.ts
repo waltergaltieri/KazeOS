@@ -290,6 +290,13 @@ export interface ResearchDossier {
 
 const minimumUsableFactConfidence = 75;
 
+// Descriptions can contain complementary observations. Scalar facts still
+// require agreement, and explicit conflicts always block.
+export const descriptiveResearchFields = new Set([
+  "business_model", "digital_presence", "observable_process", "service_opportunity",
+  "products_services", "customer_profile", "sales_channels",
+]);
+
 export function reduceResearchDossier(
   rawQuestions: ResearchQuestion[],
   rawEvidence: AcceptedResearchEvidence[],
@@ -304,7 +311,7 @@ export function reduceResearchDossier(
   for (const question of questions) {
     const matches = evidence.filter(({ questionKey }) => questionKey === question.key);
     const values = [...new Set(matches.map(({ value }) => value))].sort((a, b) => a.localeCompare(b));
-    const isConflicting = matches.some(({ status }) => status === "conflicting") || values.length > 1;
+    const isConflicting = matches.some(({ status }) => status === "conflicting") || (values.length > 1 && !descriptiveResearchFields.has(question.key));
     let status: ResearchAnswerStatus = "unknown";
     if (isConflicting) status = "conflicting";
     else if (matches.some((finding) => finding.status === "verified")) status = "verified";

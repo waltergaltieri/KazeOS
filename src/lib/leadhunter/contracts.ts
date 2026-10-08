@@ -370,6 +370,9 @@ export function createDefaultCampaignStrategy(
     },
     research: {
       questions: [
+        { key: "products_services", prompt: "¿Qué productos o servicios concretos ofrece? Copiá una descripción publicada.", required: false },
+        { key: "customer_profile", prompt: "¿A qué tipos de clientes declara atender?", required: false },
+        { key: "sales_channels", prompt: "¿Cómo publica que se compra, se pide o se recibe su servicio?", required: false },
         {
           key: "business_model",
           prompt: "¿Qué hace el negocio, qué ofrece y a quién vende?",

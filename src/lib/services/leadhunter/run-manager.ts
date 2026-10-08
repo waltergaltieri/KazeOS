@@ -44,6 +44,8 @@ interface PreviousRun {
 export interface PlanDueRunsOptions {
   now: Date;
   maximumQueriesPerRun?: number;
+  ownerId?: string;
+  campaignId?: string;
 }
 
 export interface PlanDueRunsResult {
@@ -173,7 +175,7 @@ function nextScheduledSearch(
 
 export async function planDueRuns(
   database: LeadHunterRunDatabase,
-  { now, maximumQueriesPerRun = 100 }: PlanDueRunsOptions,
+  { now, maximumQueriesPerRun = 100, ownerId, campaignId }: PlanDueRunsOptions,
 ): Promise<PlanDueRunsResult> {
   if (!Number.isSafeInteger(maximumQueriesPerRun) || maximumQueriesPerRun < 0) {
     throw new RangeError("maximumQueriesPerRun must be a non-negative integer");
@@ -193,6 +195,8 @@ export async function planDueRuns(
      and ${leadHunterCampaignVersions.campaignId} = ${leadHunterCampaigns.id}
      and ${leadHunterCampaignVersions.version} = ${leadHunterCampaigns.configVersion}
     where ${leadHunterCampaigns.status} = 'active'
+      ${ownerId ? sql`and ${leadHunterCampaigns.ownerId}=${ownerId}` : sql``}
+      ${campaignId ? sql`and ${leadHunterCampaigns.id}=${campaignId}` : sql``}
       and ${leadHunterCampaigns.nextSearchAt} is not null
       and ${leadHunterCampaigns.nextSearchAt} <= ${nowTimestamp}
     order by ${leadHunterCampaigns.nextSearchAt}, ${leadHunterCampaigns.id}

@@ -70,7 +70,7 @@ def test_discover_queries_searxng_and_normalizes_public_candidates() -> None:
             "candidateCount": 1,
             "candidates": [{
                 "sourceType": "web_search",
-                "sourceIdentity": "https://example.com/catalog",
+                "sourceIdentity": "example.com",
                 "sourceUrl": "https://example.com/catalog/?utm_source=search#top",
                 "observedUrl": "https://example.com/catalog/?utm_source=search#top",
                 "canonicalUrl": "https://example.com/catalog",
@@ -177,7 +177,7 @@ def test_research_uses_minimax_when_the_subscription_key_is_configured(
     assert result == expected
 
 
-def test_research_falls_back_to_grounded_offline_extraction_when_minimax_output_is_invalid(
+def test_research_surfaces_invalid_provider_output_instead_of_silent_empty_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class InvalidClient:
@@ -190,7 +190,8 @@ def test_research_falls_back_to_grounded_offline_extraction_when_minimax_output_
     monkeypatch.setenv("MINIMAX_API_KEY", "subscription-key")
     monkeypatch.setattr(runner, "MiniMaxClient", InvalidClient)
 
-    result = runner.result_for({
+    with pytest.raises(ProviderOutputRejected, match="invalid finding"):
+        runner.result_for({
         "kind": "research",
         "payload": {
             "source": {
@@ -211,12 +212,40 @@ def test_research_falls_back_to_grounded_offline_extraction_when_minimax_output_
         },
     })
 
-    assert result["findings"] == [{
-        "field": "business_model",
-        "value": "Acme vende insumos mayoristas.",
-        "status": "verified",
-        "confidence": 90,
-        "source_url": "https://example.com/",
-        "extract": "Acme vende insumos mayoristas.",
-    }]
-    assert result["usage"]["extractor"] == "offline-v1"
+
+def test_discovery_applies_geography_filters_and_excludes_non_business_pages() -> None:
+    from urllib.parse import parse_qs, urlsplit
+    def opener(request: object, **_kwargs: object) -> FakeResponse:
+        query = parse_qs(urlsplit(request.full_url).query)["q"][0]
+        assert all(term in query for term in ("Argentina", "Mendoza", "ferreterías"))
+        return FakeResponse({"results": [
+            {"url": "https://wa.me/123", "title": "WhatsApp"},
+            {"url": "https://youtube.com/shorts/123", "title": "Video"},
+            {"url": "https://fenix.example/contacto", "title": "Contacto - Fenix"},
+            {"url": "https://fenix.example/blog/ofertas", "title": "Fenix ofertas"},
+            {"url": "https://instagram.com/negocio/", "title": "Negocio"},
+        ]})
+    result = runner.discover({"kind": "source_query", "source": "web_search", "query": "mayoristas", "country": "AR", "region": "Mendoza", "industry": "ferreterías"}, "http://search/", opener)
+    candidates = result["output"]["candidates"]
+    assert len(candidates) == 2
+    assert candidates[0]["observedName"] == "Fenix"
+    assert candidates[1]["metadata"]["identity"]["urls"][0]["role"] == "social_profile"
+
+
+def test_contacts_use_exact_supplied_snapshot_without_refetching(monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+    monkeypatch.setattr(runner, "fetch_text", lambda *_args: pytest.fail("must use captured content"))
+    content = "Contact us: ventas@example.com"
+    source = {"ref": "research:1", "sourceUrl": "https://example.com/contact", "suppliedAt": "2026-10-08T12:00:00Z", "contentSha256": hashlib.sha256(content.encode()).hexdigest(), "content": content}
+    result = runner.contacts({"sources": [source]})
+    assert result["observations"][0]["email"] == "ventas@example.com"
+    source["contentSha256"] = "0" * 64
+    with pytest.raises(ValueError, match="hash"):
+        runner.contacts({"sources": [source]})
+
+
+def test_contacts_do_not_treat_contact_form_examples_as_published_recipients() -> None:
+    import hashlib
+    content = "Email inválido (ej: tu@email.com). Consultas: ventas@empresa.com.ar"
+    source = {"ref":"research:1", "sourceUrl":"https://empresa.com.ar/", "suppliedAt":"2026-10-08T12:00:00Z", "contentSha256":hashlib.sha256(content.encode()).hexdigest(), "content":content}
+    assert [o["email"] for o in runner.contacts({"sources":[source]})["observations"]] == ["ventas@empresa.com.ar"]

@@ -21,17 +21,19 @@ export async function advancePipelineAfterResult(database: LeadHunterJobDatabase
   if (!next || !context.enrollmentId || !context.leadId) return null;
   let payload: Record<string, unknown>;
   if (next === "audit_website") {
+    const unfinished = await database.execute(sql`select id from ${leadHunterJobs} where owner_id=${context.ownerId} and run_id=${context.runId} and enrollment_id=${context.enrollmentId} and kind='research' and state<>'succeeded' limit 1`) as unknown as Array<{ id: string }>;
+    if (unfinished.length) return null;
     const leads = await database.execute(sql<{ website: string | null }>`select ${leadHunterLeads.website} from ${leadHunterLeads} where owner_id=${context.ownerId} and id=${context.leadId} limit 1`) as unknown as Array<{ website: string | null }>;
     const sources = await database.execute(sql<{ sourceUrl: string | null }>`select source_url as "sourceUrl" from ${leadHunterEvidence} where owner_id=${context.ownerId} and lead_id=${context.leadId} and source_url is not null order by confidence desc limit 1`) as unknown as Array<{ sourceUrl: string | null }>;
     payload = { leadId: context.leadId, website: leads[0]?.website ?? null, sourceUrl: sources[0]?.sourceUrl ?? undefined };
   } else if (next === "enrich_contact") {
-    const rows = await database.execute(sql<{ id: string; sourceUrl: string; sourceType: string; contentHash: string; suppliedAt: Date | string }>`
-      select id,source_url as "sourceUrl",source_type as "sourceType",content_hash as "contentHash",observed_at as "suppliedAt"
-      from ${leadHunterEvidence} where owner_id=${context.ownerId} and lead_id=${context.leadId}
-        and source_url is not null and content_hash is not null order by confidence desc limit 25
-    `) as unknown as Array<{ id: string; sourceUrl: string; sourceType: string; contentHash: string; suppliedAt: Date | string }>;
+    const rows = await database.execute(sql`
+      select id,payload from ${leadHunterJobs} where owner_id=${context.ownerId} and run_id=${context.runId}
+        and enrollment_id=${context.enrollmentId} and kind='research' and state='succeeded'
+        and payload->>'content' is not null order by id limit 25
+    `) as unknown as Array<{ id: string; payload: { source: { sourceUrl: string; sourceType: string; contentSha256: string; suppliedAt: string }; content: string } }>;
     if (!rows.length) return null;
-    payload = { leadId: context.leadId, sources: rows.map((row) => ({ ref: `evidence:${row.id}`, sourceUrl: row.sourceUrl, sourceType: row.sourceType, contentSha256: row.contentHash, suppliedAt: new Date(row.suppliedAt).toISOString() })) };
+    payload = { leadId: context.leadId, sources: rows.map((row) => ({ ref: `research:${row.id}`, ...row.payload.source, content: row.payload.content })) };
   } else if (next === "prepare_message") {
     payload = { enrollmentId: context.enrollmentId };
   } else {

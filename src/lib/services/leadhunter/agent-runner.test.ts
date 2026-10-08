@@ -23,7 +23,7 @@ vi.mock("./message-manager", () => ({
   prepareValidatedMessage: mocks.prepareValidatedMessage,
 }));
 
-import { htmlToResearchText, runAgentIdentityResolution, runAgentMessagePreparation } from "./agent-runner";
+import { htmlToResearchText, publishedBusinessName, researchPageLinks, runAgentIdentityResolution, runAgentMessagePreparation } from "./agent-runner";
 
 describe("LeadHunter agent identity resolution", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -35,6 +35,23 @@ describe("LeadHunter agent identity resolution", () => {
       <script>window.secret = "tracking-code";</script>
       <p>Venta mayorista<br>Compra mínima&nbsp;$90.000</p>
     `)).toBe("Virales & Mayorista\nVenta mayorista\nCompra mínima $90.000");
+  });
+
+  it("keeps published mailto addresses and removes truncated scripts", () => {
+    expect(htmlToResearchText('<a href="mailto:ventas@example.com?subject=Consulta">Escribinos</a><script>window.config={')).toBe("ventas@example.com Escribinos");
+  });
+
+  it("uses the site's published business name instead of a generic search slogan", () => {
+    expect(publishedBusinessName('<title>Insumos para tu negocio</title><meta content="MS Mayoristas" property="og:site_name">')).toBe("MS Mayoristas");
+    expect(publishedBusinessName('<script type="application/ld+json">{"@type":"Organization","name":"Waggon"}</script>')).toBe("Waggon");
+    expect(publishedBusinessName('<title>Insumos para tu negocio</title>')).toBeNull();
+  });
+
+  it("selects same-site contact and business pages without following external or endless catalog links", () => {
+    const html = '<a href="/producto/1">Uno</a><a href="https://other.test/contact">Contact</a><a href="/nosotros">Nosotros</a><a href="/contacto">Contacto</a><a href="/contacto#form">Mail</a>';
+    expect(researchPageLinks("https://empresa.example/catalogo", html)).toEqual([
+      "https://empresa.example/", "https://empresa.example/contacto", "https://empresa.example/nosotros",
+    ]);
   });
 
   it("uses the identity persisted by the discovery adapter", async () => {
@@ -76,7 +93,7 @@ describe("LeadHunter agent identity resolution", () => {
       }]),
     };
 
-    await runAgentIdentityResolution(database as never, 1);
+    await runAgentIdentityResolution(database as never, 1, vi.fn().mockResolvedValue(new Response("<p>Example Mayorista</p>", { headers: { "content-type": "text/html" } })));
 
     expect(mocks.resolveSourceCandidateIdentity).toHaveBeenCalledWith(
       database,

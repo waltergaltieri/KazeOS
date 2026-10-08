@@ -36,6 +36,17 @@ const brief: MessageBrief = {
 describe("MiniMax LeadHunter message composition", () => {
   beforeEach(() => vi.restoreAllMocks());
 
+  it("assembles factual prose and evidence from the same sentences", async () => {
+    const sentences = brief.facts.map(({ id, value }) => ({ text: value, evidenceIds: [id] }));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "completed", output_text: JSON.stringify({
+      subject: "Una idea para Distribuidora PPP", opening: "Hola,", businessUnderstanding: sentences,
+      primaryOpportunity: "Podríamos evaluar una mejora.", operationsTransition: "¿Qué herramientas utilizan?", secondaryOpportunity: "Podemos revisar juntos el alcance.",
+    }) })));
+    const result = await composeProspectMessageWithMiniMax(brief, { apiKey: "test", fetch: fetcher as typeof fetch });
+    expect(result.claims).toEqual(sentences);
+    for (const sentence of sentences) expect(result.body).toContain(sentence.text);
+  });
+
   it("requests a grounded structured email and parses the response", async () => {
     const output = {
       subject: "Una idea para Distribuidora PPP",

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { descriptiveResearchFields } from "./research";
 
 import {
   qualificationGateSchema,
@@ -137,7 +138,7 @@ function researchFinding(
     return { key: question.key, status: "unknown", confidence: 0, rawConfidence: 0, evidenceIds };
   }
   const values = new Set(rows.map(({ value }) => signal(value)));
-  if (rows.some(({ status }) => status === "conflicting") || values.size > 1) {
+  if (rows.some(({ status }) => status === "conflicting") || (values.size > 1 && !descriptiveResearchFields.has(question.key))) {
     return { key: question.key, status: "conflicting", confidence: 0, rawConfidence: 0, evidenceIds };
   }
   const verified = rows.filter(({ status }) => status === "verified");
