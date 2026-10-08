@@ -48,6 +48,12 @@ La búsqueda incorpora país, región y rubro; descarta enlaces de mensajería, 
 
 Antes de aceptar un correo se valida formato, firma, detalles distintos respaldados y una revisión de contenido con IA. Una revisión fallida bloquea el correo; no habilitar envíos para saltarse una investigación incompleta. Instagram y LinkedIn dependen del contenido público accesible: no hay acceso a perfiles privados ni una garantía de obtener correo de todos los negocios.
 
+### Estilo de los correos
+
+El generador usa el tono de `strategy.message.tone` y calcula la extensión disponible descontando los textos fijos. La estructura es: saludo, presentación, lectura del negocio desde información pública, oportunidad principal alineada con la campaña, segunda hipótesis opcional, modalidad mensual y una sola invitación final. No exige preguntas sobre herramientas ni reuniones intermedias. La descripción conecta hechos sin deducir volumen, problemas internos o ausencia de software a partir de la web.
+
+Las campañas nuevas usan los valores actualizados de `contracts.ts` (200–350 palabras y un párrafo comercial más breve); el ejemplo JSON del operador contiene los mismos valores. Las campañas y briefs ya guardados conservan sus textos y parámetros para mantener su historial. Cambiar los valores predeterminados no reescribe correos existentes. La generación actual se registra con `qualityVersion: 3`; `refresh-drafts` puede solicitar una nueva versión para prospectos elegibles sin envíos, solo en modo borradores, conservando la investigación y la configuración del brief original. Para cambiar también los textos fijos de una campaña existente debe crearse una nueva versión de su configuración.
+
 ## Contrato del puente de correo
 
 Todas las llamadas usan `Authorization: Bearer <LEADHUNTER_TRANSPORT_SECRET>`. El worker de Oracle ejecuta el transporte con Gmail mediante `GMAIL_ADDRESS` y `GMAIL_APP_PASSWORD`; su estado idempotente de envíos y el cursor de entrada se conservan en `MAIL_STATE_PATH`.

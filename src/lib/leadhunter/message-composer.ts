@@ -52,6 +52,8 @@ export function composeProspectMessage(brief: MessageBrief): ComposedMessage {
 export function validateProspectMessage(brief: MessageBrief, message: ComposedMessage) {
   const issues: string[] = [];
   const words = message.body.trim().split(/\s+/).filter(Boolean).length;
+  if (/\b(?:deje[n]? de|dejar de|stop having to|no longer (?:need|have) to)\b/iu.test(message.body)) issues.push("Describí lo que permitiría hacer la herramienta, sin decir que el equipo dejaría de hacer algo: eso presupone un problema o proceso actual.");
+  if (message.claims.some(({ text }) => /lo que (?:sugiere|implica|indica)|da la sensaci[oó]n|(?:which|this) (?:suggests|implies)|gives the impression/iu.test(text))) issues.push("La lectura del negocio agrega deducciones: quitá conclusiones sobre volumen, complejidad, trabajo manual o procesos internos y conservá solo los hechos publicados. Las hipótesis van en la propuesta, no en la descripción.");
   if (/lo que (?:habla|demuestra|revela)|sin perder el trato directo que/iu.test(message.body)) issues.push("No agregues deducciones sobre el alcance comercial, clientes ni trato actual: describí únicamente el hecho publicado, sin ampliar su significado.");
   if (/(?=\p{L})(?!\p{Script=Latin})/u.test(`${message.subject} ${message.body}`)) issues.push("El correo mezcla alfabetos ajenos al idioma configurado; redactá todas las palabras en español o inglés según corresponda.");
   if (/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(`${message.subject} ${message.body}`)) issues.push("El mensaje expone identificadores internos.");

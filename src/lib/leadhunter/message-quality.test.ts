@@ -30,6 +30,16 @@ const base = {
 };
 
 describe("LeadHunter message quality gates", () => {
+  it.each(["lo que sugiere un volumen de operaciones importante", "da la sensación de que hoy trabajan manualmente", "para que el equipo deje de pasar información de un lado a otro"])("blocks speculative additions to factual sentences: %s", (addition) => {
+    const brief = buildMessageBrief({ ...base, evidence: [
+      { id: "00000000-0000-4000-8000-000000000011", field: "business_model", value: "Distribuye alimentos y bebidas a comercios de barrio.", status: "verified", confidence: 90 },
+      { id: "00000000-0000-4000-8000-000000000012", field: "observable_process", value: "Publica un catálogo para kioscos, almacenes y supermercados.", status: "verified", confidence: 90 },
+      { id: "00000000-0000-4000-8000-000000000013", field: "service_opportunity", value: "Recibe consultas comerciales para compras mayoristas.", status: "verified", confidence: 90 },
+    ] });
+    const claims = brief.facts.map(({ id, value }, index) => ({ text: index === 0 ? `${value} ${addition}.` : value, evidenceIds: [id] }));
+    const body = [policy.intro, ...claims.map(({ text }) => text), policy.commercialModel, policy.cta, policy.signature].join("\n\n");
+    expect(validateProspectMessage(brief, { subject: "Una idea para Distribuidora PPP", body, claims }).valid).toBe(false);
+  });
   it("uses a clean business name instead of the full website title", () => {
     const brief = buildMessageBrief({
       ...base,

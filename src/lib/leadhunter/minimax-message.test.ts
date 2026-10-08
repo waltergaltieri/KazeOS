@@ -36,6 +36,38 @@ const brief: MessageBrief = {
 describe("MiniMax LeadHunter message composition", () => {
   beforeEach(() => vi.restoreAllMocks());
 
+  it.each([undefined, null, ""])("allows an omitted secondary opportunity (%s) without adding an intermediate invitation", async (secondaryOpportunity) => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "completed", output_text: JSON.stringify({
+      subject: "Una idea para Distribuidora PPP", opening: "Hola,",
+      businessUnderstanding: brief.facts.map(({ id, value }) => ({ text: value, evidenceIds: [id] })),
+      primaryOpportunity: "Podríamos evaluar un catálogo propio.",
+      operationsTransition: "¿Coordinamos una reunión para revisar herramientas?",
+      secondaryOpportunity,
+    }) })));
+    const result = await composeProspectMessageWithMiniMax(brief, { apiKey: "test", fetch: fetcher as typeof fetch });
+    expect(result.body.split("\n\n")).toEqual([
+      "Hola,", brief.policy.intro, brief.facts.map(({ value }) => value).join(" "),
+      "Podríamos evaluar un catálogo propio.", brief.policy.commercialModel, brief.policy.cta, brief.policy.signature,
+    ]);
+  });
+
+  it("passes the campaign tone and a word budget that accounts for fixed sections", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "completed", output_text: JSON.stringify({
+      subject: "Una idea para Distribuidora PPP", opening: "Hola,",
+      businessUnderstanding: brief.facts.map(({ id, value }) => ({ text: value, evidenceIds: [id] })),
+      primaryOpportunity: "Podríamos evaluar un catálogo propio.",
+      secondaryOpportunity: "También podría tener sentido evaluar el seguimiento de pedidos.",
+    }) })));
+    const result = await composeProspectMessageWithMiniMax(brief, { apiKey: "test", fetch: fetcher as typeof fetch });
+    const request = JSON.parse(String((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    const input = JSON.parse(request.input);
+    expect(input.writingStyle.tone).toBe(brief.policy.tone);
+    const fixedWords = [brief.policy.intro, brief.policy.commercialModel, brief.policy.cta, brief.policy.signature].join(" ").split(/\s+/u).length;
+    expect(input.writingStyle.customWordRange).toEqual({ minimum: 250 - fixedWords, maximum: 400 - fixedWords });
+    expect(result.body).toContain("También podría tener sentido evaluar el seguimiento de pedidos.");
+    expect(result.body.match(/¿Conversamos\?/gu)).toHaveLength(1);
+  });
+
   it("assembles factual prose and evidence from the same sentences", async () => {
     const sentences = brief.facts.map(({ id, value }) => ({ text: value, evidenceIds: [id] }));
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "completed", output_text: JSON.stringify({

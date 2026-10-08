@@ -76,7 +76,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
   }
   const existingMessage = await database.execute(sql<{ id: string; subject: string; body: string }>`
     select id, subject, body from ${leadHunterMessageVersions} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and state='valid'
-      and model_metadata->>'qualityVersion'='2' and coalesce(model_metadata->>'sequenceStep','0')='0'
+      and model_metadata->>'qualityVersion'='3' and coalesce(model_metadata->>'sequenceStep','0')='0'
     order by created_at desc limit 1
   `) as unknown as Array<{ id: string; subject: string; body: string }>;
   let message = existingMessage[0];
@@ -94,7 +94,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     if (!validation.valid) throw new Error(validation.issues.join(" "));
     const inserted = await database.execute(sql<{ id: string; subject: string; body: string }>`
       insert into ${leadHunterMessageVersions} (owner_id,brief_id,enrollment_id,subject,body,state,validation_result,model_metadata)
-      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", qualityVersion: 2, sequenceStep: 0 })}::jsonb)
+      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", qualityVersion: 3, sequenceStep: 0 })}::jsonb)
       returning id,subject,body
     `) as unknown as Array<{ id: string; subject: string; body: string }>;
     message = inserted[0]!;

@@ -271,16 +271,16 @@ function messagePolicyForCountry(country: string): MessagePolicy {
   return {
     language: useEnglish ? "en-US" : "es-AR",
     tone: useEnglish
-      ? "Direct, professional, and specific"
-      : "Directo, profesional y específico",
+      ? "Personal, conversational, professional and specific; an outside observation, not a company report"
+      : "Cercano, conversacional, profesional y específico; una lectura desde afuera, no un informe empresarial",
     minimumSpecificFacts: 3,
-    wordRange: { minimum: 250, maximum: 400 },
+    wordRange: { minimum: 200, maximum: 350 },
     intro: useEnglish
       ? "I’m Walter, co-founder of KazeCode. We help businesses strengthen their digital presence and build custom software and automation around the way they actually operate."
       : "Soy Walter, cofundador de KazeCode. Ayudamos a empresas a mejorar su presencia digital y desarrollamos sistemas y automatizaciones a medida alrededor de la operación real del negocio.",
     commercialModel: useEnglish
-      ? "Custom technology is often perceived as complex or practical only for much larger companies. At KazeCode we use a different commercial model that has enabled businesses of different sizes to implement tailored solutions in their daily operations, with development, hosting, maintenance, support and ongoing improvements included in a monthly subscription."
-      : "La tecnología a medida suele percibirse como algo complejo o reservado para empresas mucho más grandes. En KazeCode trabajamos con un modelo comercial diferente que permitió a negocios de distintos tamaños incorporar soluciones propias en su operación cotidiana, con desarrollo, hosting, mantenimiento, soporte y mejoras continuas incluidos en una suscripción mensual.",
+      ? "Custom technology can seem complex or reserved for much larger companies. At KazeCode we make it accessible through a monthly subscription that includes development, hosting, maintenance, support and ongoing improvements."
+      : "Muchas veces la tecnología a medida se percibe como algo complejo o reservado a empresas mucho más grandes. En KazeCode la acercamos a negocios de distintos tamaños mediante una suscripción mensual que incluye desarrollo, hosting, mantenimiento, soporte y mejoras continuas.",
     cta: useEnglish
       ? "If this sounds worth exploring, I’d be happy to continue by email or set up a short Google Meet."
       : "Si te parece interesante, podemos verlo en un Google Meet corto, seguir por este correo o hablar por WhatsApp.",
@@ -292,8 +292,6 @@ function messagePolicyForCountry(country: string): MessagePolicy {
       "introduction",
       "business_understanding",
       "primary_opportunity",
-      "operations_transition",
-      "secondary_opportunity",
       "commercial_model",
       "cta",
       "signature",
