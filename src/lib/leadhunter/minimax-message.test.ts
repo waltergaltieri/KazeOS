@@ -58,7 +58,7 @@ describe("MiniMax LeadHunter message composition", () => {
       primaryOpportunity: "Podríamos evaluar un catálogo propio.",
       secondaryOpportunity: "También podría tener sentido evaluar el seguimiento de pedidos.",
     }) })));
-    const result = await composeProspectMessageWithMiniMax(brief, { apiKey: "test", fetch: fetcher as typeof fetch });
+    const result = await composeProspectMessageWithMiniMax({ ...brief, secondaryOpportunity: "seguimiento de pedidos" }, { apiKey: "test", fetch: fetcher as typeof fetch });
     const request = JSON.parse(String((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body));
     const input = JSON.parse(request.input);
     expect(input.writingStyle.tone).toBe(brief.policy.tone);
@@ -66,6 +66,18 @@ describe("MiniMax LeadHunter message composition", () => {
     expect(input.writingStyle.customWordRange).toEqual({ minimum: 250 - fixedWords, maximum: 400 - fixedWords });
     expect(result.body).toContain("También podría tener sentido evaluar el seguimiento de pedidos.");
     expect(result.body.match(/¿Conversamos\?/gu)).toHaveLength(1);
+  });
+
+  it("does not append an unsolicited second pitch to the primary solution", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "completed", output_text: JSON.stringify({
+      subject: "Una idea para Distribuidora PPP", opening: "Hola,",
+      businessUnderstanding: brief.facts.map(({ id, value }) => ({ text: value, evidenceIds: [id] })),
+      primaryOpportunity: "Podemos desarrollar un sistema para gestionar pedidos personalizados.",
+      secondaryOpportunity: "Como idea para validar después, se podría explorar un pequeño portal para los mismos pedidos.",
+    }) })));
+    const result = await composeProspectMessageWithMiniMax(brief, { apiKey: "test", fetch: fetcher as typeof fetch });
+    expect(result.body).toContain("Podemos desarrollar un sistema para gestionar pedidos personalizados.");
+    expect(result.body).not.toContain("pequeño portal");
   });
 
   it("assembles factual prose and evidence from the same sentences", async () => {

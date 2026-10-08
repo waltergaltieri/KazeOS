@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildMessageBrief, type MessageBrief } from "./message-brief";
-import { validateProspectMessage } from "./message-composer";
+import { validateProspectMessage, validateOutreachStyle } from "./message-composer";
 
 const policy: MessageBrief["policy"] = {
   language: "es-AR",
@@ -30,6 +30,17 @@ const base = {
 };
 
 describe("LeadHunter message quality gates", () => {
+  it.each([
+    "Mirando ese flujo del logo vectorial, una herramienta podría concentrar los pedidos.",
+    "Como idea para validar después, se podría explorar un pequeño portal donde suban su logo.",
+    "Perhaps we could explore a small portal to manage vector files.",
+  ])("rejects confusing technical copy and tentative sales pitches: %s", (body) => {
+    expect(validateOutreachStyle(body)).not.toEqual([]);
+  });
+
+  it("allows a confident offer with conditional benefits, without claiming current problems", () => {
+    expect(validateOutreachStyle("Podemos desarrollar un sistema para gestionar sus pedidos personalizados: reunir los datos del cliente, los productos solicitados y el diseño, y seguir cada pedido hasta la entrega. El cliente también podría consultar el estado de su compra desde un acceso propio.")).toEqual([]);
+  });
   it.each(["lo que sugiere un volumen de operaciones importante", "da la sensación de que hoy trabajan manualmente", "para que el equipo deje de pasar información de un lado a otro"])("blocks speculative additions to factual sentences: %s", (addition) => {
     const brief = buildMessageBrief({ ...base, evidence: [
       { id: "00000000-0000-4000-8000-000000000011", field: "business_model", value: "Distribuye alimentos y bebidas a comercios de barrio.", status: "verified", confidence: 90 },

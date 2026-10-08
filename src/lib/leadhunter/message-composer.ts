@@ -8,6 +8,18 @@ export interface ComposedMessage {
 
 function compact(value: string) { return value.replace(/\s+/g, " ").trim(); }
 
+/** First-contact copy must explain the business use, not file specifications or a timid pitch. */
+export function validateOutreachStyle(body: string): string[] {
+  const issues: string[] = [];
+  if (/\b(?:vectorial(?:es)?|vectorizad[oa]s?|vector (?:files?|logos?|formats?))\b/iu.test(body)) {
+    issues.push("Traducí el detalle técnico a lenguaje de negocio: hablá del diseño o de los pedidos personalizados, no del formato del archivo ni del flujo del logo vectorial.");
+  }
+  if (/como idea para validar|se podr[ií]a explorar|podr[ií]amos (?:explorar|evaluar)|(?:perhaps|maybe) we could|pequeñ[oa]\s+(?:portal|sistema|herramienta|m[oó]dulo)|small\s+(?:portal|system|tool|module)/iu.test(body)) {
+    issues.push("Presentá una oferta clara: Podemos desarrollar una solución que permita una acción concreta. No uses rodeos como 'como idea para validar', 'se podría explorar' ni diminutivos que resten valor. Podría o permitiría sí pueden describir beneficios sin garantizarlos.");
+  }
+  return issues;
+}
+
 function meaningfulTokens(value: string): Set<string> {
   return new Set(value
     .normalize("NFD")
@@ -50,7 +62,7 @@ export function composeProspectMessage(brief: MessageBrief): ComposedMessage {
 }
 
 export function validateProspectMessage(brief: MessageBrief, message: ComposedMessage) {
-  const issues: string[] = [];
+  const issues: string[] = validateOutreachStyle(message.body);
   const words = message.body.trim().split(/\s+/).filter(Boolean).length;
   if (/\b(?:deje[n]? de|dejar de|stop having to|no longer (?:need|have) to)\b/iu.test(message.body)) issues.push("Describí lo que permitiría hacer la herramienta, sin decir que el equipo dejaría de hacer algo: eso presupone un problema o proceso actual.");
   if (message.claims.some(({ text }) => /lo que (?:sugiere|implica|indica)|da la sensaci[oó]n|(?:which|this) (?:suggests|implies)|gives the impression/iu.test(text))) issues.push("La lectura del negocio agrega deducciones: quitá conclusiones sobre volumen, complejidad, trabajo manual o procesos internos y conservá solo los hechos publicados. Las hipótesis van en la propuesta, no en la descripción.");
@@ -85,7 +97,7 @@ export function validateFollowUpMessage(
   initialSubject: string,
   message: ComposedMessage,
 ) {
-  const issues: string[] = [];
+  const issues: string[] = validateOutreachStyle(message.body);
   const words = message.body.trim().split(/\s+/u).filter(Boolean).length;
   if (/(?=\p{L})(?!\p{Script=Latin})/u.test(`${message.subject} ${message.body}`)) issues.push("El seguimiento mezcla alfabetos ajenos al idioma configurado.");
   if (/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(`${message.subject} ${message.body}`)) issues.push("El seguimiento expone identificadores internos.");

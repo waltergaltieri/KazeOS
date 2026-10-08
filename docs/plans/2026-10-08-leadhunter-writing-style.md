@@ -17,3 +17,11 @@
 ## Verification outcome
 
 The focused suite passes 34 tests and TypeScript checks pass. Live read-only previews used saved MS Mayoristas research with the updated policy; no campaign state or outbox was modified. They confirmed the new structure can be assembled, but MiniMax sometimes added unsupported operational assumptions. Some were blocked; its semantic reviewer also accepted examples that failed human review. Added deterministic checks for the observed deduction patterns without weakening grounding checks. This is a style update, not evidence that unattended editorial quality is solved. Campaigns remain paused. A preview-only reasoning/temperature experiment was not adopted; production model settings remain unchanged.
+
+## Follow-up: clear offers and business language
+
+User rejected the technical reference to a vector logo and the tentative, duplicated portal proposal. The root instructions had confused caution about recipient facts with uncertainty about KazeCode's capabilities, and assembly allowed the model to invent a secondary pitch.
+
+Generation v4 asks for a confident offer in ordinary business language, with conditional benefits and unchanged grounding requirements. Deterministic style checks reject the reported jargon and minimizing/hesitant phrases in initial emails and follow-ups. Assembly only includes a secondary section when the saved brief supplies a separate objective; new web-focused briefs can add internal request management as that distinct objective. Full-body provider responses cannot bypass section assembly. Existing frozen briefs and sent messages remain unchanged.
+
+Verification: 22 focused tests passed and typecheck passed. A read-only MS Mayoristas preview used the actual generator and stored research. After a malformed provider response, a retry produced a draft rejected for unsupported inference and then an automatically regenerated draft that passed validation and human inspection for the two reported defects. It offers a single order-management system with customer designs in plain language; no vector-file wording or tentative second pitch. No sends, campaign changes, or production data writes were performed by the preview.
