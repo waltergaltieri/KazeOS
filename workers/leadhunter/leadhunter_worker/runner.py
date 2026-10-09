@@ -188,11 +188,11 @@ def api(method: str, url: str, token: str, body: dict[str, Any]) -> tuple[int, A
         return error.code, json.loads(raw) if raw else None
 
 
-def fetch_text(url: str) -> tuple[int, str]:
+def fetch_text(url: str) -> tuple[int, str, str]:
     request = urllib.request.Request(url, headers={"User-Agent": "KazeOS-LeadHunter/1.0", "Accept": "text/html"})
     with urllib.request.urlopen(request, timeout=30) as response:
         raw = response.read(1_000_000)
-        return response.status, raw.decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+        return response.status, raw.decode(response.headers.get_content_charset() or "utf-8", errors="replace"), response.geturl()
 
 
 def audit(payload: dict[str, Any]) -> dict[str, Any]:
@@ -208,19 +208,16 @@ def audit(payload: dict[str, Any]) -> dict[str, Any]:
         return {"observations": observations}
     probe = {"sourceType": "http_probe", "sourceUrl": website}
     try:
-        status, html = fetch_text(website)
-        lower = html.lower()
-        missing = [key for key, terms in {"services": ("servicio", "service", "producto", "product"), "contact": ("contact", "correo", "email")}.items() if not any(term in lower for term in terms)]
+        status, _html, final_url = fetch_text(website)
         observations.extend([
             {"type": "reachability", "result": "response", "statusCode": status, "observedAt": observed, "source": probe},
-            {"type": "secure_transport", "state": "valid" if website.startswith("https://") else "invalid", "observedAt": observed, "source": {"sourceType": "tls_probe", "sourceUrl": website}},
+            {"type": "secure_transport", "state": "valid" if final_url.startswith("https://") else "invalid", "observedAt": observed, "source": {"sourceType": "tls_probe", "sourceUrl": website}},
             {"type": "domain_operational", "state": "operational", "observedAt": observed, "source": {"sourceType": "dns_probe", "sourceUrl": website}},
-            {"type": "critical_content", "requiredItems": ["services", "contact"], "missingItems": missing, "observedAt": observed, "source": {"sourceType": "website_scan", "sourceUrl": website}},
-            {"type": "page_integrity", "checkedPages": 1, "brokenPages": 0, "observedAt": observed, "source": {"sourceType": "website_scan", "sourceUrl": website}},
-            {"type": "navigation", "testedPaths": 1, "brokenPaths": 0, "observedAt": observed, "source": {"sourceType": "website_scan", "sourceUrl": website}},
         ])
     except Exception:
         observations.append({"type": "reachability", "result": "failure", "error": "connection", "observedAt": observed, "source": probe})
+    from .visual_audit import visual_audit
+    observations.append(visual_audit(website, observed))
     return {"observations": observations}
 
 

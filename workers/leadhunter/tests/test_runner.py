@@ -8,6 +8,15 @@ from leadhunter_worker import runner
 from leadhunter_worker.extract import ProviderOutputRejected
 
 
+def test_audit_uses_final_transport_and_does_not_infer_missing_content_from_keywords(monkeypatch: pytest.MonkeyPatch) -> None:
+    from leadhunter_worker import visual_audit
+    monkeypatch.setattr(runner, "fetch_text", lambda _: (200, "<h1>Muestrario</h1>", "https://example.com/catalog"))
+    monkeypatch.setattr(visual_audit, "visual_audit", lambda *_: {"type": "visual_review"})
+    observations = runner.audit({"website": "http://example.com/catalog"})["observations"]
+    assert next(o for o in observations if o["type"] == "secure_transport")["state"] == "valid"
+    assert not any(o["type"] in {"critical_content", "navigation", "page_integrity"} for o in observations)
+
+
 def test_run_once_rejects_server_errors_before_reading_a_job(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner, "api", lambda *_args, **_kwargs: (500, {"error": "Job claim failed"}))
 

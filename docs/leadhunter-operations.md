@@ -42,6 +42,18 @@ pnpm leadhunter pause --owner OWNER_UUID --campaign CAMPAIGN_UUID
 
 `run --research-only` ejecuta una prueba única de búsqueda, resolución de identidad e investigación. Guarda `executionMode: research_only` en el plan antes de publicar los trabajos y detiene el pipeline después de la investigación. La toma de trabajos también rechaza etapas posteriores para ese plan. No crea análisis comercial, briefs, borradores ni envíos. Es incompatible con `--recurring`; el límite de candidatos es `dailyLeadLimit`.
 
+`run --qualify-only` añade auditoría web y calificación, y se detiene antes del enriquecimiento de contactos y de la redacción. Es una prueba única incompatible con `--research-only` y `--recurring`. Tanto el pipeline como la toma de trabajos bloquean las etapas posteriores.
+
+### Evaluación visual
+
+El worker de Oracle usa Chromium mediante Playwright: captura la portada y el siguiente tramo visible en escritorio (1440×900) y móvil (390×844), hasta cuatro JPEG. MiniMax-M3 recibe esas imágenes y contexto de renderizado, no solo HTML. Las capturas, hashes, métricas y respuesta del modelo se conservan en el volumen persistente `worker-state/visual`; la evidencia `website_visual_review` del CRM incluye referencias a las imágenes y observaciones concretas. El modelo no prueba botones ni envía formularios. La API multimodal utilizada es `/chat/completions`, según la documentación oficial de MiniMax.
+
+Para marcar `BAD_WEBSITE` por presentación se requieren ambos tamaños, confianza ≥80 y dos categorías distintas con defectos materiales, o un defecto crítico no basado solamente en estilo anticuado. Cada observación debe identificar elemento, captura e impacto visible. Un estilo antiguo por sí solo no excluye una web; no se infieren antigüedad real, tráfico ni pérdidas. Capturas bloqueadas, CAPTCHA, falta de visión o evidencia insuficiente producen `UNVERIFIED`. Un resultado visual adecuado no certifica todo el sitio: solo las vistas capturadas. Se retiraron los pases ficticios de navegación y páginas rotas del auditor anterior.
+
+Las campañas orientadas a renovar webs deben exigir `BAD_WEBSITE` y evidencia de escala operativa. `website_problem` textual puede ser una pregunta opcional, pero no un requisito adicional: los defectos visuales se acreditan con las capturas aunque el texto de la página no declare un problema.
+
+No se declara contenido faltante por ausencia de palabras clave en el HTML. La comprobación de transporte toma la URL final tras las redirecciones, evitando marcar HTTP inseguro cuando el servidor redirige a HTTPS.
+
 Para recuperar una prueba tras corregir un error: `retry-failed --owner OWNER_UUID --campaign CAMPAIGN_UUID --job JOB_UUID`. Conserva el error anterior en el historial. `refresh-drafts --owner OWNER_UUID --campaign CAMPAIGN_UUID` vuelve a preparar borradores con la revisión de calidad actual, conservando las versiones anteriores. Ambos comandos exigen modo borradores; la actualización omite contactos que ya tengan algún comando de envío.
 
 Cuando el usuario haya autorizado contacto real, configurar explícitamente `enable-sending --owner OWNER_UUID --campaign CAMPAIGN_UUID --mailbox EXISTING_MAILBOX_UUID` y luego ejecutar `run --recurring`. El modo automático usa el transporte ya configurado en Oracle. Revisar los prospectos listos de una prueba antes de reutilizarlos en producción: el comando no reenvía borradores anteriores automáticamente.

@@ -35,13 +35,16 @@ export const qualificationEvidenceSchema = z.object({
   id: z.string().uuid(),
   questionKey: z.string().trim().regex(/^[a-z][a-z0-9_]{1,79}$/).nullable(),
   field: z.string().trim().min(1).max(160),
-  value: z.string().trim().min(1).max(2_000),
+  value: z.string().trim().min(1).max(30_000),
   kind: z.enum(["fact", "hypothesis"]),
   status: z.enum(["verified", "inferred", "conflicting"]),
   confidence: z.number().int().min(0).max(100),
   sourceType: z.string().trim().min(1).max(80),
   sourceUrl: httpUrlSchema.nullable(),
 }).strict().superRefine((evidence, context) => {
+  if (evidence.field !== "website_visual_review" && evidence.value.length > 2_000) {
+    context.addIssue({ code: "custom", path: ["value"], message: "Research excerpts must not exceed 2000 characters" });
+  }
   const coherent = evidence.status === "verified"
     ? evidence.kind === "fact"
     : evidence.kind === "hypothesis";

@@ -163,5 +163,12 @@ export async function completeClaimedJob(
     return result;
   }
 
-  return completeJob(database, input);
+  const completion = await completeJob(database, input);
+  if (job?.kind === "research" && completion?.status === "failed") {
+    await advancePipelineAfterResult(database, {
+      ownerId: job.ownerId, runId: job.runId, enrollmentId: job.enrollmentId,
+      leadId: job.leadId, kind: "research",
+    }, {});
+  }
+  return completion;
 }

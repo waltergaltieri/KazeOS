@@ -8,6 +8,7 @@ import {
   maximumQualificationReasons,
   qualificationAssessmentEnvelopeSchema,
   qualificationResultSchema,
+  qualificationEvidenceSchema,
   type QualificationEvidence,
   type QualificationInput,
 } from "./qualification";
@@ -59,6 +60,11 @@ function input(overrides: Partial<QualificationInput> = {}): QualificationInput 
 }
 
 describe("LeadHunter qualification", () => {
+  it("accepts screenshot audit metadata without expanding ordinary research excerpts", () => {
+    const value = JSON.stringify({ screenshots: [], summary: "x".repeat(2200) });
+    expect(qualificationEvidenceSchema.safeParse(evidence(evidenceIds[0], { field: "website_visual_review", value })).success).toBe(true);
+    expect(qualificationEvidenceSchema.safeParse(evidence(evidenceIds[0], { value })).success).toBe(false);
+  });
   it("applies the documented deterministic score formula and ordering", () => {
     const result = evaluateQualification(input({
       researchQuestions: [{ key: "business_model", prompt: "Qué hace", required: true }],

@@ -24,9 +24,10 @@ export async function advancePipelineAfterResult(database: LeadHunterJobDatabase
     where owner_id=${context.ownerId} and id=${context.runId}
   `) as unknown as Array<{ executionMode: string | null }>;
   if (runs[0]?.executionMode === "research_only" && context.kind !== "resolve_identity") return null;
+  if (runs[0]?.executionMode === "qualification_only" && ["qualify", "enrich_contact", "prepare_message"].includes(context.kind)) return null;
   let payload: Record<string, unknown>;
   if (next === "audit_website") {
-    const unfinished = await database.execute(sql`select id from ${leadHunterJobs} where owner_id=${context.ownerId} and run_id=${context.runId} and enrollment_id=${context.enrollmentId} and kind='research' and state<>'succeeded' limit 1`) as unknown as Array<{ id: string }>;
+    const unfinished = await database.execute(sql`select id from ${leadHunterJobs} where owner_id=${context.ownerId} and run_id=${context.runId} and enrollment_id=${context.enrollmentId} and kind='research' and state in ('queued','leased') limit 1`) as unknown as Array<{ id: string }>;
     if (unfinished.length) return null;
     const leads = await database.execute(sql<{ website: string | null }>`select ${leadHunterLeads.website} from ${leadHunterLeads} where owner_id=${context.ownerId} and id=${context.leadId} limit 1`) as unknown as Array<{ website: string | null }>;
     const sources = await database.execute(sql<{ sourceUrl: string | null }>`select source_url as "sourceUrl" from ${leadHunterEvidence} where owner_id=${context.ownerId} and lead_id=${context.leadId} and source_url is not null order by confidence desc limit 1`) as unknown as Array<{ sourceUrl: string | null }>;

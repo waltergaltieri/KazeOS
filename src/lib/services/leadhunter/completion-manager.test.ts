@@ -86,6 +86,12 @@ function specializedDatabase(kind: "audit_website" | "qualify" | "enrich_contact
 }
 
 describe("LeadHunter completion dispatcher", () => {
+  it("allows an independent visual audit after research exhausts retries", async () => {
+    const { database } = researchDatabase();
+    mocks.completeJob.mockResolvedValueOnce({ status: "failed", result: null });
+    await completeClaimedJob(database, { id: jobId, leaseToken, now, maxAttempts: 3, completion: { error: "extraction failed" } });
+    expect(mocks.advancePipelineAfterResult).toHaveBeenCalledWith(database, expect.objectContaining({ kind: "research" }), {});
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });

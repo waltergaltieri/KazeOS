@@ -17,6 +17,7 @@ test = [
 ]
 scrapegraph = [
   "scrapegraphai==2.3.0",
+  "playwright==1.63.0",
 ]
 
 [project.scripts]

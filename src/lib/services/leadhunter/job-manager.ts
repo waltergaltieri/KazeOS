@@ -396,6 +396,12 @@ export async function claimNextJob(
             and ${leadHunterJobs.kind} not in ('discover', 'resolve_identity', 'research')
         )
         and ${leadHunterJobs.attemptCount} < ${options.maxAttempts}
+        and not exists (
+          select 1 from ${leadHunterRuns} as restricted_run
+          where restricted_run.id = ${leadHunterJobs.runId}
+            and restricted_run.plan->>'executionMode' = 'qualification_only'
+            and ${leadHunterJobs.kind} not in ('discover', 'resolve_identity', 'research', 'audit_website', 'qualify')
+        )
         ${options.kinds?.length ? sql`and ${leadHunterJobs.kind} in (${sql.join(options.kinds.map((kind) => sql`${kind}::lh_job_kind`), sql`, `)})` : sql``}
       order by ${leadHunterJobs.createdAt}, ${leadHunterJobs.id}
       for update skip locked

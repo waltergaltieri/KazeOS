@@ -49,6 +49,30 @@ const reachabilityFailureObservationSchema = z.object({
 const websiteAuditObservationSchema = z.union([
   z.object({
     ...observationBase,
+    type: z.literal("visual_review"),
+    status: z.enum(["assessed", "unavailable"]),
+    confidence: z.number().int().min(0).max(100),
+    model: z.string().min(1).max(100),
+    summary: z.string().min(1).max(1500),
+    screenshots: z.array(z.object({
+      id: z.string().regex(/^[a-z_]+$/), viewport: z.enum(["desktop", "mobile"]),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      artifact: z.string().regex(/^visual\/[a-zA-Z0-9_-]+\/[a-z_]+\.jpg$/),
+    }).strict()).max(4),
+    issues: z.array(z.object({
+      category: z.enum(["mobile_layout", "legibility", "overlap", "contrast", "broken_images", "incomplete", "dated_presentation"]),
+      severity: z.enum(["minor", "material", "critical"]),
+      confidence: z.number().int().min(0).max(100), screenshotId: z.string().max(40),
+      element: z.string().min(1).max(300), observation: z.string().min(1).max(700), impact: z.string().min(1).max(500),
+    }).strict()).max(12),
+  }).strict().superRefine((value, context) => {
+    const ids = new Set(value.screenshots.map(({ id }) => id));
+    if (ids.size !== value.screenshots.length || value.issues.some(issue => !ids.has(issue.screenshotId))) {
+      context.addIssue({ code: "custom", message: "Visual issues must reference unique captured screenshots" });
+    }
+  }),
+  z.object({
+    ...observationBase,
     type: z.literal("official_site"),
     state: z.enum(["present", "absent", "unknown"]),
     targetUrl: httpUrlSchema.nullable(),
@@ -167,6 +191,7 @@ export interface DerivedWebsiteAuditObservations {
 export const websiteAuditCheckSchema = z.object({
   key: z.enum([
     "official_site",
+    "visual_quality",
     "active_commercial_presence",
     "reachable",
     "secure_transport",
@@ -395,6 +420,19 @@ export function deriveWebsiteAuditObservations(
 
   for (const observation of ordered) {
     if (observation.type === "redirect") continue;
+    if (observation.type === "visual_review") {
+      const complete = observation.status === "assessed" && observation.confidence >= 80
+        && new Set(observation.screenshots.map(item => item.viewport)).size === 2;
+      const defects = observation.issues.filter(issue => issue.confidence >= 80 && issue.severity !== "minor");
+      const bad = new Set(defects.map(issue => issue.category)).size >= 2
+        || defects.some(issue => issue.severity === "critical" && issue.category !== "dated_presentation");
+      const uncertain = observation.issues.some(issue => issue.severity !== "minor");
+      const outcome = !complete ? "unknown" : bad ? "fail" : uncertain ? "unknown" : "pass";
+      const row = observationEvidence(context.namespace, observation, "website_visual_review", observation, outcome === "unknown" ? 0 : observation.confidence);
+      evidence.set(row.id, row);
+      checks.push(derivedCheck(row, { key: "visual_quality", category: "presentation", outcome, severity: "material" }));
+      continue;
+    }
     if (observation.type === "official_site") {
       const targetMatches = observation.state === "present"
         && typeof context.website === "string"
@@ -706,6 +744,15 @@ export function evaluateWebsiteAudit(
     && (check.severity === "material" || check.severity === "critical")
     && (check.outcome === "fail" || check.outcome === "unknown" || check.confidence < minimumReliableConfidence)
   ));
+  const visual = checks.find(check => check.key === "visual_quality");
+  if (typeof context.website === "string" && visual && reliable(visual) && visual.outcome === "fail") {
+    return { gateResult: "BAD_WEBSITE", confidence: visual.confidence, checks, evidenceIds,
+      summary: "Material visual defects documented in desktop/mobile screenshots.", reasons: ["screenshot_backed_visual_defects"] };
+  }
+  if (typeof context.website === "string" && visual && reliable(visual) && visual.outcome === "pass" && !hasUnresolvedMaterialFailure) {
+    return { gateResult: "GOOD_ENOUGH_WEBSITE", confidence: visual.confidence, checks, evidenceIds,
+      summary: "No material visual defects in the captured desktop/mobile views; no observed technical failure.", reasons: ["screenshot_review_adequate"] };
+  }
   if (
     typeof context.website === "string"
     && goodChecks.every((check) => check !== undefined)
