@@ -117,7 +117,8 @@ describe("MiniMax LeadHunter message composition", () => {
 
     const fetchCall = fetcher.mock.calls[0] as unknown as [string, RequestInit];
     const request = JSON.parse(String(fetchCall[1].body));
-    expect(request.instructions).toContain("at least three company-specific details");
+    expect(request.instructions).toContain("Select three complementary business facts");
+    expect(request.instructions).toContain("NOT three products or specifications");
     expect(request.instructions).toContain("Do not add operational examples");
     expect(request.instructions).toContain("correct Spanish spelling and accents");
     expect(request.instructions).toContain("Never put evidence IDs");
