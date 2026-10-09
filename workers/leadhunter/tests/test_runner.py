@@ -129,7 +129,7 @@ def test_trigger_tick_uses_worker_auth_api(monkeypatch: pytest.MonkeyPatch) -> N
     )]
 
 
-def test_research_uses_minimax_when_the_subscription_key_is_configured(
+def test_research_uses_scrapegraph_with_the_subscription_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expected = {"source_url": "https://example.com/", "findings": []}
@@ -151,7 +151,7 @@ def test_research_uses_minimax_when_the_subscription_key_is_configured(
     monkeypatch.setenv("MINIMAX_API_KEY", "subscription-key")
     monkeypatch.setenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
     monkeypatch.setenv("MINIMAX_MODEL", "MiniMax-M3")
-    monkeypatch.setattr(runner, "MiniMaxClient", FakeClient)
+    monkeypatch.setattr(runner, "ScrapeGraphResearch", FakeClient)
 
     result = runner.result_for({
         "kind": "research",
@@ -188,7 +188,7 @@ def test_research_surfaces_invalid_provider_output_instead_of_silent_empty_succe
             raise ProviderOutputRejected("provider returned an invalid finding")
 
     monkeypatch.setenv("MINIMAX_API_KEY", "subscription-key")
-    monkeypatch.setattr(runner, "MiniMaxClient", InvalidClient)
+    monkeypatch.setattr(runner, "ScrapeGraphResearch", InvalidClient)
 
     with pytest.raises(ProviderOutputRejected, match="invalid finding"):
         runner.result_for({

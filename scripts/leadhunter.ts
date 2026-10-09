@@ -46,14 +46,14 @@ async function main() {
       const jobs = await db.transaction(async (tx) => {
         const inserted = await tx.execute(sql`
           insert into lh_jobs (owner_id,run_id,enrollment_id,lead_id,kind,payload,idempotency_key)
-          select e.owner_id,r.id,e.id,e.lead_id,'prepare_message',jsonb_build_object('enrollmentId',e.id),'refresh:quality-v4:'||e.id
+          select e.owner_id,r.id,e.id,e.lead_id,'prepare_message',jsonb_build_object('enrollmentId',e.id),'refresh:quality-v5:'||e.id
           from lh_enrollments e join lateral (select id from lh_runs where owner_id=e.owner_id and campaign_id=e.campaign_id and campaign_version=e.campaign_version order by created_at desc limit 1) r on true
           where e.owner_id=${ownerId} and e.campaign_id=${campaignId} and e.evaluation='eligible' and e.status='ready'
             and not exists(select 1 from lh_outbox o where o.owner_id=e.owner_id and o.enrollment_id=e.id)
           on conflict(owner_id,idempotency_key) do nothing returning id,run_id
         `);
         for (const job of inserted) await tx.execute(sql`update lh_runs set state='running',finished_at=null where owner_id=${ownerId} and id=${job.run_id as string}`);
-        await tx.execute(sql`insert into lh_activity (owner_id,campaign_id,actor_type,event_type,detail) values (${ownerId},${campaignId},'human','drafts.refresh_requested',${JSON.stringify({ jobs: inserted.map(({ id }) => id), qualityVersion: 4 })}::jsonb)`);
+        await tx.execute(sql`insert into lh_activity (owner_id,campaign_id,actor_type,event_type,detail) values (${ownerId},${campaignId},'human','drafts.refresh_requested',${JSON.stringify({ jobs: inserted.map(({ id }) => id), qualityVersion: 5 })}::jsonb)`);
         return inserted;
       });
       console.log(JSON.stringify({ queued: jobs.length, sendsEnabled: false }));

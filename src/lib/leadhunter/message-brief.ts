@@ -6,6 +6,7 @@ export interface BriefEvidence {
   value: string;
   confidence: number;
   status: "verified" | "inferred" | "conflicting";
+  sourceUrl?: string;
 }
 
 export interface MessageBrief {
@@ -18,6 +19,7 @@ export interface MessageBrief {
   primaryOpportunity: string;
   secondaryOpportunity?: string;
   policy: MessagePolicy;
+  businessAnalysis?: import("./business-analysis").BusinessAnalysis;
 }
 
 const evidencePriority = new Map([
@@ -26,6 +28,9 @@ const evidencePriority = new Map([
   ["customer_profile", 2],
   ["sales_channels", 3],
   ["observable_process", 4],
+  ["business_capabilities", 4],
+  ["business_history", 4],
+  ["service_coverage", 4],
   ["service_opportunity", 5],
   ["digital_presence", 6],
 ]);
@@ -66,9 +71,16 @@ export function buildMessageBrief(input: Omit<MessageBrief, "facts"> & { evidenc
       if (seen.has(normalized)) return false;
       seen.add(normalized);
       return true;
-    })
-    .slice(0, 8);
+    });
+  // Give each business dimension a place before filling the brief with repeated
+  // descriptions of the same field from several pages.
+  const fieldCounts = new Map<string, number>();
+  const diversifiedFacts = facts.map((fact) => {
+    const occurrence = fieldCounts.get(fact.field) ?? 0;
+    fieldCounts.set(fact.field, occurrence + 1);
+    return { fact, occurrence };
+  }).sort((a, b) => a.occurrence - b.occurrence).slice(0, 16).map(({ fact }) => fact);
   if (!input.contact.email.trim()) throw new Error("A verified recipient is required");
   if (facts.length < input.policy.minimumSpecificFacts) throw new Error("Not enough verified commercial facts");
-  return { ...input, companyName: displayBusinessName(input.companyName), primaryOpportunity: input.primaryOpportunity.trim(), facts };
+  return { ...input, companyName: displayBusinessName(input.companyName), primaryOpportunity: input.primaryOpportunity.trim(), facts: diversifiedFacts };
 }

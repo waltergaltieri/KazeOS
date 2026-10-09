@@ -319,6 +319,19 @@ function existingContactHasExactProvenance(
   }
 }
 
+function existingContactWasRepublished(existing: ExistingContactRow, contact: SelectedContact, officialDomain: string | null): boolean {
+  if (!officialDomain || !existing.verifiedAt || existing.normalizedEmail !== contact.normalizedEmail
+      || registrableDomain(contact.sourceUrl) !== officialDomain
+      || registrableDomain(existing.sourceUrl) !== officialDomain || contact.confidenceScore < 75) return false;
+  for (const key of ["firstName", "lastName"] as const) {
+    const before = existing[key]?.trim().toLocaleLowerCase();
+    const after = contact[key]?.trim().toLocaleLowerCase();
+    if (before && after && before !== after) return false;
+  }
+  try { return databaseDate(existing.verifiedAt).getTime() <= new Date(contact.verifiedAt).getTime(); }
+  catch { return false; }
+}
+
 function persistenceCandidates(selection: ContactSelection): SelectedContact[] {
   if (selection.outcome === "no_email") return [];
   if (selection.reasons.some((reason) => [
@@ -522,15 +535,18 @@ export async function persistContactEnrichmentResultInTransaction(
   const contactIds: string[] = [];
   const idByNormalizedEmail = new Map<string, string>();
   let reusedCount = 0;
+  const republications: Array<{ contactId: string; sourceUrl: string; verifiedAt: string }> = [];
   for (const contact of persistenceCandidates(selection)) {
     const existing = existingContacts.find(({ leadId, normalizedEmail }) => (
       leadId === trustedJob.leadId && normalizedEmail === contact.normalizedEmail
     ));
     if (existing) {
-      if (existingContactHasExactProvenance(existing, contact)) {
+      const exactProvenance = existingContactHasExactProvenance(existing, contact);
+      if (exactProvenance || existingContactWasRepublished(existing, contact, officialDomain)) {
         contactIds.push(existing.id);
         idByNormalizedEmail.set(contact.normalizedEmail, existing.id);
         reusedCount += 1;
+        if (!exactProvenance) republications.push({ contactId: existing.id, sourceUrl: contact.sourceUrl, verifiedAt: contact.verifiedAt });
       } else {
         selection = {
           ...selection,
@@ -648,6 +664,7 @@ export async function persistContactEnrichmentResultInTransaction(
       reasons: selection.reasons.slice(0, 25),
       rejectedCount: selection.rejectedCount,
       reusedCount,
+      republications,
       outboundBlocked: outboundProtection.blocked,
       outboundBlockReason: outboundProtection.reason,
     },

@@ -50,7 +50,7 @@ describe("LeadHunter agent identity resolution", () => {
   it("selects same-site contact and business pages without following external or endless catalog links", () => {
     const html = '<a href="/producto/1">Uno</a><a href="https://other.test/contact">Contact</a><a href="/nosotros">Nosotros</a><a href="/contacto">Contacto</a><a href="/contacto#form">Mail</a>';
     expect(researchPageLinks("https://empresa.example/catalogo", html)).toEqual([
-      "https://empresa.example/", "https://empresa.example/contacto", "https://empresa.example/nosotros",
+      "https://empresa.example/", "https://empresa.example/nosotros", "https://empresa.example/contacto",
     ]);
   });
 
@@ -99,6 +99,14 @@ describe("LeadHunter agent identity resolution", () => {
       database,
       expect.objectContaining({ observation: identity }),
     );
+  });
+
+  it("researches business capabilities and customers before peripheral site details", () => {
+    const links = researchPageLinks("https://empresa.example/", '<a href="/contacto">Contacto</a><a href="/empresa">Empresa</a><a href="/servicios">Servicios</a><a href="/industrias">Industrias</a><a href="/proyectos">Proyectos</a><a href="/faq">FAQ</a><a href="/producto/1">Uno</a>');
+    expect(links).toHaveLength(6);
+    expect(links.indexOf("https://empresa.example/empresa")).toBeLessThan(links.indexOf("https://empresa.example/contacto"));
+    expect(links).toContain("https://empresa.example/industrias");
+    expect(links).not.toContain("https://empresa.example/producto/1");
   });
 
   it("prepares messages outside the job-claim transaction and settles the server-side job", async () => {

@@ -140,11 +140,14 @@ export function researchPageLinks(sourceUrl: string, html: string): string[] {
       url.hash = "";
       if (url.toString() === source.toString()) continue;
       const text = `${url.pathname} ${htmlToResearchText(match[2]!)}`;
-      const priority = /contact|contacto/i.test(text) ? 1 : /nosotros|about|empresa|company|quienes/i.test(text) ? 2 : /faq|preguntas|servicios|services|mayorista|wholesale/i.test(text) ? 3 : null;
+      const priority = /nosotros|about|empresa|company|quienes/i.test(text) ? 1
+        : /servicios|services|soluciones|solutions|industrias|industries|clientes|customers|proyectos|projects|casos|capacidad|capabilities/i.test(text) ? 2
+          : /contact|contacto/i.test(text) ? 3
+            : /faq|preguntas|mayorista|wholesale|envios|delivery|comprar|pedidos/i.test(text) ? 4 : null;
       if (priority !== null) links.set(url.toString(), priority);
     } catch { /* Ignore invalid links in third-party content. */ }
   }
-  return [...links].sort((a, b) => a[1] - b[1]).map(([url]) => url).slice(0, 3);
+  return [...links].sort((a, b) => a[1] - b[1]).map(([url]) => url).slice(0, 6);
 }
 
 async function researchPages(candidate: CandidateContext, fetcher: FetchLike, captured?: string | null) {
@@ -153,14 +156,14 @@ async function researchPages(candidate: CandidateContext, fetcher: FetchLike, ca
   const pages = [{ sourceUrl: candidate.canonicalUrl, content: htmlToResearchText(initial) }];
   const identity = identityFromCandidate(candidate);
   if (identity.urls.some(({ role }) => role === "official_website")) {
-    const links = researchPageLinks(candidate.canonicalUrl, initial).slice(0, 2);
+    const links = researchPageLinks(candidate.canonicalUrl, initial);
     const results = await Promise.allSettled(links.map(async (sourceUrl) => {
       const html = await fetchResearchPage(sourceUrl, fetcher);
       return html ? { sourceUrl, content: htmlToResearchText(html) } : null;
     }));
     for (const result of results) if (result.status === "fulfilled" && result.value) pages.push(result.value);
   }
-  return pages.filter(({ content }) => content.length >= 80).map((page) => ({ ...page, content: page.content.slice(0, 95_000) }));
+  return pages.filter(({ content }) => content.length >= 80).map((page) => ({ ...page, content: page.content.slice(0, 30_000) }));
 }
 
 export async function runAgentIdentityResolution(database: Database, maximumJobs = 1, fetcher: FetchLike = fetch) {
@@ -188,7 +191,10 @@ export async function runAgentIdentityResolution(database: Database, maximumJobs
           captured = await fetchResearchPage(candidate.canonicalUrl, fetcher);
           verifiedName = captured ? publishedBusinessName(captured) : null;
         }
-        const resolution = await resolveSourceCandidateIdentity(database, { ownerId: job.ownerId, candidateId, observation: identityFromCandidate(candidate) });
+        const publishedNameEvidence = verifiedName && !observation.name && captured
+          ? { sourceUrl: candidate.canonicalUrl, suppliedAt: new Date().toISOString(), contentSha256: createHash("sha256").update(captured).digest("hex"), name: verifiedName }
+          : undefined;
+        const resolution = await resolveSourceCandidateIdentity(database, { ownerId: job.ownerId, candidateId, observation, ...(publishedNameEvidence ? { publishedNameEvidence } : {}) });
         if (resolution.leadId && verifiedName && verifiedName !== observation.name && !resolution.outboundProtection.blocked) {
           await database.transaction(async (tx) => {
             const changed = await tx.execute(sql`update ${leadHunterLeads} set name=${verifiedName},normalized_name=${normalizeIdentityText(verifiedName)} where owner_id=${job.ownerId} and id=${resolution.leadId} and name=${observation.name} returning id`) as unknown as Array<{ id: string }>;

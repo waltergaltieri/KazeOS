@@ -371,6 +371,9 @@ export function createDefaultCampaignStrategy(
         { key: "products_services", prompt: "¿Qué productos o servicios concretos ofrece? Copiá una descripción publicada.", required: false },
         { key: "customer_profile", prompt: "¿A qué tipos de clientes declara atender?", required: false },
         { key: "sales_channels", prompt: "¿Cómo publica que se compra, se pide o se recibe su servicio?", required: false },
+        { key: "business_history", prompt: "¿Qué trayectoria o especialización concreta declara la empresa? Omití eslóganes y superlativos.", required: false },
+        { key: "business_capabilities", prompt: "¿Qué capacidades, aplicaciones, proyectos o sectores atendidos publica?", required: false },
+        { key: "service_coverage", prompt: "¿Qué zonas de atención o condiciones de entrega declara?", required: false },
         {
           key: "business_model",
           prompt: "¿Qué hace el negocio, qué ofrece y a quién vende?",

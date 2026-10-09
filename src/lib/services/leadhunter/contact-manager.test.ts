@@ -362,4 +362,19 @@ describe("LeadHunter contact manager", () => {
     expect(candidateLock?.sql).toContain("candidate.run_id = $");
     expect(candidateLock?.sql).toContain("candidate.lead_id = $");
   });
+
+  it.each([false, true])("rechecks an existing official email without confusing a new date with a conflict (person conflict: %s)", async (personConflict) => {
+    const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const execute = standardExecute(statements, { contacts: [{
+      id: contactId, leadId, email: "ana@example.com", normalizedEmail: "ana@example.com",
+      firstName: personConflict ? "Otra persona" : "Ana", lastName: "Pérez", role: "Owner",
+      sourceUrl: "https://example.com/", sourceType: "web_search", emailConfidence: 100,
+      verifiedAt: "2026-09-29T12:00:00.000Z", isPrimary: true,
+    }] });
+    const { value } = database(execute);
+    const result = await persistContactEnrichmentResult(value, managerInput(workerOutput()));
+    expect(result.outcome).toBe(personConflict ? "needs_review" : "selected");
+    expect(statements.some(({ sql }) => sql.includes('insert into "lh_contacts"'))).toBe(false);
+    expect(statements.some(({ sql }) => /set\s+source_url/.test(sql))).toBe(false);
+  });
 });

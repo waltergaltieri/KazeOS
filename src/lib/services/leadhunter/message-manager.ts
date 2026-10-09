@@ -9,6 +9,7 @@ import { buildMessageBrief, type BriefEvidence, type MessageBrief } from "@/lib/
 import { validateFollowUpMessage, validateProspectMessage } from "@/lib/leadhunter/message-composer";
 import { nextDeliveryWindow } from "@/lib/leadhunter/outbox";
 import { composeFollowUpsWithMiniMax, composeProspectMessageWithMiniMax, reviewMessageGrounding } from "@/lib/leadhunter/minimax-message";
+import { analyzeProspectBusiness } from "@/lib/leadhunter/business-analysis";
 
 export type MessageDatabase = Pick<PostgresJsDatabase<typeof schema>, "execute">;
 
@@ -47,7 +48,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
   if (!context || context.evaluation !== "eligible" || !context.email || context.status === "stopped") throw new Error("Enrollment is not ready for messaging");
 
   const evidence = await database.execute(sql<BriefEvidence>`
-    select id, field, value, confidence, status
+    select id, field, value, confidence, status, source_url as "sourceUrl"
     from ${leadHunterEvidence}
     where owner_id=${ownerId} and lead_id=${context.leadId} and campaign_id=${context.campaignId}
       and campaign_version=${context.campaignVersion} and status='verified'
@@ -65,10 +66,16 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     policy: context.snapshot.strategy.message,
   });
   const existing = await database.execute(sql<{ id: string; brief: MessageBrief }>`
-    select id, brief from ${leadHunterMessageBriefs} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and campaign_version=${context.campaignVersion} limit 1
+    select id, brief from ${leadHunterMessageBriefs} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and campaign_version=${context.campaignVersion} order by created_at desc limit 1
   `) as unknown as Array<{ id: string; brief: MessageBrief }>;
   const brief = existing[0]?.brief ?? builtBrief;
-  let briefId = existing[0]?.id;
+  let briefId: string | undefined = existing[0]?.id;
+  if (!brief.businessAnalysis) {
+    brief.businessAnalysis = await analyzeProspectBusiness(brief);
+    // Briefs are append-only: retain the evidence and policy of the previous
+    // snapshot and add the analysis in a new revision.
+    briefId = undefined;
+  }
   if (!briefId) {
     const inserted = await database.execute(sql<{ id: string }>`
       insert into ${leadHunterMessageBriefs} (owner_id,enrollment_id,contact_id,campaign_id,campaign_version,brief,evidence_ids)
@@ -79,7 +86,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
   }
   const existingMessage = await database.execute(sql<{ id: string; subject: string; body: string }>`
     select id, subject, body from ${leadHunterMessageVersions} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and state='valid'
-      and model_metadata->>'qualityVersion'='4' and coalesce(model_metadata->>'sequenceStep','0')='0'
+      and model_metadata->>'qualityVersion'='5' and coalesce(model_metadata->>'sequenceStep','0')='0'
     order by created_at desc limit 1
   `) as unknown as Array<{ id: string; subject: string; body: string }>;
   let message = existingMessage[0];
@@ -97,7 +104,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     if (!validation.valid) throw new Error(validation.issues.join(" "));
     const inserted = await database.execute(sql<{ id: string; subject: string; body: string }>`
       insert into ${leadHunterMessageVersions} (owner_id,brief_id,enrollment_id,subject,body,state,validation_result,model_metadata)
-      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", qualityVersion: 4, sequenceStep: 0 })}::jsonb)
+      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", qualityVersion: 5, sequenceStep: 0 })}::jsonb)
       returning id,subject,body
     `) as unknown as Array<{ id: string; subject: string; body: string }>;
     message = inserted[0]!;

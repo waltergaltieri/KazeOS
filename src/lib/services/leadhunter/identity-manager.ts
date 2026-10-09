@@ -45,6 +45,22 @@ export interface ResolveSourceCandidateIdentityInput {
   ownerId: string;
   candidateId: string;
   observation: unknown;
+  /** A separate observation captured by the server, never a rewrite of discovery. */
+  publishedNameEvidence?: { name: string; sourceUrl: string; suppliedAt: string; contentSha256: string };
+}
+
+const publishedNameEvidenceSchema = z.object({
+  name: z.string().trim().min(1).max(200), sourceUrl: z.string().url(),
+  suppliedAt: z.string().datetime({ offset: true }), contentSha256: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+
+export function identityWithPublishedName(identity: BusinessIdentity, canonicalUrl: string | null, raw: unknown): BusinessIdentity {
+  if (raw === undefined || identity.name) return identity;
+  const evidence = publishedNameEvidenceSchema.parse(raw);
+  if (evidence.sourceUrl !== canonicalUrl || !identity.urls.some(({ url, role }) => role === "official_website" && url === evidence.sourceUrl)) {
+    throw new TypeError("Published name must come from the discovered official source");
+  }
+  return { ...identity, name: evidence.name };
 }
 
 type CandidateResolutionState =
@@ -259,7 +275,7 @@ async function recordActivity(
     ownerId: string;
     campaignId: string;
     leadId: string | null;
-    eventType: "identity.linked" | "identity.created" | "identity.needs_review";
+    eventType: "identity.linked" | "identity.created" | "identity.needs_review" | "identity.name_observed";
     detail: Record<string, unknown>;
   },
 ) {
@@ -502,7 +518,7 @@ export async function resolveSourceCandidateIdentity(
     `) as unknown as CandidateRow[];
     const preflight = preflightRows[0];
     if (!preflight) throw new Error("Source candidate not found");
-    const identity = reconcileObservation(preflight, suppliedObservation);
+    const identity = identityWithPublishedName(reconcileObservation(preflight, suppliedObservation), preflight.canonicalUrl, input.publishedNameEvidence);
 
     const candidateRows = await transaction.execute(sql<CandidateRow>`
       select
@@ -538,6 +554,14 @@ export async function resolveSourceCandidateIdentity(
         decision: null,
         outboundProtection,
       };
+    }
+
+    if (input.publishedNameEvidence && !suppliedObservation.name) {
+      await recordActivity(transaction, {
+        ownerId: input.ownerId, campaignId: candidate.campaignId, leadId: null,
+        eventType: "identity.name_observed",
+        detail: { candidateId: candidate.id, ...publishedNameEvidenceSchema.parse(input.publishedNameEvidence) },
+      });
     }
 
     const lockKeys = identityLockKeys(input.ownerId, identity);

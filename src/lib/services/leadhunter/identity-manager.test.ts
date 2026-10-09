@@ -8,6 +8,7 @@ vi.mock("server-only", () => ({}));
 import type { BusinessIdentity } from "@/lib/leadhunter/identity";
 
 import {
+  identityWithPublishedName,
   resolveSourceCandidateIdentity,
   type LeadHunterIdentityDatabase,
   type LeadHunterIdentityTransaction,
@@ -28,6 +29,15 @@ const observation: BusinessIdentity = {
   location: { countryCode: "AR", city: "Rosario" },
   organizationRole: "independent",
 };
+
+it("adds a separately sourced name without mutating immutable discovery evidence", () => {
+  const seed = { ...observation, name: null };
+  const url = observation.urls[0]!.url;
+  const proof = { name: "Acme Distribuciones", sourceUrl: url, suppliedAt: "2026-10-09T12:00:00Z", contentSha256: "a".repeat(64) };
+  expect(identityWithPublishedName(seed, url, proof).name).toBe("Acme Distribuciones");
+  expect(seed.name).toBeNull();
+  expect(() => identityWithPublishedName(seed, "https://different.example/", proof)).toThrow(/official source/);
+});
 
 function queryText(query: unknown) {
   return dialect.sqlToQuery(query as Parameters<PgDialect["sqlToQuery"]>[0]);

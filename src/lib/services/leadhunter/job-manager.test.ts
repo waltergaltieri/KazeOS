@@ -14,6 +14,19 @@ import {
 const leaseToken = "bounded-research-result-token";
 
 describe("LeadHunter research job result bounds", () => {
+  it("records research errors with source provenance so the worker can retry", async () => {
+    const execute = vi.fn(async () => [{
+      id: "00000000-0000-4000-8000-000000000001", runId: "00000000-0000-4000-8000-000000000002",
+      kind: "research", state: "leased", result: null, attemptCount: 1,
+      payload: { leadId: "00000000-0000-4000-8000-000000000003", sourceCandidateId: "00000000-0000-4000-8000-000000000004" },
+      leaseExpiresAt: "2026-09-30T12:10:00.000Z", leaseTokenDigest: digestLeaseToken(leaseToken),
+    }]);
+    await expect(completeJob({ execute } as unknown as LeadHunterJobDatabase, {
+      id: "00000000-0000-4000-8000-000000000001", leaseToken,
+      now: new Date("2026-09-30T12:00:00.000Z"), maxAttempts: 3,
+      completion: { error: "graph selected ungrounded evidence" },
+    })).resolves.toEqual({ status: "queued", result: null });
+  });
   it("rejects generic research completion even after evidence completion succeeded", async () => {
     const stored = { kind: "research", output: { evidenceIds: [] } };
     const execute = vi.fn(async () => [{

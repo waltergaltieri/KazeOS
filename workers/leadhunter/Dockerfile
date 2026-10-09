@@ -8,7 +8,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY leadhunter_worker ./leadhunter_worker
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir '.[scrapegraph]'
 
 RUN useradd --create-home --uid 10001 leadhunter
 USER leadhunter

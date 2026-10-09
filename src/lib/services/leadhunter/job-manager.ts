@@ -111,6 +111,7 @@ export const workerDiscoveryWorkSchema = discoverPayloadSchema;
 const leadPayloadSchema = z.object({ leadId: z.string().uuid() }).strict();
 const researchPayloadSchema = z.object({
   leadId: z.string().uuid(),
+  sourceCandidateId: z.string().uuid().optional(),
   source: z.object({
     sourceUrl: z.string().url().max(2_048).refine(
       (value) => /^https?:\/\//i.test(value),
