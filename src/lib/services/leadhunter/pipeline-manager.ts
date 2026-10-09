@@ -19,6 +19,11 @@ export interface PipelineJobContext { ownerId: string; runId: string; enrollment
 export async function advancePipelineAfterResult(database: LeadHunterJobDatabase, context: PipelineJobContext, output: Record<string, unknown>) {
   const next = nextPipelineStage(context.kind, output);
   if (!next || !context.enrollmentId || !context.leadId) return null;
+  const runs = await database.execute(sql`
+    select plan->>'executionMode' as "executionMode" from ${leadHunterRuns}
+    where owner_id=${context.ownerId} and id=${context.runId}
+  `) as unknown as Array<{ executionMode: string | null }>;
+  if (runs[0]?.executionMode === "research_only" && context.kind !== "resolve_identity") return null;
   let payload: Record<string, unknown>;
   if (next === "audit_website") {
     const unfinished = await database.execute(sql`select id from ${leadHunterJobs} where owner_id=${context.ownerId} and run_id=${context.runId} and enrollment_id=${context.enrollmentId} and kind='research' and state<>'succeeded' limit 1`) as unknown as Array<{ id: string }>;

@@ -12,9 +12,13 @@ async function main() {
     owner: { type: "string" }, campaign: { type: "string" }, file: { type: "string" },
     mailbox: { type: "string" }, recurring: { type: "boolean", default: false },
     job: { type: "string" },
+    "research-only": { type: "boolean", default: false },
   } });
   const command = z.enum(["create", "status", "run", "pause", "enable-sending", "retry-failed", "refresh-drafts"]).parse(positionals[0]);
   const ownerId = z.string().uuid().parse(values.owner);
+  if (values["research-only"] && (command !== "run" || values.recurring)) {
+    throw new Error("--research-only requires a single non-recurring run");
+  }
   const { adminDb: db, adminDatabaseClient: client } = await import("../src/db/internal/admin");
   const { createCampaign } = await import("../src/lib/services/leadhunter/campaign-manager");
   const { controlCampaign } = await import("../src/lib/services/leadhunter/campaign-control");
@@ -81,6 +85,9 @@ async function main() {
         await controlCampaign(tx, { ownerId, campaignId, command: command === "run" ? "run_now" : "pause" });
         if (command === "run" && !values.recurring) {
           await planDueRuns(tx, { now: new Date(), campaignId, ownerId });
+          if (values["research-only"]) {
+            await tx.execute(sql`update lh_runs set plan=plan || '{"executionMode":"research_only"}'::jsonb where owner_id=${ownerId} and campaign_id=${campaignId} and state='planned'`);
+          }
           await tx.execute(sql`update lh_campaigns set next_search_at=null where owner_id=${ownerId} and id=${campaignId}`);
         }
       });

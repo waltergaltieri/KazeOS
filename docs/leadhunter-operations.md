@@ -40,6 +40,8 @@ pnpm leadhunter pause --owner OWNER_UUID --campaign CAMPAIGN_UUID
 
 `create` guarda la campaña en borradores, sin cuenta para enviar. `run` ejecuta una sola corrida; `run --recurring` programa las siguientes según el calendario de la campaña. `status` muestra errores de cada etapa, prospectos y cola. No modifica otras campañas.
 
+`run --research-only` ejecuta una prueba única de búsqueda, resolución de identidad e investigación. Guarda `executionMode: research_only` en el plan antes de publicar los trabajos y detiene el pipeline después de la investigación. La toma de trabajos también rechaza etapas posteriores para ese plan. No crea análisis comercial, briefs, borradores ni envíos. Es incompatible con `--recurring`; el límite de candidatos es `dailyLeadLimit`.
+
 Para recuperar una prueba tras corregir un error: `retry-failed --owner OWNER_UUID --campaign CAMPAIGN_UUID --job JOB_UUID`. Conserva el error anterior en el historial. `refresh-drafts --owner OWNER_UUID --campaign CAMPAIGN_UUID` vuelve a preparar borradores con la revisión de calidad actual, conservando las versiones anteriores. Ambos comandos exigen modo borradores; la actualización omite contactos que ya tengan algún comando de envío.
 
 Cuando el usuario haya autorizado contacto real, configurar explícitamente `enable-sending --owner OWNER_UUID --campaign CAMPAIGN_UUID --mailbox EXISTING_MAILBOX_UUID` y luego ejecutar `run --recurring`. El modo automático usa el transporte ya configurado en Oracle. Revisar los prospectos listos de una prueba antes de reutilizarlos en producción: el comando no reenvía borradores anteriores automáticamente.
