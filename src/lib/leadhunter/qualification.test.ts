@@ -60,6 +60,20 @@ function input(overrides: Partial<QualificationInput> = {}): QualificationInput 
 }
 
 describe("LeadHunter qualification", () => {
+  it("accepts complementary and translated scale observations but still blocks explicit conflicts and low confidence", () => {
+    const setup = input({
+      gates: [{ type: "required_finding", field: "operational_scale", minimumConfidence: 80 }],
+      researchQuestions: [{ key: "operational_scale", prompt: "Escala publicada", required: true }],
+      evidence: [evidence(), ...[
+        "Operamos en una planta industrial con 250 empleados.",
+        "We operate in an industrial plant with 250 employees.",
+        "Cuenta con una flota de más de 100 equipos de compresión.",
+      ].map((value, i) => evidence(evidenceIds[i + 1], { questionKey: "operational_scale", field: "operational_scale", value }))],
+    });
+    expect(evaluateQualification(setup).decision).toBe("eligible");
+    expect(evaluateQualification({ ...setup, evidence: setup.evidence.map(row => row.field === "operational_scale" ? { ...row, confidence: 70 } : row) }).decision).toBe("needs_review");
+    expect(evaluateQualification({ ...setup, evidence: setup.evidence.map(row => row.field === "operational_scale" ? { ...row, status: "conflicting", kind: "hypothesis" } : row) }).decision).toBe("needs_review");
+  });
   it("accepts screenshot audit metadata without expanding ordinary research excerpts", () => {
     const value = JSON.stringify({ screenshots: [], summary: "x".repeat(2200) });
     expect(qualificationEvidenceSchema.safeParse(evidence(evidenceIds[0], { field: "website_visual_review", value })).success).toBe(true);

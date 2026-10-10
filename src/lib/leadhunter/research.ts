@@ -295,6 +295,7 @@ const minimumUsableFactConfidence = 75;
 export const descriptiveResearchFields = new Set([
   "business_model", "digital_presence", "observable_process", "service_opportunity",
   "products_services", "customer_profile", "sales_channels",
+  "operational_scale",
 ]);
 
 export function reduceResearchDossier(
