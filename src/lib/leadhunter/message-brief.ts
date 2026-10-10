@@ -1,4 +1,5 @@
 import type { MessagePolicy } from "./contracts";
+import { websiteAuditEnvelopeSchema } from "./website-audit";
 
 export interface BriefEvidence {
   id: string;
@@ -20,6 +21,25 @@ export interface MessageBrief {
   secondaryOpportunity?: string;
   policy: MessagePolicy;
   businessAnalysis?: import("./business-analysis").BusinessAnalysis;
+  websiteContext?: { evidenceId: string; sourceUrl: string; observedAt: string; findings: string[] };
+}
+
+export function websiteContextForMessage(evidence: BriefEvidence[]): MessageBrief["websiteContext"] {
+  const reviews = evidence.filter(row => row.field === "website_visual_review" && row.status === "verified").flatMap(row => {
+    try {
+      const parsed = websiteAuditEnvelopeSchema.safeParse({ observations: [JSON.parse(row.value)] });
+      const review = parsed.success ? parsed.data.observations[0] : undefined;
+      return review?.type === "visual_review" ? [{ row, review }] : [];
+    } catch { return []; }
+  }).sort((a, b) => Date.parse(b.review.observedAt) - Date.parse(a.review.observedAt));
+  const latest = reviews[0];
+  if (!latest) return undefined;
+  const { row, review } = latest;
+  const complete = ["desktop", "mobile"].every(viewport => review.screenshots.some(s => s.viewport === viewport));
+  return { evidenceId: row.id, sourceUrl: review.source.sourceUrl, observedAt: review.observedAt,
+    findings: review.status === "assessed" && review.confidence >= 80 && complete
+      ? review.issues.filter(issue => issue.confidence >= 80 && issue.severity !== "minor")
+        .map(issue => issue.observation).slice(0, 3) : [] };
 }
 
 const evidencePriority = new Map([
@@ -82,5 +102,6 @@ export function buildMessageBrief(input: Omit<MessageBrief, "facts"> & { evidenc
   }).sort((a, b) => a.occurrence - b.occurrence).slice(0, 16).map(({ fact }) => fact);
   if (!input.contact.email.trim()) throw new Error("A verified recipient is required");
   if (facts.length < input.policy.minimumSpecificFacts) throw new Error("Not enough verified commercial facts");
-  return { ...input, companyName: displayBusinessName(input.companyName), primaryOpportunity: input.primaryOpportunity.trim(), facts: diversifiedFacts };
+  return { ...input, companyName: displayBusinessName(input.companyName), primaryOpportunity: input.primaryOpportunity.trim(), facts: diversifiedFacts,
+    websiteContext: websiteContextForMessage(input.evidence) };
 }

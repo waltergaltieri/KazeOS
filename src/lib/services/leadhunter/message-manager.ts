@@ -55,11 +55,18 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
       and left(field, 8) <> 'website_'
     order by confidence desc, observed_at desc limit 50
   `) as unknown as BriefEvidence[];
+  const visualEvidence = await database.execute(sql<BriefEvidence>`
+    select id, field, value, confidence, status, source_url as "sourceUrl"
+    from ${leadHunterEvidence}
+    where owner_id=${ownerId} and lead_id=${context.leadId} and campaign_id=${context.campaignId}
+      and campaign_version=${context.campaignVersion} and status='verified' and field='website_visual_review'
+    order by observed_at desc limit 1
+  `) as unknown as BriefEvidence[];
   const builtBrief = buildMessageBrief({
     campaignId: context.campaignId, campaignVersion: context.campaignVersion, enrollmentId,
     companyName: context.companyName,
     contact: { id: context.contactId, email: context.email, firstName: context.firstName, role: context.role },
-    evidence, primaryOpportunity: opportunity[context.snapshot.serviceFocus] ?? context.snapshot.objective,
+    evidence: [...evidence, ...visualEvidence], primaryOpportunity: opportunity[context.snapshot.serviceFocus] ?? context.snapshot.objective,
     secondaryOpportunity: context.snapshot.serviceFocus === "web"
       ? "Gestionar internamente las solicitudes o trabajos del negocio, como oportunidad distinta de la presencia web pública"
       : undefined,
@@ -68,8 +75,9 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
   const existing = await database.execute(sql<{ id: string; brief: MessageBrief }>`
     select id, brief from ${leadHunterMessageBriefs} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and campaign_version=${context.campaignVersion} order by created_at desc limit 1
   `) as unknown as Array<{ id: string; brief: MessageBrief }>;
-  const brief = existing[0]?.brief ?? builtBrief;
+  const brief = existing[0] ? { ...existing[0].brief, websiteContext: builtBrief.websiteContext } : builtBrief;
   let briefId: string | undefined = existing[0]?.id;
+  if (JSON.stringify(existing[0]?.brief.websiteContext) !== JSON.stringify(builtBrief.websiteContext)) briefId = undefined;
   if (!brief.businessAnalysis) {
     brief.businessAnalysis = await analyzeProspectBusiness(brief);
     // Briefs are append-only: retain the evidence and policy of the previous
@@ -86,7 +94,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
   }
   const existingMessage = await database.execute(sql<{ id: string; subject: string; body: string }>`
     select id, subject, body from ${leadHunterMessageVersions} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and state='valid'
-      and model_metadata->>'qualityVersion'='5' and coalesce(model_metadata->>'sequenceStep','0')='0'
+      and model_metadata->>'qualityVersion'='6' and coalesce(model_metadata->>'sequenceStep','0')='0'
     order by created_at desc limit 1
   `) as unknown as Array<{ id: string; subject: string; body: string }>;
   let message = existingMessage[0];
@@ -104,7 +112,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     if (!validation.valid) throw new Error(validation.issues.join(" "));
     const inserted = await database.execute(sql<{ id: string; subject: string; body: string }>`
       insert into ${leadHunterMessageVersions} (owner_id,brief_id,enrollment_id,subject,body,state,validation_result,model_metadata)
-      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", qualityVersion: 5, sequenceStep: 0 })}::jsonb)
+      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", qualityVersion: 6, sequenceStep: 0 })}::jsonb)
       returning id,subject,body
     `) as unknown as Array<{ id: string; subject: string; body: string }>;
     message = inserted[0]!;
