@@ -6,9 +6,10 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { leadHunterActivities, leadHunterCampaigns, leadHunterCampaignVersions, leadHunterContacts, leadHunterEnrollments, leadHunterEvidence, leadHunterMessageBriefs, leadHunterMessageVersions, leadHunterOutbox } from "@/db/schema";
 import { buildMessageBrief, type BriefEvidence, type MessageBrief } from "@/lib/leadhunter/message-brief";
-import { validateFollowUpMessage, validateProspectMessage } from "@/lib/leadhunter/message-composer";
+import { validateFollowUpMessage } from "@/lib/leadhunter/message-composer";
 import { nextDeliveryWindow } from "@/lib/leadhunter/outbox";
-import { composeFollowUpsWithMiniMax, composeProspectMessageWithMiniMax, reviewMessageGrounding } from "@/lib/leadhunter/minimax-message";
+import { composeFollowUpsWithMiniMax, reviewMessageGrounding } from "@/lib/leadhunter/minimax-message";
+import { generateReviewedProspectMessage } from "@/lib/leadhunter/message-generation";
 import { analyzeProspectBusiness } from "@/lib/leadhunter/business-analysis";
 
 export type MessageDatabase = Pick<PostgresJsDatabase<typeof schema>, "execute">;
@@ -94,25 +95,15 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
   }
   const existingMessage = await database.execute(sql<{ id: string; subject: string; body: string }>`
     select id, subject, body from ${leadHunterMessageVersions} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and state='valid'
-      and model_metadata->>'qualityVersion'='6' and coalesce(model_metadata->>'sequenceStep','0')='0'
+      and model_metadata->>'qualityVersion'='7' and coalesce(model_metadata->>'sequenceStep','0')='0'
     order by created_at desc limit 1
   `) as unknown as Array<{ id: string; subject: string; body: string }>;
   let message = existingMessage[0];
   if (!message) {
-    let composed = await composeProspectMessageWithMiniMax(brief);
-    let validation = validateProspectMessage(brief, composed);
-    if (validation.valid) validation = await reviewMessageGrounding(brief, [composed]);
-    for (let attempt = 1; !validation.valid && attempt < 2; attempt += 1) {
-      composed = await composeProspectMessageWithMiniMax(brief, {
-        qualityFeedback: validation.issues,
-      });
-      validation = validateProspectMessage(brief, composed);
-      if (validation.valid) validation = await reviewMessageGrounding(brief, [composed]);
-    }
-    if (!validation.valid) throw new Error(validation.issues.join(" "));
+    const { message: composed, validation } = await generateReviewedProspectMessage(brief);
     const inserted = await database.execute(sql<{ id: string; subject: string; body: string }>`
       insert into ${leadHunterMessageVersions} (owner_id,brief_id,enrollment_id,subject,body,state,validation_result,model_metadata)
-      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", qualityVersion: 6, sequenceStep: 0 })}::jsonb)
+      values (${ownerId},${briefId},${enrollmentId},${composed.subject},${composed.body},'valid',${JSON.stringify(validation)}::jsonb,${JSON.stringify({ generator: "minimax", model: process.env.MINIMAX_MODEL ?? "MiniMax-M3", qualityVersion: 7, sequenceStep: 0 })}::jsonb)
       returning id,subject,body
     `) as unknown as Array<{ id: string; subject: string; body: string }>;
     message = inserted[0]!;

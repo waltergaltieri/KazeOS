@@ -62,6 +62,15 @@ export function composeProspectMessage(brief: MessageBrief): ComposedMessage {
 }
 
 export function validateProspectMessage(brief: MessageBrief, message: ComposedMessage) {
+  return validateProspectMessageChecks(brief, message, true);
+}
+
+/** Structural validity is not approval: callers must also perform semantic review. */
+export function validateProspectMessageStructure(brief: MessageBrief, message: ComposedMessage) {
+  return validateProspectMessageChecks(brief, message, false);
+}
+
+function validateProspectMessageChecks(brief: MessageBrief, message: ComposedMessage, requireTokenOverlap: boolean) {
   const issues: string[] = validateOutreachStyle(message.body);
   const words = message.body.trim().split(/\s+/).filter(Boolean).length;
   if (/\b(?:deje[n]? de|dejar de|stop having to|no longer (?:need|have) to)\b/iu.test(message.body)) issues.push("Describí lo que permitiría hacer la herramienta, sin decir que el equipo dejaría de hacer algo: eso presupone un problema o proceso actual.");
@@ -83,12 +92,13 @@ export function validateProspectMessage(brief: MessageBrief, message: ComposedMe
     compact(message.body).includes(compact(text))
     && evidenceIds.length > 0
     && evidenceIds.every((id) => factsById.has(id))
-    && evidenceIds.some((id) => tokenCoverage(text, factsById.get(id)!.value) >= 0.3)
+    && (!requireTokenOverlap || evidenceIds.some((id) => tokenCoverage(text, factsById.get(id)!.value) >= 0.3))
   ));
   const distinctEvidence = new Set(groundedClaims.flatMap(({ evidenceIds }) => evidenceIds));
   const absentClaims = message.claims.filter(({ text }) => !compact(message.body).includes(compact(text)));
   if (absentClaims.length) issues.push(`claims.text debe copiar frases LITERALES del correo, sin resumirlas ni reformularlas. Estas frases no aparecen en el cuerpo: ${absentClaims.slice(0, 3).map(({ text }) => text).join(" | ")}`);
   if (groundedClaims.length < brief.policy.minimumSpecificFacts || distinctEvidence.size < brief.policy.minimumSpecificFacts || groundedClaims.length !== message.claims.length) issues.push("Las afirmaciones no tienen evidencia suficiente.");
+  if (!requireTokenOverlap && message.claims.map(c => c.text).join(" ").trim().split(/\s+/u).length > 65) issues.push("Resumí la descripción del negocio en un máximo de 65 palabras: actividad, clientes y forma de trabajar publicada. Quitá listas de productos, procesos, medidas y terminaciones.");
   return { valid: issues.length === 0, issues };
 }
 

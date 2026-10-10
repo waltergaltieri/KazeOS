@@ -106,9 +106,12 @@ describe("MiniMax LeadHunter message composition", () => {
       output_text: JSON.stringify(output),
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
+    const previousDraft = { subject: "Una idea", body: "Texto rechazado", claims: output.claims };
     await expect(composeProspectMessageWithMiniMax(brief, {
       apiKey: "secret",
       fetch: fetcher as typeof fetch,
+      previousDraft,
+      qualityFeedback: ["Resumir la descripción del negocio"],
     })).resolves.toMatchObject({
       subject: output.subject,
       claims: output.claims,
@@ -123,6 +126,8 @@ describe("MiniMax LeadHunter message composition", () => {
     expect(request.instructions).toContain("correct Spanish spelling and accents");
     expect(request.instructions).toContain("Never put evidence IDs");
     expect(request.input).toContain("Walter Quimey Galtieri");
+    expect(JSON.parse(request.input).previousDraft).toEqual(previousDraft);
+    expect(request.instructions).toContain("Resumir la descripción del negocio");
   });
 
   it("rejects provider output without grounded claims", async () => {
