@@ -94,6 +94,8 @@ Todas las llamadas usan `Authorization: Bearer <LEADHUNTER_TRANSPORT_SECRET>`. E
 
 Cada comando incluye `outboxId`, destinatario, asunto, cuerpo, fecha e `idempotencyKey`. El transportador debe usar esa clave para impedir duplicados.
 
+El worker consulta respuestas antes de enviar y retira un solo correo por turno. `MAIL_SEND_INTERVAL_SECONDS` vale 432 (7 minutos y 12 segundos) como mínimo: la reserva se guarda por cuenta en SQLite antes de retirar el comando y sobrevive a reinicios. Turnos vacíos o fallidos no se acumulan. Esto distribuye hasta 200 envíos en 24 horas entre todas las campañas del buzón, incluyendo seguimientos; cada campaña conserva además su límite diario. La investigación, disponibilidad de candidatos y frecuencia efectiva del worker pueden reducir el volumen: no es una garantía de 200 envíos ni de horarios exactos.
+
 ## Fuentes disponibles
 
 La búsqueda general, directorios, Instagram público y páginas públicas de empresas en LinkedIn se descubren mediante SearXNG. Las páginas encontradas se investigan con evidencia trazable. CSV y carga manual permanecen disponibles como entrada del usuario; no generan búsquedas automáticas.

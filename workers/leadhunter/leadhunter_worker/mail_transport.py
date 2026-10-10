@@ -68,6 +68,23 @@ class GmailMailTransport:
         domain = self.address.rsplit("@", 1)[1].lower()
         return f"<kazeos.{digest}@{domain}>"
 
+    def reserve_dispatch_slot(self, interval_seconds: int, now: float | None = None) -> bool:
+        """Persist the mailbox slot before claiming; restarts never accumulate capacity."""
+        if interval_seconds <= 0:
+            raise ValueError("mail interval must be positive")
+        current = datetime.now(timezone.utc).timestamp() if now is None else now
+        key = f"dispatch_next:{self.address.casefold()}"
+        with self._connect() as connection:
+            connection.execute("begin immediate")
+            row = connection.execute("select value from state where key=?", (key,)).fetchone()
+            if row and current < float(row[0]):
+                return False
+            connection.execute(
+                "insert into state(key,value) values(?,?) on conflict(key) do update set value=excluded.value",
+                (key, str(current + interval_seconds)),
+            )
+        return True
+
     def remember_sent(self, idempotency_key: str) -> str:
         key = _clean_header(idempotency_key, "idempotency key", 500)
         provider_id = self._provider_message_id(key)
@@ -227,7 +244,12 @@ def dispatch_due_mail(
     transport: GmailMailTransport,
     limit: int = 10,
     api: MailApi | None = None,
+    interval_seconds: int = 0,
 ) -> int:
+    if interval_seconds > 0:
+        if not transport.reserve_dispatch_slot(interval_seconds):
+            return 0
+        limit = 1
     if api is None:
         from .runner import api as request_api
         api = request_api
@@ -240,6 +262,8 @@ def dispatch_due_mail(
     )
     if status != 200 or not isinstance(payload, dict) or not isinstance(payload.get("commands"), list):
         raise RuntimeError(f"KazeOS mail claim failed with status {status}")
+    if interval_seconds > 0 and len(payload["commands"]) > 1:
+        raise RuntimeError("KazeOS exceeded the paced mail claim limit")
     sent = 0
     for raw_command in payload["commands"]:
         if not isinstance(raw_command, dict):

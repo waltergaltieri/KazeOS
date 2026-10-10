@@ -26,6 +26,30 @@ class FakeSMTP:
         self.sent.append(message)
 
 
+def test_dispatch_pacing_survives_restart_and_skips_claim(tmp_path: Path) -> None:
+    path = tmp_path / "paced.sqlite3"
+    transport = GmailMailTransport("quime@example.com", "app-password", path)
+    assert transport.reserve_dispatch_slot(432, now=1_000)
+    restarted = GmailMailTransport("quime@example.com", "app-password", path)
+    assert not restarted.reserve_dispatch_slot(432, now=1_431)
+    assert restarted.reserve_dispatch_slot(432, now=1_432)
+    # A late cycle reserves from now; unused capacity is never accumulated.
+    assert restarted.reserve_dispatch_slot(432, now=5_000)
+    assert not transport.reserve_dispatch_slot(432, now=5_001)
+    assert not transport.reserve_dispatch_slot(432, now=999)
+
+
+def test_paced_dispatch_claims_one_and_blocks_the_next_cycle(tmp_path: Path) -> None:
+    transport = GmailMailTransport("quime@example.com", "app-password", tmp_path / "mail.sqlite3")
+    claims = []
+    def api(method: str, url: str, token: str, body: dict[str, object]) -> tuple[int, object]:
+        claims.append(body)
+        return 200, {"commands": []}
+    assert dispatch_due_mail("https://example.com", "secret", transport, api=api, interval_seconds=432) == 0
+    assert dispatch_due_mail("https://example.com", "secret", transport, api=api, interval_seconds=432) == 0
+    assert claims == [{"limit": 1}]
+
+
 class BaselineIMAP:
     def __init__(self, host: str, port: int) -> None:
         assert (host, port) == ("imap.gmail.com", 993)

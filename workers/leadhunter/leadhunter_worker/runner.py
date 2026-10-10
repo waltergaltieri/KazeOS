@@ -312,6 +312,7 @@ def main() -> None:
         os.environ.get("MAIL_STATE_PATH", "/var/lib/kazeos-leadhunter/mail.sqlite3"),
     ) if all(mail_settings) else None
     tick_interval_seconds = max(30, int(os.environ.get("TICK_INTERVAL_SECONDS", "60")))
+    mail_interval_seconds = max(432, int(os.environ.get("MAIL_SEND_INTERVAL_SECONDS", "432")))
     next_tick = 0.0
     while True:
         now = time.monotonic()
@@ -319,8 +320,8 @@ def main() -> None:
             trigger_tick(base_url, token)
             if mail_transport is not None:
                 try:
-                    dispatch_due_mail(base_url, transport_secret, mail_transport)
                     report_mail_events(base_url, transport_secret, mail_transport)
+                    dispatch_due_mail(base_url, transport_secret, mail_transport, interval_seconds=mail_interval_seconds)
                 except Exception as error:
                     print(f"LeadHunter mail cycle failed: {error}", file=sys.stderr)
             next_tick = now + tick_interval_seconds
