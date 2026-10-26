@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
-const provider = vi.hoisted(() => ({ compose: vi.fn(), review: vi.fn() }));
-vi.mock("./minimax-message", () => ({ composeProspectMessageWithMiniMax: provider.compose, reviewMessageGrounding: provider.review }));
-import { generateReviewedProspectMessage } from "./message-generation";
+const provider = vi.hoisted(() => ({ compose: vi.fn(), followUps: vi.fn(), review: vi.fn() }));
+vi.mock("./minimax-message", () => ({ composeProspectMessageWithMiniMax: provider.compose, composeFollowUpsWithMiniMax: provider.followUps, reviewMessageGrounding: provider.review }));
+import { generateReviewedProspectMessage, generateReviewedFollowUps } from "./message-generation";
 import type { MessageBrief } from "./message-brief";
 const brief: MessageBrief = {
   campaignId: "c", campaignVersion: 1, enrollmentId: "e", companyName: "Acme", contact: { id: "c", email: "info@example.com" },
@@ -37,5 +37,44 @@ describe("semantic review of prospect messages", () => {
   it("fails closed when the review is unavailable", async () => {
     provider.review.mockRejectedValue(new Error("Review unavailable"));
     await expect(generateReviewedProspectMessage(brief)).rejects.toThrow("Review unavailable");
+  });
+});
+
+describe("semantic review of follow-ups", () => {
+  const claim = { text: "Fabrican ropa.", evidenceIds: ["0"] };
+  const followUp = { subject: "Re: Acme", body: `Hola. ${claim.text} Quería retomar la propuesta de renovar su presencia digital con una presentación clara de lo que ofrecen. Una web organizada puede ayudar a que quienes buscan un proveedor entiendan su oferta y encuentren cómo contactarlos. El servicio incluye desarrollo, hosting y mantenimiento mediante una suscripción mensual. Si les interesa, podemos seguir por correo.\n\nWalter`, claims: [claim] };
+  const steps = [{ bodyInstruction: "Retomar la propuesta", subjectInstruction: "Mismo hilo" }];
+  beforeEach(() => { vi.resetAllMocks(); provider.followUps.mockResolvedValue([followUp]); });
+  it("accepts paraphrased claims only after semantic approval", async () => {
+    provider.review.mockResolvedValue({ valid: true, issues: [] });
+    expect(await generateReviewedFollowUps(brief, "Acme", steps)).toEqual([followUp]);
+    expect(provider.review).toHaveBeenCalledWith(brief, [followUp], { timeoutMs: 60_000 });
+  });
+  it("rejects unsupported claims and passes semantic feedback to the retry", async () => {
+    provider.review.mockResolvedValue({ valid: false, issues: ["Unsupported current process"] });
+    await expect(generateReviewedFollowUps(brief, "Acme", steps)).rejects.toThrow("Unsupported current process");
+    expect(provider.followUps.mock.calls[1][3].qualityFeedback).toEqual(["Unsupported current process"]);
+  });
+  it("blocks nonexistent evidence before semantic review", async () => {
+    provider.followUps.mockResolvedValue([{ ...followUp, claims: [{ ...claim, evidenceIds: ["missing"] }] }]);
+    await expect(generateReviewedFollowUps(brief, "Acme", steps)).rejects.toThrow();
+    expect(provider.review).not.toHaveBeenCalled();
+  });
+  it("does not approve a sequence when the semantic reviewer is unavailable", async () => {
+    provider.review.mockRejectedValue(new Error("Review unavailable"));
+    await expect(generateReviewedFollowUps(brief, "Acme", steps)).rejects.toThrow("Review unavailable");
+  });
+  it("rejects a greeting addressed to the sender instead of the unknown recipient", async () => {
+    provider.followUps.mockResolvedValue([{ ...followUp, body: followUp.body.replace("Hola.", "Hola, Walter,") }]);
+    provider.review.mockResolvedValue({ valid: true, issues: [] });
+    await expect(generateReviewedFollowUps(brief, "Acme", steps)).rejects.toThrow("saludo");
+    expect(provider.review).not.toHaveBeenCalled();
+  });
+  it("retries a transient generation failure without bypassing final review", async () => {
+    provider.followUps.mockRejectedValueOnce(new Error("Request timed out")).mockResolvedValue([followUp]);
+    provider.review.mockResolvedValue({ valid: true, issues: [] });
+    await expect(generateReviewedFollowUps(brief, "Acme", steps)).resolves.toEqual([followUp]);
+    expect(provider.followUps).toHaveBeenCalledTimes(2);
+    expect(provider.review).toHaveBeenCalledTimes(1);
   });
 });

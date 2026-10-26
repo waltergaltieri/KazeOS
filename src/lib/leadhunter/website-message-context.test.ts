@@ -11,6 +11,11 @@ function evidence(overrides = {}, observedAt = "2026-10-09T12:00:00Z"): BriefEvi
         element: "Product text", observation: "Product text is clipped on mobile.", impact: "Speculative lost sales" }], ...overrides }) };
 }
 describe("website context for outreach", () => {
+  it("blocks sales claims based on cookie overlays rather than website defects", () => {
+    const context = websiteContextForMessage([evidence({ issues: [{ category: "overlap", severity: "critical", confidence: 90, screenshotId: "mobile", element: "Cookie modal", observation: "The cookie modal covers content.", impact: "Obscured capture" }] })]);
+    expect(context?.findings).toEqual([]);
+    expect(context).toHaveProperty("assessmentBlocked", true);
+  });
   it("passes observed defects with provenance without turning speculative impact into fact", () => {
     const context = websiteContextForMessage([evidence()]);
     expect(context?.findings).toEqual(["Product text is clipped on mobile."]);

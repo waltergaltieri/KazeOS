@@ -1,4 +1,5 @@
 import "server-only";
+import { isDeepStrictEqual } from "node:util";
 
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -6,10 +7,8 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { leadHunterActivities, leadHunterCampaigns, leadHunterCampaignVersions, leadHunterContacts, leadHunterEnrollments, leadHunterEvidence, leadHunterMessageBriefs, leadHunterMessageVersions, leadHunterOutbox } from "@/db/schema";
 import { buildMessageBrief, type BriefEvidence, type MessageBrief } from "@/lib/leadhunter/message-brief";
-import { validateFollowUpMessage } from "@/lib/leadhunter/message-composer";
 import { nextDeliveryWindow } from "@/lib/leadhunter/outbox";
-import { composeFollowUpsWithMiniMax, reviewMessageGrounding } from "@/lib/leadhunter/minimax-message";
-import { generateReviewedProspectMessage } from "@/lib/leadhunter/message-generation";
+import { generateReviewedProspectMessage, generateReviewedFollowUps } from "@/lib/leadhunter/message-generation";
 import { analyzeProspectBusiness } from "@/lib/leadhunter/business-analysis";
 
 export type MessageDatabase = Pick<PostgresJsDatabase<typeof schema>, "execute">;
@@ -46,7 +45,7 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     for update of enrollment
   `) as unknown as ContextRow[];
   const context = rows[0];
-  if (!context || context.evaluation !== "eligible" || !context.email || context.status === "stopped") throw new Error("Enrollment is not ready for messaging");
+  if (!context || context.evaluation !== "eligible" || !context.email || !["researching", "ready", "contacting"].includes(context.status)) throw new Error("Enrollment is not ready for messaging");
 
   const evidence = await database.execute(sql<BriefEvidence>`
     select id, field, value, confidence, status, source_url as "sourceUrl"
@@ -73,12 +72,17 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
       : undefined,
     policy: context.snapshot.strategy.message,
   });
+  if (builtBrief.websiteContext?.assessmentBlocked) {
+    await database.execute(sql`update ${leadHunterEnrollments} set evaluation='needs_review',status='researching',reason='website_capture_obstructed',next_action_at=null where owner_id=${ownerId} and id=${enrollmentId} and status in ('ready','researching')`);
+    throw new Error("Website assessment was obstructed; a fresh audit is required before outreach");
+  }
   const existing = await database.execute(sql<{ id: string; brief: MessageBrief }>`
     select id, brief from ${leadHunterMessageBriefs} where owner_id=${ownerId} and enrollment_id=${enrollmentId} and campaign_version=${context.campaignVersion} order by created_at desc limit 1
   `) as unknown as Array<{ id: string; brief: MessageBrief }>;
   const brief = existing[0] ? { ...existing[0].brief, websiteContext: builtBrief.websiteContext } : builtBrief;
   let briefId: string | undefined = existing[0]?.id;
-  if (JSON.stringify(existing[0]?.brief.websiteContext) !== JSON.stringify(builtBrief.websiteContext)) briefId = undefined;
+  // Postgres JSONB reorders object keys. That is not a new audit or brief revision.
+  if (!isDeepStrictEqual(existing[0]?.brief.websiteContext, builtBrief.websiteContext)) briefId = undefined;
   if (!brief.businessAnalysis) {
     brief.businessAnalysis = await analyzeProspectBusiness(brief);
     // Briefs are append-only: retain the evidence and policy of the previous
@@ -108,28 +112,21 @@ export async function prepareValidatedMessage(database: MessageDatabase, ownerId
     `) as unknown as Array<{ id: string; subject: string; body: string }>;
     message = inserted[0]!;
   }
-  await database.execute(sql`update ${leadHunterEnrollments} set message_version_id=${message.id}, status='ready', next_action_at=${nowTimestamp} where owner_id=${ownerId} and id=${enrollmentId}`);
+  await database.execute(sql`update ${leadHunterEnrollments} set message_version_id=${message.id}, status=case when status='contacting' then status else 'ready'::lh_enrollment_status end, next_action_at=${nowTimestamp} where owner_id=${ownerId} and id=${enrollmentId} and status in ('researching','ready','contacting')`);
 
   let queued = 0;
   if (context.campaignStatus === "active" && context.automationMode === "automatic" && context.mailboxId) {
     const firstDueAt = nextDeliveryWindow(now, context.snapshot.schedule);
+    // A later sequence-generation failure must not hold an approved first email.
+    // The stable key keeps retries from sending it again.
+    const initialQueued = await database.execute(sql<{ id: string }>`
+      insert into ${leadHunterOutbox} (owner_id,enrollment_id,message_version_id,recipient_email,subject,body,due_at,logical_step,idempotency_key)
+      values (${ownerId},${enrollmentId},${message.id},${context.email},${message.subject},${message.body},${firstDueAt.toISOString()},0,${`${enrollmentId}:${context.campaignVersion}:0`})
+      on conflict (owner_id,idempotency_key) do nothing returning id
+    `) as unknown as Array<{ id: string }>;
+    queued += initialQueued.length;
     const followUpSteps = context.snapshot.sequenceSteps.slice(1);
-    let followUps = await composeFollowUpsWithMiniMax(brief, message.subject, followUpSteps);
-    let followUpValidations = followUps.map((followUp) => validateFollowUpMessage(brief, message.subject, followUp));
-    for (let attempt = 1; followUpValidations.some(({ valid }) => !valid) && attempt < 2; attempt += 1) {
-      followUps = await composeFollowUpsWithMiniMax(brief, message.subject, followUpSteps, {
-        qualityFeedback: followUpValidations.flatMap(({ issues }) => issues),
-      });
-      followUpValidations = followUps.map((followUp) => validateFollowUpMessage(brief, message.subject, followUp));
-    }
-    const invalidFollowUp = followUpValidations.find(({ valid }) => !valid);
-    if (invalidFollowUp) {
-      throw new Error(invalidFollowUp.issues.join(" "));
-    }
-    if (followUps.length) {
-      const review = await reviewMessageGrounding(brief, followUps);
-      if (!review.valid) throw new Error(review.issues.join(" "));
-    }
+    const followUps = await generateReviewedFollowUps(brief, message.subject, followUpSteps);
     let elapsedDays = 0;
     const commands = [{ subject: message.subject, body: message.body, dueAt: firstDueAt }, ...followUps.map((followUp, index) => {
       elapsedDays += followUpSteps[index]!.delayDays;

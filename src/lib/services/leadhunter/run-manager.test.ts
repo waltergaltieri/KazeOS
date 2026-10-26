@@ -180,6 +180,23 @@ describe("planDueRuns", () => {
     }));
   });
 
+  it("refreshes exhausted search cursors in a new recurring slot", async () => {
+    const initialPlan = mocks.createSearchPlan();
+    mocks.createSearchPlan.mockClear();
+    mocks.createSearchPlan.mockReturnValueOnce({ ...initialPlan, work: [] });
+    const previousCursors = [{ source: "web_search", country: "AR", region: null, industry: null, query: "distribuidores", cursor: { state: "exhausted" } }];
+    const execute = vi.fn(async (query: unknown) => {
+      const rendered = queryText(query).sql;
+      if (rendered.includes('from "lh_campaigns"')) return [{ ownerId, campaignId, campaignVersion: 4, scheduledFor, snapshot }];
+      if (rendered.includes('from "lh_runs"')) return [{ cursor: { previousCursors, planningCursor: { offset: 0 } } }];
+      if (rendered.includes('insert into "lh_runs"')) return [{ id: runId }];
+      return [];
+    });
+    const result = await planDueRuns({ execute } as unknown as LeadHunterRunDatabase, { now: scheduledFor });
+    expect(result.createdJobs).toBe(1);
+    expect(mocks.createSearchPlan).toHaveBeenLastCalledWith(expect.objectContaining({ previousCursors: [], planningCursor: { offset: 0 } }));
+  });
+
   it("completes a newly planned run immediately when all work is exhausted", async () => {
     mocks.createSearchPlan.mockReturnValueOnce({
       planVersion: 1,

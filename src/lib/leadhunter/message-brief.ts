@@ -1,5 +1,5 @@
 import type { MessagePolicy } from "./contracts";
-import { websiteAuditEnvelopeSchema } from "./website-audit";
+import { websiteAuditEnvelopeSchema, visualReviewHasObstruction } from "./website-audit";
 
 export interface BriefEvidence {
   id: string;
@@ -21,7 +21,7 @@ export interface MessageBrief {
   secondaryOpportunity?: string;
   policy: MessagePolicy;
   businessAnalysis?: import("./business-analysis").BusinessAnalysis;
-  websiteContext?: { evidenceId: string; sourceUrl: string; observedAt: string; findings: string[] };
+  websiteContext?: { evidenceId: string; sourceUrl: string; observedAt: string; findings: string[]; assessmentBlocked?: boolean };
 }
 
 export function websiteContextForMessage(evidence: BriefEvidence[]): MessageBrief["websiteContext"] {
@@ -36,8 +36,10 @@ export function websiteContextForMessage(evidence: BriefEvidence[]): MessageBrie
   if (!latest) return undefined;
   const { row, review } = latest;
   const complete = ["desktop", "mobile"].every(viewport => review.screenshots.some(s => s.viewport === viewport));
+  const obstructed = visualReviewHasObstruction(review);
   return { evidenceId: row.id, sourceUrl: review.source.sourceUrl, observedAt: review.observedAt,
-    findings: review.status === "assessed" && review.confidence >= 80 && complete
+    ...(obstructed ? { assessmentBlocked: true } : {}),
+    findings: !obstructed && review.status === "assessed" && review.confidence >= 80 && complete
       ? review.issues.filter(issue => issue.confidence >= 80 && issue.severity !== "minor")
         .map(issue => issue.observation).slice(0, 3) : [] };
 }

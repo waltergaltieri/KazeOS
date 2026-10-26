@@ -306,6 +306,9 @@ export async function composeFollowUpsWithMiniMax(
         "Do not write a subject or signature; the application adds the original thread subject and the verified signature.",
         "Each body content must be 40 to 115 words before the signature, plain text, useful on its own, and follow its corresponding step instruction.",
         "Do not repeat the full initial email. Do not invent facts. Include at least one supported company-specific claim per message.",
+        "Each claims item must have text copied LITERALLY from that item's body and evidenceIds containing only IDs from the supplied facts. Paraphrase evidence naturally in the body; do not put IDs in the body. Claims refer to published business facts, not our proposed future capabilities.",
+        "Walter is the SENDER, never assume he is the recipient. Use a generic greeting unless recipient.firstName is provided. Do not copy names from the signature into a greeting.",
+        "Summarize ONE relevant business fact in one short sentence of at most 22 words. Do not list technical services, specifications, percentages, facilities or product catalogs. The rest should advance the corresponding step. Never repeat internal rules such as 'No prometemos tráfico ni ventas' in the email, and do not add a meeting invitation when the step asks only for a referral or closing the sequence.",
         "Never output HTML, Markdown, code, JSON fragments inside the email, emojis, template placeholders, fake urgency or guilt.",
         "Use the supplied CTA naturally when the step calls for a reply or meeting.",
         "Follow the supplied tone. Write as a person continuing a conversation, with short connected sentences, not a company profile or a report. Include at most one low-pressure invitation. Do not infer missing internal systems from weak digital presence.",
@@ -317,18 +320,19 @@ export async function composeFollowUpsWithMiniMax(
       input: JSON.stringify({
         companyName: brief.companyName,
         initialSubject,
+        recipient: { firstName: brief.contact.firstName ?? null },
         tone: brief.policy.tone,
         facts: brief.facts.map(({ id, field, value }) => ({ id, field, value })),
         steps,
         cta: brief.policy.cta,
         signature: brief.policy.signature,
       }),
-      max_output_tokens: Math.min(6_000, 1_000 + steps.length * 800),
-      reasoning: { effort: "none" },
+      max_output_tokens: 8_000,
+      reasoning: { effort: "medium" },
       temperature: 0.2,
       text: { format: { type: "text" } },
     }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(60_000),
   });
   if (!response.ok) throw new Error(`MiniMax follow-up request failed with status ${response.status}`);
   const payload = await response.json() as { status?: unknown; output_text?: unknown };

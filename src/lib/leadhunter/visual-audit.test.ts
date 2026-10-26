@@ -25,6 +25,9 @@ describe("screenshot-backed visual qualification", () => {
   it("keeps unavailable captures in review", () => {
     expect(assess([], { status: "unavailable", confidence: 0, screenshots: [] }).gateResult).toBe("UNVERIFIED");
   });
+  it("does not qualify a website from a cookie overlay mislabeled as critical", () => {
+    expect(assess([{ ...issue("overlap", "mobile", "critical"), observation: "El modal de cookies tapa la mitad de la pantalla." }]).gateResult).toBe("UNVERIFIED");
+  });
   it("rejects nonexistent screenshot references", () => {
     expect(() => assess([issue("legibility", "invented")])).toThrow();
   });

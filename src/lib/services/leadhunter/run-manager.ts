@@ -220,8 +220,8 @@ export async function planDueRuns(
       limit 1
     `) as unknown as PreviousRun[];
     const previousCursor = previousRuns[0]?.cursor;
-    const previousCursors = previousCursor?.previousCursors ?? [];
-    const plan = createSearchPlan({
+    let previousCursors = previousCursor?.previousCursors ?? [];
+    let plan = createSearchPlan({
       campaignVersion: campaign.campaignVersion,
       campaign: campaign.snapshot,
       maxQueries: boundedQueryCount(
@@ -231,6 +231,20 @@ export async function planDueRuns(
       planningCursor: previousCursor?.planningCursor ?? { offset: 0 },
       previousCursors,
     });
+    // Exhaustion ends one pagination cycle, not the recurring campaign forever.
+    // Refresh only in a new scheduled run; identity resolution still deduplicates.
+    if (plan.work.length === 0 && previousCursors.length > 0
+      && previousCursors.every(({ cursor }) => cursor.state === "exhausted")
+      && boundedQueryCount(campaign.snapshot, maximumQueriesPerRun) > 0) {
+      previousCursors = [];
+      plan = createSearchPlan({
+        campaignVersion: campaign.campaignVersion,
+        campaign: campaign.snapshot,
+        maxQueries: boundedQueryCount(campaign.snapshot, maximumQueriesPerRun),
+        planningCursor: { offset: 0 },
+        previousCursors,
+      });
+    }
     const insertedRuns = await database.execute(sql<CreatedRun>`
       insert into ${leadHunterRuns} (
         owner_id,

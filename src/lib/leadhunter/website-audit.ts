@@ -371,6 +371,11 @@ function derivedCheck(
   });
 }
 
+/** Capture obstructions cannot prove that the business has a defective website. */
+export function visualReviewHasObstruction(review: { issues: Array<{ element: string; observation: string }> }): boolean {
+  return review.issues.some(issue => /\bcookies?\b|\bcaptcha\b|anti[ -]?bot|\bspinner\b|transient loading|carga temporal|pantalla de carga/iu.test(`${issue.element} ${issue.observation}`));
+}
+
 export function deriveWebsiteAuditObservations(
   rawObservations: WebsiteAuditObservation[],
   context: { namespace: string; website: string | null | undefined },
@@ -422,6 +427,7 @@ export function deriveWebsiteAuditObservations(
     if (observation.type === "redirect") continue;
     if (observation.type === "visual_review") {
       const complete = observation.status === "assessed" && observation.confidence >= 80
+        && !visualReviewHasObstruction(observation)
         && new Set(observation.screenshots.map(item => item.viewport)).size === 2;
       const defects = observation.issues.filter(issue => issue.confidence >= 80 && issue.severity !== "minor");
       const bad = new Set(defects.map(issue => issue.category)).size >= 2

@@ -106,8 +106,14 @@ export function validateFollowUpMessage(
   brief: MessageBrief,
   initialSubject: string,
   message: ComposedMessage,
+  options: { requireTokenOverlap?: boolean } = {},
 ) {
   const issues: string[] = validateOutreachStyle(message.body);
+  const greetingName = message.body.trim().match(/^(?:hola|hello|hi|dear|estimad[oa])[\s,:]+([\p{L}]+)/iu)?.[1]?.toLocaleLowerCase();
+  const senderName = brief.policy.signature.trim().split(/\s/u)[0]?.toLocaleLowerCase();
+  if (greetingName && greetingName === senderName && greetingName !== brief.contact.firstName?.trim().toLocaleLowerCase()) {
+    issues.push("El saludo confunde al remitente con el destinatario. Usá un saludo genérico si no conocés su nombre.");
+  }
   const words = message.body.trim().split(/\s+/u).filter(Boolean).length;
   if (/(?=\p{L})(?!\p{Script=Latin})/u.test(`${message.subject} ${message.body}`)) issues.push("El seguimiento mezcla alfabetos ajenos al idioma configurado.");
   if (/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(`${message.subject} ${message.body}`)) issues.push("El seguimiento expone identificadores internos.");
@@ -119,7 +125,7 @@ export function validateFollowUpMessage(
   const factsById = new Map(brief.facts.map((fact) => [fact.id, fact]));
   if (message.claims.length === 0 || message.claims.some(({ text, evidenceIds }) => (
     !compact(message.body).includes(compact(text)) || evidenceIds.length === 0 || evidenceIds.some((id) => !factsById.has(id))
-    || !evidenceIds.some((id) => factsById.has(id) && tokenCoverage(text, factsById.get(id)!.value) >= 0.3)
+    || (options.requireTokenOverlap !== false && !evidenceIds.some((id) => factsById.has(id) && tokenCoverage(text, factsById.get(id)!.value) >= 0.3))
   ))) issues.push("El seguimiento no está respaldado por evidencia.");
   return { valid: issues.length === 0, issues };
 }
